@@ -28,7 +28,7 @@ class RetryFailedOrderTransferJob implements ShouldQueue
     public function handle(): void
     {
         $job = SyncJob::create([
-            'type' => 'order_pull',
+            'type' => 'order_retry',
             'status' => 'running',
             'started_at' => now(),
         ]);
@@ -48,6 +48,28 @@ class RetryFailedOrderTransferJob implements ShouldQueue
                     $job->increment('total');
                     $o = $transfer->payload_snapshot ?? [];
                     try {
+                        // Edge case: previous attempt created the ana order but the mark step
+                        // (or DB write) failed. Don't re-create — just re-attempt the mark step.
+                        if ($transfer->ana_order_id) {
+                            $anaOrderId = $transfer->ana_order_id;
+                            $bayi->markOrderTransferred($transfer->bayi_order_id, "Ana #{$anaOrderId} olarak aktarıldı");
+                            $transfer->update([
+                                'status' => 'transferred',
+                                'transferred_at' => $transfer->transferred_at ?? now(),
+                                'last_error' => null,
+                            ]);
+                            $job->increment('success_count');
+                            SyncLog::create([
+                                'job_id' => $job->id,
+                                'barcode' => $transfer->bayi_order_id,
+                                'action' => 'mark_order',
+                                'direction' => 'bayi_to_ana',
+                                'status' => 'success',
+                                'message' => "Retry-mark ok: Ana #{$anaOrderId}",
+                            ]);
+                            continue;
+                        }
+
                         $barcodes = collect($o['Urunler'] ?? [])->pluck('Barkod')->filter()->unique()->all();
                         $map = ProductMapping::whereIn('barcode', $barcodes)->pluck('ana_product_id', 'barcode')->all();
                         $missing = array_diff($barcodes, array_keys($map));
@@ -59,14 +81,27 @@ class RetryFailedOrderTransferJob implements ShouldQueue
                         $created = $ana->createOrder($anaPayload);
                         $anaOrderId = (string) ($created['SiparisID'] ?? $created['Id'] ?? '');
 
-                        $bayi->markOrderTransferred($transfer->bayi_order_id, "Ana #{$anaOrderId} olarak aktarıldı");
-
+                        // CRITICAL: persist ana_order_id BEFORE marking — see PullBayiOrdersJob comment.
                         $transfer->update([
                             'ana_order_id' => $anaOrderId,
                             'status' => 'transferred',
                             'transferred_at' => now(),
                             'last_error' => null,
                         ]);
+
+                        try {
+                            $bayi->markOrderTransferred($transfer->bayi_order_id, "Ana #{$anaOrderId} olarak aktarıldı");
+                        } catch (Throwable $markEx) {
+                            SyncLog::create([
+                                'job_id' => $job->id,
+                                'barcode' => $transfer->bayi_order_id,
+                                'action' => 'mark_order',
+                                'direction' => 'bayi_to_ana',
+                                'status' => 'error',
+                                'message' => 'markOrderTransferred patladı (ana sipariş #' . $anaOrderId . ' zaten oluştu): ' . $markEx->getMessage(),
+                            ]);
+                        }
+
                         $job->increment('success_count');
                         SyncLog::create([
                             'job_id' => $job->id,

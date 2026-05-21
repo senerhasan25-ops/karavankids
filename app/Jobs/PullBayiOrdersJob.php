@@ -76,14 +76,29 @@ class PullBayiOrdersJob implements ShouldQueue
                         $created = $ana->createOrder($anaPayload);
                         $anaOrderId = (string) ($created['SiparisID'] ?? $created['Id'] ?? '');
 
-                        $bayi->markOrderTransferred($bayiOrderId, "Ana #{$anaOrderId} olarak aktarıldı");
-
+                        // CRITICAL: persist transferred state BEFORE marking the bayi order.
+                        // If the mark call fails, retrying must NOT create a duplicate ana order.
                         $transfer->fill([
                             'ana_order_id' => $anaOrderId,
                             'status' => 'transferred',
                             'transferred_at' => now(),
                             'last_error' => null,
                         ])->save();
+
+                        try {
+                            $bayi->markOrderTransferred($bayiOrderId, "Ana #{$anaOrderId} olarak aktarıldı");
+                        } catch (Throwable $markEx) {
+                            // Ana order is already created and persisted — don't fail the transfer.
+                            // Log the mark failure so it can be re-marked manually if needed.
+                            SyncLog::create([
+                                'job_id' => $job->id,
+                                'barcode' => $bayiOrderId,
+                                'action' => 'mark_order',
+                                'direction' => 'bayi_to_ana',
+                                'status' => 'error',
+                                'message' => 'markOrderTransferred patladı (ana sipariş #' . $anaOrderId . ' zaten oluştu): ' . $markEx->getMessage(),
+                            ]);
+                        }
 
                         $this->log($job, $bayiOrderId, 'success', "Ana #{$anaOrderId}");
                     } catch (Throwable $e) {
