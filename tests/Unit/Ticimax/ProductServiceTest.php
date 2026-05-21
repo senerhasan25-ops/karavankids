@@ -15,14 +15,14 @@ class ProductServiceTest extends TestCase
         parent::tearDown();
     }
 
-    public function test_get_new_products_listeyi_normalize_eder(): void
+    public function test_get_new_products_SelectUrun_method_cagirir_ve_normalize_eder(): void
     {
         $client = Mockery::mock(TicimaxClient::class);
         $client->shouldReceive('getAuth')->andReturn(['UyeKodu' => 'u', 'UyeSifre' => 'p']);
-        $client->shouldReceive('call')->once()->with('product', 'SelectUrunler', Mockery::on(function ($params) {
+        $client->shouldReceive('call')->once()->with('product', 'SelectUrun', Mockery::on(function ($params) {
             return isset($params['f']['Sayfa']) && $params['f']['Sayfa'] === 1;
         }))->andReturn((object) [
-            'SelectUrunlerResult' => (object) [
+            'SelectUrunResult' => (object) [
                 'Urun' => [
                     (object) ['Barkod' => 'B1', 'UrunAdi' => 'X', 'UrunKartiID' => 10],
                     (object) ['Barkod' => 'B2', 'UrunAdi' => 'Y', 'UrunKartiID' => 11],
@@ -48,7 +48,22 @@ class ProductServiceTest extends TestCase
         $this->assertSame([], $svc->getNewProducts());
     }
 
-    public function test_create_product_payload_dogru_gonderir(): void
+    public function test_get_product_by_barcode_SelectUrun_filtreli_cagirir(): void
+    {
+        $client = Mockery::mock(TicimaxClient::class);
+        $client->shouldReceive('getAuth')->andReturn([]);
+        $client->shouldReceive('call')->once()
+            ->with('product', 'SelectUrun', Mockery::on(fn ($p) => ($p['f']['Barkod'] ?? null) === 'B123'))
+            ->andReturn((object) ['SelectUrunResult' => (object) ['Urun' => (object) ['Barkod' => 'B123', 'UrunKartiID' => 5]]]);
+
+        $svc = new ProductService($client);
+        $result = $svc->getProductByBarcode('B123');
+
+        $this->assertSame('B123', $result['Barkod']);
+        $this->assertSame(5, $result['UrunKartiID']);
+    }
+
+    public function test_create_product_SaveUrun_cagirir(): void
     {
         $client = Mockery::mock(TicimaxClient::class);
         $client->shouldReceive('getAuth')->andReturn(['UyeKodu' => 'u']);
@@ -62,18 +77,41 @@ class ProductServiceTest extends TestCase
         $this->assertSame(99, $result['UrunKartiID']);
     }
 
-    public function test_update_stock_price_dogru_method_cagirir(): void
+    public function test_update_stock_and_price_iki_ayri_call_yapar(): void
     {
         $client = Mockery::mock(TicimaxClient::class);
         $client->shouldReceive('getAuth')->andReturn([]);
+
         $client->shouldReceive('call')->once()
-            ->with('product', 'SetUrunStokFiyat', Mockery::on(function ($p) {
-                return $p['urunId'] === '123' && $p['StokAdedi'] === 7 && $p['SatisFiyati'] === 99.5;
+            ->with('product', 'StokAdediGuncelle', Mockery::on(function ($p) {
+                return $p['urunId'] === '123' && $p['StokAdedi'] === 7;
+            }))
+            ->andReturn((object) ['ok' => true]);
+
+        $client->shouldReceive('call')->once()
+            ->with('product', 'UpdateUrunFiyat', Mockery::on(function ($p) {
+                return $p['urunId'] === '123' && $p['SatisFiyati'] === 99.5;
             }))
             ->andReturn((object) ['ok' => true]);
 
         $svc = new ProductService($client);
         $svc->updateStockAndPrice('123', 7, 99.5);
+
+        $this->addToAssertionCount(1);
+    }
+
+    public function test_set_active_SaveUrun_uzerinden_Aktif_alani_guceller(): void
+    {
+        $client = Mockery::mock(TicimaxClient::class);
+        $client->shouldReceive('getAuth')->andReturn([]);
+        $client->shouldReceive('call')->once()
+            ->with('product', 'SaveUrun', Mockery::on(function ($p) {
+                return $p['urun']['UrunKartiID'] === '99' && $p['urun']['Aktif'] === false;
+            }))
+            ->andReturn((object) ['ok' => true]);
+
+        $svc = new ProductService($client);
+        $svc->setActive('99', false);
 
         $this->addToAssertionCount(1);
     }
