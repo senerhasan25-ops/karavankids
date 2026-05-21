@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\ProfileController;
 use App\Livewire\ApiSettings;
+use App\Livewire\Dashboard;
 use App\Livewire\OrderTransfers;
 use App\Livewire\ProductManualSync;
 use App\Livewire\SyncLogs;
@@ -13,9 +14,7 @@ Route::get('/', function () {
 });
 
 Route::middleware(['auth', 'verified'])->group(function () {
-    Route::get('/dashboard', function () {
-        return view('dashboard');
-    })->name('dashboard');
+    Route::get('/dashboard', Dashboard::class)->name('dashboard');
 
     Route::get('/ayarlar/api', ApiSettings::class)->name('ayarlar.api');
     Route::get('/ayarlar/sync', SyncSettings::class)->name('ayarlar.sync');
