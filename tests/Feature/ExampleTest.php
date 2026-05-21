@@ -2,18 +2,18 @@
 
 namespace Tests\Feature;
 
-// use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 class ExampleTest extends TestCase
 {
     /**
-     * A basic test example.
+     * Guest kullanıcı için '/' login sayfasına yönlendirir (dashboard auth ister).
      */
-    public function test_the_application_returns_a_successful_response(): void
+    public function test_root_redirects(): void
     {
         $response = $this->get('/');
 
-        $response->assertStatus(200);
+        // '/' → '/dashboard' (auth middleware) → '/login'
+        $response->assertStatus(302);
     }
 }

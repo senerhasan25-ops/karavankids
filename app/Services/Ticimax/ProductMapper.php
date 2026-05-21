@@ -71,9 +71,9 @@ class ProductMapper
                 'Barkod' => $barkod,
                 'StokKodu' => (string) ($line['StokKodu'] ?? ''),
                 'UrunAdi' => (string) ($line['UrunAdi'] ?? ''),
-                'Adet' => (float) ($line['Adet'] ?? 1),
+                'Adet' => (int) ($line['Adet'] ?? 1),
                 'BirimFiyat' => (float) ($line['BirimFiyat'] ?? ($line['SatisFiyati'] ?? 0)),
-                'KdvOrani' => (float) ($line['KdvOrani'] ?? 20),
+                'KdvOrani' => (int) ($line['KdvOrani'] ?? 20),
             ];
         }
 
