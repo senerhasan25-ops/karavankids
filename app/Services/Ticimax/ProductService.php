@@ -246,28 +246,63 @@ class ProductService
     }
 
     /**
-     * Sadece stok güncelle — StokAdediGuncelle (Varyasyon ID üzerinden çalışır).
+     * StokAdediGuncelle gerçek imzası: (UyeKodu, ArrayOfVaryasyon urunler).
+     * Varyasyon ID'si bilinmiyorsa Barkod ile de eşleştirmeye çalışır.
      */
-    public function updateStock(string $varyasyonId, int $stock): array
+    public function updateStock(string $varyasyonId, int $stock, ?string $barkod = null): array
     {
+        $varyasyon = ['ID' => (int) $varyasyonId, 'StokAdedi' => $stock];
+        if ($barkod !== null) {
+            $varyasyon['Barkod'] = $barkod;
+        }
         $params = [
             'UyeKodu' => $this->client->getUyeKodu(),
-            'urunId' => (int) $varyasyonId,
-            'StokAdedi' => $stock,
+            'urunler' => [$varyasyon],
         ];
         $resp = $this->client->call('product', $this->method('update_stock'), $params);
         return $this->normalizeOne($resp) ?? [];
     }
 
     /**
-     * Sadece fiyat güncelle — UpdateUrunFiyat.
+     * UpdateUrunFiyat gerçek imzası: (UyeKodu, ArrayOfUpdateUrunFiyat request, UpdateUrunFiyatAyar ayar).
+     * Barkoda göre eşleştir, fiyatları güncelle.
      */
-    public function updatePrice(string $varyasyonId, float $price): array
+    public function updatePrice(string $barkod, float $price, float $kdvOrani = 20.0, bool $kdvDahil = true): array
     {
         $params = [
             'UyeKodu' => $this->client->getUyeKodu(),
-            'urunId' => (int) $varyasyonId,
-            'SatisFiyati' => $price,
+            'request' => [[
+                'Barkod' => $barkod,
+                'Fiyatlar' => [
+                    'SatisFiyati' => $price,
+                    'IndirimliFiyat' => 0,
+                    'KDVDahil' => $kdvDahil,
+                    'KdvOrani' => (int) $kdvOrani,
+                    'UyeTipiFiyat1' => 0,
+                    'UyeTipiFiyat2' => 0,
+                    'UyeTipiFiyat3' => 0,
+                    'UyeTipiFiyat4' => 0,
+                    'UyeTipiFiyat5' => 0,
+                ],
+                'TedarikciKodu' => '',
+                'TedarikciKodu2' => '',
+                'UrunIds' => '',
+                'UrunKartiIds' => '',
+            ]],
+            'ayar' => [
+                'BarkodKodunaGoreGuncelle' => true,
+                'IndirimliFiyatGuncelle' => false,
+                'TedarikciKodu2GoreGuncelle' => false,
+                'TedarikciKodunaGoreGuncelle' => false,
+                'UrunIdGoreGuncelle' => false,
+                'UrunKartiIdGoreGuncelle' => false,
+                'UyeTipiFiyat1Guncelle' => false,
+                'UyeTipiFiyat2Guncelle' => false,
+                'UyeTipiFiyat3Guncelle' => false,
+                'UyeTipiFiyat4Guncelle' => false,
+                'UyeTipiFiyat5Guncelle' => false,
+                'VaryasyonGuncelle' => true,
+            ],
         ];
         $resp = $this->client->call('product', $this->method('update_price'), $params);
         return $this->normalizeOne($resp) ?? [];
@@ -275,12 +310,14 @@ class ProductService
 
     /**
      * Stok + fiyat — iki ayrı SOAP çağrısı.
+     * $varyasyonId stok güncellemesi için (bayi tarafının Varyasyon.ID'si).
+     * $barkod fiyat güncellemesi için (cross-store eşleşme).
      */
-    public function updateStockAndPrice(string $varyasyonId, int $stock, float $price): array
+    public function updateStockAndPrice(string $varyasyonId, int $stock, float $price, ?string $barkod = null): array
     {
         return [
-            'stock' => $this->updateStock($varyasyonId, $stock),
-            'price' => $this->updatePrice($varyasyonId, $price),
+            'stock' => $this->updateStock($varyasyonId, $stock, $barkod),
+            'price' => $barkod ? $this->updatePrice($barkod, $price) : null,
         ];
     }
 
