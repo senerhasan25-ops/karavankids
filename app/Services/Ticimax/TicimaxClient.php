@@ -103,6 +103,17 @@ class TicimaxClient
                     'store' => $this->credential->store_key,
                     'error' => $e->getMessage(),
                 ]);
+
+                // Rate limit yakala: "Next Query Allowed After 42 seconds. |42"
+                if (preg_match('/Next Query Allowed After (\d+) seconds/i', $e->getMessage(), $m)) {
+                    $waitSeconds = (int) $m[1] + 2; // güvenlik için +2sn
+                    Log::info("Ticimax rate limit; {$waitSeconds}sn bekleniyor", [
+                        'service' => $service, 'method' => $method,
+                    ]);
+                    sleep($waitSeconds);
+                    continue; // bu attempt'i tekrarla
+                }
+
                 if ($i < $attempts) {
                     sleep($delay * $i);
                 }

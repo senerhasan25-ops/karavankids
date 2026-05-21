@@ -27,11 +27,19 @@ class TicimaxRetryErrorsCommand extends Command
         $ana = ProductService::for('ana');
         $bayi = ProductService::for('bayi');
         $mapper = new ProductMapper();
-        $mapper->setBrandResolver(fn (string $name) => $bayi->findOrCreateBrandId($name));
+        $defaultBrandId = $bayi->getDefaultBrandId();
+        $defaultSupplierId = $bayi->getDefaultSupplierId();
+
+        $mapper->setBrandResolver(function (string $name) use ($bayi, $defaultBrandId) {
+            $id = $bayi->findOrCreateBrandId($name);
+            return $id > 0 ? $id : $defaultBrandId;
+        });
+
         $anaSupplierIdToName = array_flip($ana->getSupplierMap());
-        $mapper->setSupplierResolver(function (int $anaId) use ($anaSupplierIdToName, $bayi) {
+        $mapper->setSupplierResolver(function (int $anaId) use ($anaSupplierIdToName, $bayi, $defaultSupplierId) {
             $name = $anaSupplierIdToName[$anaId] ?? '';
-            return $name ? $bayi->findOrCreateSupplierId($name) : 0;
+            $id = $name ? $bayi->findOrCreateSupplierId($name) : 0;
+            return $id > 0 ? $id : $defaultSupplierId;
         });
 
         $job = SyncJob::create([

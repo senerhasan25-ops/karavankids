@@ -38,13 +38,22 @@ class SyncNewProductsJob implements ShouldQueue
             $ana = ProductService::for('ana');
             $bayi = ProductService::for('bayi');
             $mapper = new ProductMapper();
-            // Marka adlarını bayi'nin listesinden ID'ye çevir, yoksa oluştur.
-            $mapper->setBrandResolver(fn (string $name) => $bayi->findOrCreateBrandId($name));
-            // Tedarikçi: ana_id → ana adı → bayi_id (bayi'de yoksa oluştur).
-            $anaSupplierIdToName = array_flip($ana->getSupplierMap()); // name->id'nin tersi: id->name
-            $mapper->setSupplierResolver(function (int $anaId) use ($anaSupplierIdToName, $bayi) {
+            // Bayi'de zorunlu olan default fallback'ler.
+            $defaultBrandId = $bayi->getDefaultBrandId();
+            $defaultSupplierId = $bayi->getDefaultSupplierId();
+
+            // Marka: ada göre eşle/oluştur, yoksa bayi'nin varsayılan markası
+            $mapper->setBrandResolver(function (string $name) use ($bayi, $defaultBrandId) {
+                $id = $bayi->findOrCreateBrandId($name);
+                return $id > 0 ? $id : $defaultBrandId;
+            });
+
+            // Tedarikçi: ana_id → ana adı → bayi_id, yoksa bayi'nin varsayılan tedarikçisi
+            $anaSupplierIdToName = array_flip($ana->getSupplierMap());
+            $mapper->setSupplierResolver(function (int $anaId) use ($anaSupplierIdToName, $bayi, $defaultSupplierId) {
                 $name = $anaSupplierIdToName[$anaId] ?? '';
-                return $name ? $bayi->findOrCreateSupplierId($name) : 0;
+                $id = $name ? $bayi->findOrCreateSupplierId($name) : 0;
+                return $id > 0 ? $id : $defaultSupplierId;
             });
 
             // $since null ise ProductService MIN_DATETIME kullanır (tüm ürünler).

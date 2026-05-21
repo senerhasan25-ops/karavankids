@@ -100,6 +100,24 @@ class ProductService
     }
 
     /**
+     * Ticimax TedarikciID=0 kabul etmiyor — fallback için ilk geçerli tedarikçi.
+     */
+    public function getDefaultSupplierId(): int
+    {
+        $map = $this->getSupplierMap();
+        return (int) (reset($map) ?: 0);
+    }
+
+    /**
+     * Aynı şekilde MarkaID için fallback (zorunlu olduğunda).
+     */
+    public function getDefaultBrandId(): int
+    {
+        $map = $this->getBrandMap();
+        return (int) (reset($map) ?: 0);
+    }
+
+    /**
      * Marka adına göre ID bul; yoksa SaveMarka ile yeni oluştur ve ID döner.
      */
     public function findOrCreateBrandId(string $name): int
@@ -142,7 +160,7 @@ class ProductService
     private const MIN_DATETIME = '0001-01-01T00:00:00';
     private const MAX_DATETIME = '9999-12-31T23:59:59';
 
-    public function getNewProducts(?Carbon $since = null, int $page = 1, int $perPage = 50): array
+    public function getNewProducts(?Carbon $since = null, int $page = 1, int $perPage = 50, string $sortDir = 'ASC'): array
     {
         $startIdx = max(0, ($page - 1) * $perPage);
         $params = [
@@ -156,7 +174,7 @@ class ProductService
                 'KayitSayisi' => $perPage,
                 'KayitSayisinaGoreGetir' => true,
                 'SiralamaDegeri' => 'ID',
-                'SiralamaYonu' => 'ASC',
+                'SiralamaYonu' => $sortDir,
             ],
         ];
         $resp = $this->client->call('product', $this->method('select'), $params);
@@ -230,6 +248,8 @@ class ProductService
 
     /**
      * Birden fazla ürünü tek SaveUrun çağrısında gönderir.
+     *
+     * @throws \RuntimeException SaveUrunResult 0 dönerse — Ticimax sessizce reddediyor demektir.
      */
     public function saveBatch(array $urunKartlari, array $ayarlar = []): array
     {
@@ -241,8 +261,22 @@ class ProductService
             'vAyar' => $ayarlar['vAyar'],
         ];
         $resp = $this->client->call('product', $this->method('save'), $params);
-        $result = $this->normalizeList($resp, $this->method('save'), 'UrunKarti');
-        return $result;
+
+        // SaveUrunResult: 1+ = başarılı (kayıt sayısı), 0 = sessiz başarısız (Ticimax error message vermez)
+        $saveResult = is_object($resp) ? ($resp->SaveUrunResult ?? null) : null;
+        if ($saveResult !== null && (int) $saveResult <= 0) {
+            $barcodes = array_filter(array_map(
+                fn ($u) => $u['Varyasyonlar'][0]['Barkod'] ?? ($u['Varyasyonlar']['Varyasyon']['Barkod'] ?? '?'),
+                $urunKartlari
+            ));
+            throw new \RuntimeException(
+                'Ticimax SaveUrun başarısız (SaveUrunResult=' . (int) $saveResult . '). ' .
+                'Barkodlar: ' . implode(', ', $barcodes) . '. ' .
+                'Olası sebepler: zorunlu alan eksik, ücretsiz hesap limiti, varyasyon barkod çakışması, kategori bayi\'de yok.'
+            );
+        }
+
+        return $this->normalizeList($resp, $this->method('save'), 'UrunKarti');
     }
 
     /**
