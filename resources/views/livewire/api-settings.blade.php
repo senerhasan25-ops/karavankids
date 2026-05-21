@@ -1,0 +1,67 @@
+<div>
+    <x-slot name="header">
+        <h2 class="font-semibold text-xl text-gray-800 dark:text-gray-200 leading-tight">API Ayarları</h2>
+    </x-slot>
+
+    <div class="py-8">
+        <div class="max-w-5xl mx-auto sm:px-6 lg:px-8 space-y-6">
+            @if (session('status'))
+                <div class="bg-green-100 border border-green-300 text-green-800 px-4 py-2 rounded">
+                    {{ session('status') }}
+                </div>
+            @endif
+
+            <form wire:submit.prevent="save" class="space-y-6">
+                @foreach (['ana' => 'Ana Mağaza (karavankids.com)', 'bayi' => 'Bayi Mağaza (bayi.karavankids.com)'] as $store => $label)
+                    <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
+                        <h3 class="text-lg font-semibold mb-4 text-gray-800 dark:text-gray-200">{{ $label }}</h3>
+
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div class="md:col-span-2">
+                                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Endpoint URL</label>
+                                <input type="url" wire:model="{{ $store }}_endpoint"
+                                       placeholder="https://{{ $store === 'ana' ? 'karavankids' : 'bayi.karavankids' }}.com"
+                                       class="mt-1 block w-full rounded-md border-gray-300 dark:bg-gray-900 dark:border-gray-700 dark:text-gray-200 shadow-sm">
+                                @error("{$store}_endpoint")<span class="text-red-600 text-xs">{{ $message }}</span>@enderror
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Kullanıcı Adı (Üye Kodu)</label>
+                                <input type="text" wire:model="{{ $store }}_username"
+                                       class="mt-1 block w-full rounded-md border-gray-300 dark:bg-gray-900 dark:border-gray-700 dark:text-gray-200 shadow-sm">
+                                @error("{$store}_username")<span class="text-red-600 text-xs">{{ $message }}</span>@enderror
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Şifre</label>
+                                <input type="password" wire:model="{{ $store }}_password"
+                                       class="mt-1 block w-full rounded-md border-gray-300 dark:bg-gray-900 dark:border-gray-700 dark:text-gray-200 shadow-sm">
+                                @error("{$store}_password")<span class="text-red-600 text-xs">{{ $message }}</span>@enderror
+                            </div>
+                            <div class="md:col-span-2 flex items-center gap-4">
+                                <label class="inline-flex items-center">
+                                    <input type="checkbox" wire:model="{{ $store }}_active" class="rounded">
+                                    <span class="ms-2 text-sm text-gray-700 dark:text-gray-300">Aktif</span>
+                                </label>
+                                <button type="button" wire:click="testConnection('{{ $store }}')"
+                                        class="px-4 py-2 bg-blue-600 text-white text-sm rounded hover:bg-blue-700">
+                                    Bağlantıyı Test Et
+                                </button>
+                            </div>
+                        </div>
+
+                        @if (! empty($testResults[$store]))
+                            <div class="mt-4 p-3 bg-gray-50 dark:bg-gray-900 rounded border border-gray-200 dark:border-gray-700">
+                                <pre class="text-xs text-gray-800 dark:text-gray-200 whitespace-pre-wrap">{{ json_encode($testResults[$store], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) }}</pre>
+                            </div>
+                        @endif
+                    </div>
+                @endforeach
+
+                <div class="flex justify-end">
+                    <button type="submit" class="px-6 py-2 bg-green-600 text-white rounded hover:bg-green-700">
+                        Kaydet
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
