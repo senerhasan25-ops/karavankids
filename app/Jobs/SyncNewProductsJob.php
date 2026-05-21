@@ -38,8 +38,18 @@ class SyncNewProductsJob implements ShouldQueue
             $ana = ProductService::for('ana');
             $bayi = ProductService::for('bayi');
             $mapper = new ProductMapper();
+            // Marka adlarını bayi'nin listesinden ID'ye çevir, yoksa oluştur.
+            $mapper->setBrandResolver(fn (string $name) => $bayi->findOrCreateBrandId($name));
+            // Tedarikçi: ana_id → ana adı → bayi_id (bayi'de yoksa oluştur).
+            $anaSupplierIdToName = array_flip($ana->getSupplierMap()); // name->id'nin tersi: id->name
+            $mapper->setSupplierResolver(function (int $anaId) use ($anaSupplierIdToName, $bayi) {
+                $name = $anaSupplierIdToName[$anaId] ?? '';
+                return $name ? $bayi->findOrCreateSupplierId($name) : 0;
+            });
 
-            $since = $this->since ?? Carbon::now()->subDays(7);
+            // $since null ise ProductService MIN_DATETIME kullanır (tüm ürünler).
+            // Açıkça belirtilirse o tarihten sonrakiler.
+            $since = $this->since;
             $page = 1;
             $perPage = (int) config('ticimax.batch_size', 50);
 

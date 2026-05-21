@@ -34,9 +34,11 @@ class ProductMapperTest extends TestCase
         $this->assertSame('Uzun açıklama', $payload['Aciklama']);
         $this->assertSame('Kısa', $payload['OnYazi']);
         $this->assertSame('Oyuncaklar', $payload['AnaKategori']);
-        $this->assertSame(5, $payload['AnaKategoriID']);
+        // Kategori ID'leri mağazalar arası farklı; mapper her zaman 0 gönderir.
+        $this->assertSame(0, $payload['AnaKategoriID']);
         $this->assertSame('Karavankids', $payload['Marka']);
-        $this->assertSame(3, $payload['MarkaID']);
+        // MarkaID brand resolver olmadan 0; resolver ile bayi'nin ID'sine çevrilir.
+        $this->assertSame(0, $payload['MarkaID']);
         $this->assertTrue($payload['Aktif']);
     }
 
@@ -166,13 +168,35 @@ class ProductMapperTest extends TestCase
         $this->assertSame('V1', $payload['Varyasyonlar'][0]['Barkod']);
     }
 
-    public function test_kategoriler_int_listesi_acilir(): void
+    public function test_kategoriler_her_zaman_bos_dizi_olur(): void
     {
+        // Kategori ID'leri mağazalar arası farklı olduğundan mapper her zaman boş dizi gönderir.
         $payload = $this->mapper->anaToBayiCreatePayload([
             'UrunAdi' => 'X',
             'Kategoriler' => ['int' => [5, 7, 11]],
         ]);
-        $this->assertSame([5, 7, 11], $payload['Kategoriler']);
+        $this->assertSame([], $payload['Kategoriler']);
+    }
+
+    public function test_brand_resolver_kullanilirsa_MarkaID_doldurulur(): void
+    {
+        $this->mapper->setBrandResolver(fn (string $name) => $name === 'Karavankids' ? 42 : 0);
+        $payload = $this->mapper->anaToBayiCreatePayload([
+            'UrunAdi' => 'X',
+            'Marka' => 'Karavankids',
+        ]);
+        $this->assertSame(42, $payload['MarkaID']);
+        $this->assertSame('Karavankids', $payload['Marka']);
+    }
+
+    public function test_supplier_resolver_ana_id_alir_bayi_id_doner(): void
+    {
+        $this->mapper->setSupplierResolver(fn (int $anaId) => $anaId === 5 ? 17 : 0);
+        $payload = $this->mapper->anaToBayiCreatePayload([
+            'UrunAdi' => 'X',
+            'TedarikciID' => 5,
+        ]);
+        $this->assertSame(17, $payload['TedarikciID']);
     }
 
     public function test_aktif_bayrak_default_true(): void

@@ -12,6 +12,22 @@ namespace App\Services\Ticimax;
  */
 class ProductMapper
 {
+    /** @var callable|null  Marka adı → bayi marka ID'si çözümleyici (opsiyonel) */
+    protected $brandResolver = null;
+
+    /** @var callable|null  Tedarikçi adı → bayi tedarikçi ID'si çözümleyici */
+    protected $supplierResolver = null;
+
+    public function setBrandResolver(?callable $resolver): void
+    {
+        $this->brandResolver = $resolver;
+    }
+
+    public function setSupplierResolver(?callable $resolver): void
+    {
+        $this->supplierResolver = $resolver;
+    }
+
     /**
      * Ana mağazadan gelen UrunKarti objesini bayi'ye SaveUrun payload'una çevirir.
      */
@@ -25,12 +41,16 @@ class ProductMapper
             'OnYazi' => (string) ($ana['OnYazi'] ?? ''),
             'AramaAnahtarKelime' => (string) ($ana['AramaAnahtarKelime'] ?? ''),
 
+            // Kategori ID'leri de mağazalar arasında farklı olabilir; isim ile eşletmek
+            // için ID 0 gönderiyoruz. Eğer bayi'de aynı kategori varsa otomatik eşleşir.
             'AnaKategori' => (string) ($ana['AnaKategori'] ?? ''),
-            'AnaKategoriID' => (int) ($ana['AnaKategoriID'] ?? 0),
-            'Kategoriler' => $this->normalizeIntList($ana['Kategoriler'] ?? []),
+            'AnaKategoriID' => 0,
+            'Kategoriler' => [], // ana mağazadaki ID'ler bayi'de geçerli değil — boş bırakıyoruz
 
+            // MarkaID ana ve bayi'de farklı; eğer brand resolver verilmişse adına göre
+            // bayi ID'sini bul/oluştur, yoksa 0 gönder (ürün markasız oluşur).
             'Marka' => (string) ($ana['Marka'] ?? ''),
-            'MarkaID' => (int) ($ana['MarkaID'] ?? 0),
+            'MarkaID' => $this->resolveBrandId((string) ($ana['Marka'] ?? '')),
 
             'SeoSayfaBaslik' => (string) ($ana['SeoSayfaBaslik'] ?? $ana['UrunAdi'] ?? ''),
             'SeoSayfaAciklama' => (string) ($ana['SeoSayfaAciklama'] ?? ($ana['OnYazi'] ?? '')),
@@ -40,6 +60,11 @@ class ProductMapper
             'ListedeGoster' => (bool) ($ana['ListedeGoster'] ?? true),
             'Vitrin' => (bool) ($ana['Vitrin'] ?? false),
             'YeniUrun' => (bool) ($ana['YeniUrun'] ?? false),
+
+            // Tedarikçi ana ID → bayi ID (resolver ana adına çevirip bayi'de bulur/oluşturur)
+            'TedarikciID' => $this->resolveSupplierId((int) ($ana['TedarikciID'] ?? 0)),
+            'TedarikciKodu' => '',
+            'TedarikciKodu2' => '',
 
             'Resimler' => $this->mapImages($ana['Resimler'] ?? []),
 
@@ -156,6 +181,7 @@ class ProductMapper
             'KdvOrani' => (float) ($v['KdvOrani'] ?? 20),
             'KdvDahil' => (bool) ($v['KdvDahil'] ?? true),
             'ParaBirimi' => (string) ($v['ParaBirimi'] ?? 'TL'),
+            'ParaBirimiID' => (int) ($v['ParaBirimiID'] ?? 1), // 1 = TL (default)
             'Desi' => (float) ($v['Desi'] ?? 0),
             'UrunAgirligi' => (float) ($v['UrunAgirligi'] ?? 0),
             'Ozellikler' => $this->mapVariantProps($v['Ozellikler'] ?? []),
@@ -199,10 +225,35 @@ class ProductMapper
             'KdvOrani' => (float) ($ana['KdvOrani'] ?? 20),
             'KdvDahil' => (bool) ($ana['KdvDahil'] ?? true),
             'ParaBirimi' => (string) ($ana['ParaBirimi'] ?? 'TL'),
+            'ParaBirimiID' => (int) ($ana['ParaBirimiID'] ?? 1), // 1 = TL
             'Desi' => (float) ($ana['Desi'] ?? 0),
             'Ozellikler' => [],
             'Resimler' => [],
         ];
+    }
+
+    protected function resolveBrandId(string $name): int
+    {
+        if ($name === '' || $this->brandResolver === null) {
+            return 0;
+        }
+        try {
+            return (int) call_user_func($this->brandResolver, $name);
+        } catch (\Throwable $e) {
+            return 0;
+        }
+    }
+
+    protected function resolveSupplierId(int $anaSupplierId): int
+    {
+        if ($anaSupplierId === 0 || $this->supplierResolver === null) {
+            return 0;
+        }
+        try {
+            return (int) call_user_func($this->supplierResolver, $anaSupplierId);
+        } catch (\Throwable $e) {
+            return 0;
+        }
     }
 
     protected function normalizeIntList(mixed $list): array

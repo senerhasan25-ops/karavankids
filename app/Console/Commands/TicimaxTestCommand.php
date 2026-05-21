@@ -110,19 +110,27 @@ class TicimaxTestCommand extends Command
 
         if ($this->option('list-products')) {
             $this->newLine();
-            $this->info('--- Son 7 günde değişen ilk 3 ürün ---');
+            $this->info('--- Tüm ürünler (ilk 5) ---');
             try {
                 $svc = new ProductService($client);
-                $products = $svc->getNewProducts(Carbon::now()->subDays(7), 1, 3);
+                $products = $svc->getNewProducts(null, 1, 5); // tarih filtresi yok
                 if (empty($products)) {
-                    $this->warn('  Hiç ürün dönmedi.');
+                    $this->warn('  Hiç ürün dönmedi. Mağaza boş olabilir veya kullanıcı yetkilendirilmemiş.');
                 } else {
                     foreach ($products as $p) {
-                        $barkod = $p['Barkod'] ?? '-';
+                        $id = $p['ID'] ?? '-';
                         $ad = $p['UrunAdi'] ?? '-';
-                        $stok = $p['StokAdedi'] ?? '-';
-                        $fiyat = $p['SatisFiyati'] ?? '-';
-                        $this->line("  {$barkod} | {$ad} | stok={$stok} fiyat={$fiyat}");
+                        $aktif = ! empty($p['Aktif']) ? 'aktif' : 'pasif';
+                        $varList = $p['Varyasyonlar'] ?? [];
+                        if (isset($varList['Varyasyon'])) {
+                            $varList = is_array($varList['Varyasyon']) && array_is_list($varList['Varyasyon']) ? $varList['Varyasyon'] : [$varList['Varyasyon']];
+                        }
+                        $varCount = is_array($varList) ? count($varList) : 0;
+                        $primary = $varCount > 0 ? $varList[0] : null;
+                        $barkod = $primary['Barkod'] ?? '-';
+                        $stok = $primary['StokAdedi'] ?? '-';
+                        $fiyat = $primary['SatisFiyati'] ?? '-';
+                        $this->line("  ID={$id} | {$ad} | {$aktif} | varyasyon={$varCount} | birincil: barkod={$barkod} stok={$stok} fiyat={$fiyat}");
                     }
                 }
             } catch (Throwable $e) {
