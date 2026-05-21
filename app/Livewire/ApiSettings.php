@@ -13,11 +13,15 @@ use Livewire\Component;
 class ApiSettings extends Component
 {
     public string $ana_endpoint = '';
+    public string $ana_wsdl_product = '';
+    public string $ana_wsdl_order = '';
     public string $ana_username = '';
     public string $ana_password = '';
     public bool $ana_active = true;
 
     public string $bayi_endpoint = '';
+    public string $bayi_wsdl_product = '';
+    public string $bayi_wsdl_order = '';
     public string $bayi_username = '';
     public string $bayi_password = '';
     public bool $bayi_active = true;
@@ -29,21 +33,40 @@ class ApiSettings extends Component
         foreach (['ana', 'bayi'] as $store) {
             $cred = ApiCredential::where('store_key', $store)->first();
             if ($cred) {
-                $this->{"{$store}_endpoint"} = $cred->endpoint_url;
-                $this->{"{$store}_username"} = $cred->username;
-                $this->{"{$store}_password"} = $cred->password;
+                $this->{"{$store}_endpoint"} = $cred->endpoint_url ?? '';
+                $this->{"{$store}_wsdl_product"} = $cred->wsdl_path_product ?? '';
+                $this->{"{$store}_wsdl_order"} = $cred->wsdl_path_order ?? '';
+                $this->{"{$store}_username"} = $cred->username ?? '';
+                $this->{"{$store}_password"} = $cred->password ?? '';
                 $this->{"{$store}_active"} = (bool) $cred->is_active;
             }
         }
+    }
+
+    public function loadTestDefaults(): void
+    {
+        $this->ana_endpoint = 'https://digitalsupport.ticimaxtest.com';
+        $this->ana_wsdl_product = '/Servis/UrunServis.svc?wsdl';
+        $this->ana_wsdl_order = '/Servis/SiparisServis.svc?wsdl';
+
+        $this->bayi_endpoint = 'https://karavankids.ticimaxtest.com';
+        $this->bayi_wsdl_product = '/servis/UrunServis.svc?wsdl';
+        $this->bayi_wsdl_order = '/servis/SiparisServis.svc?wsdl';
+
+        session()->flash('status', 'Test ortamı URL\'leri formda dolduruldu. Kullanıcı kodu ve şifreyi de gir, "Kaydet" tıkla.');
     }
 
     protected function rules(): array
     {
         return [
             'ana_endpoint' => ['required', 'url'],
+            'ana_wsdl_product' => ['nullable', 'string'],
+            'ana_wsdl_order' => ['nullable', 'string'],
             'ana_username' => ['required', 'string'],
             'ana_password' => ['required', 'string'],
             'bayi_endpoint' => ['required', 'url'],
+            'bayi_wsdl_product' => ['nullable', 'string'],
+            'bayi_wsdl_order' => ['nullable', 'string'],
             'bayi_username' => ['required', 'string'],
             'bayi_password' => ['required', 'string'],
         ];
@@ -58,6 +81,8 @@ class ApiSettings extends Component
                 ['store_key' => $store],
                 [
                     'endpoint_url' => $this->{"{$store}_endpoint"},
+                    'wsdl_path_product' => $this->{"{$store}_wsdl_product"} ?: null,
+                    'wsdl_path_order' => $this->{"{$store}_wsdl_order"} ?: null,
                     'username' => $this->{"{$store}_username"},
                     'password' => $this->{"{$store}_password"},
                     'is_active' => $this->{"{$store}_active"},

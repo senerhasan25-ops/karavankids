@@ -11,18 +11,39 @@
                 </div>
             @endif
 
+            <div class="bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-200 dark:border-yellow-800 p-4 rounded">
+                <p class="text-sm text-yellow-800 dark:text-yellow-200">
+                    Test ortamında çalışıyorsan, aşağıdaki butona basarak Ticimax test endpoint'lerini formda otomatik doldurabilirsin.
+                </p>
+                <button wire:click="loadTestDefaults" class="mt-2 px-3 py-1 bg-yellow-600 text-white text-xs rounded hover:bg-yellow-700">
+                    Test URL'lerini Doldur
+                </button>
+            </div>
+
             <form wire:submit.prevent="save" class="space-y-6">
-                @foreach (['ana' => 'Ana Mağaza (karavankids.com)', 'bayi' => 'Bayi Mağaza (bayi.karavankids.com)'] as $store => $label)
+                @foreach (['ana' => 'Ana Mağaza (karavankids.com / test: digitalsupport.ticimaxtest.com)', 'bayi' => 'Bayi Mağaza (bayi.karavankids.com / test: karavankids.ticimaxtest.com)'] as $store => $label)
                     <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
                         <h3 class="text-lg font-semibold mb-4 text-gray-800 dark:text-gray-200">{{ $label }}</h3>
 
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div class="md:col-span-2">
-                                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Endpoint URL</label>
+                                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Endpoint URL (base)</label>
                                 <input type="url" wire:model="{{ $store }}_endpoint"
-                                       placeholder="https://{{ $store === 'ana' ? 'karavankids' : 'bayi.karavankids' }}.com"
+                                       placeholder="https://..."
                                        class="mt-1 block w-full rounded-md border-gray-300 dark:bg-gray-900 dark:border-gray-700 dark:text-gray-200 shadow-sm">
                                 @error("{$store}_endpoint")<span class="text-red-600 text-xs">{{ $message }}</span>@enderror
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">WSDL Path — Ürün</label>
+                                <input type="text" wire:model="{{ $store }}_wsdl_product"
+                                       placeholder="/Servis/UrunServis.svc?wsdl"
+                                       class="mt-1 block w-full rounded-md border-gray-300 dark:bg-gray-900 dark:border-gray-700 dark:text-gray-200 shadow-sm font-mono text-sm">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">WSDL Path — Sipariş</label>
+                                <input type="text" wire:model="{{ $store }}_wsdl_order"
+                                       placeholder="/Servis/SiparisServis.svc?wsdl"
+                                       class="mt-1 block w-full rounded-md border-gray-300 dark:bg-gray-900 dark:border-gray-700 dark:text-gray-200 shadow-sm font-mono text-sm">
                             </div>
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Kullanıcı Adı (Üye Kodu)</label>
