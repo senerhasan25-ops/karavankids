@@ -15,6 +15,11 @@ class ProductService
         return new self(TicimaxClient::for($storeKey));
     }
 
+    public function getClient(): TicimaxClient
+    {
+        return $this->client;
+    }
+
     public function getNewProducts(?Carbon $since = null, int $page = 1, int $perPage = 50): array
     {
         $params = $this->client->getAuth() + [
@@ -28,21 +33,28 @@ class ProductService
                 'TarihGuncellemeBitis' => '',
             ],
         ];
-        $resp = $this->client->call('product', 'SelectUrunler', $params);
-        return $this->normalizeList($resp);
+        $resp = $this->client->call('product', $this->method('select'), $params);
+        return $this->normalizeList($resp, $this->method('select'));
     }
 
     public function getProductByBarcode(string $barcode): ?array
     {
         $params = $this->client->getAuth() + ['Barkod' => $barcode];
-        $resp = $this->client->call('product', 'GetUrunByBarkod', $params);
+        $resp = $this->client->call('product', $this->method('get_by_barcode'), $params);
         return $this->normalizeOne($resp);
     }
 
     public function createProduct(array $payload): array
     {
         $params = $this->client->getAuth() + ['urun' => $payload];
-        $resp = $this->client->call('product', 'SaveUrun', $params);
+        $resp = $this->client->call('product', $this->method('save'), $params);
+        return $this->normalizeOne($resp) ?? [];
+    }
+
+    public function updateProduct(string $productId, array $payload): array
+    {
+        $params = $this->client->getAuth() + ['urun' => array_merge($payload, ['UrunKartiID' => $productId])];
+        $resp = $this->client->call('product', $this->method('save'), $params);
         return $this->normalizeOne($resp) ?? [];
     }
 
@@ -53,19 +65,41 @@ class ProductService
             'StokAdedi' => $stock,
             'SatisFiyati' => $price,
         ];
-        $resp = $this->client->call('product', 'SetUrunStokFiyat', $params);
+        $resp = $this->client->call('product', $this->method('update_stock_price'), $params);
         return $this->normalizeOne($resp) ?? [];
     }
 
-    protected function normalizeList(mixed $resp): array
+    public function setActive(string $productId, bool $active): array
     {
-        if (is_object($resp) && isset($resp->{'SelectUrunlerResult'})) {
-            $resp = $resp->SelectUrunlerResult;
+        $params = $this->client->getAuth() + [
+            'urunId' => $productId,
+            'Aktif' => $active,
+        ];
+        $resp = $this->client->call('product', $this->method('set_active'), $params);
+        return $this->normalizeOne($resp) ?? [];
+    }
+
+    protected function method(string $key): string
+    {
+        return (string) config("ticimax.methods.product.{$key}");
+    }
+
+    protected function normalizeList(mixed $resp, string $method = ''): array
+    {
+        $resultKey = $method . 'Result';
+        if (is_object($resp) && isset($resp->{$resultKey})) {
+            $resp = $resp->{$resultKey};
         }
         if (is_object($resp)) {
             $resp = (array) $resp;
         }
-        return is_array($resp) ? array_map(fn ($r) => $this->toArray($r), $resp) : [];
+        if (! is_array($resp)) {
+            return [];
+        }
+        if (isset($resp['Urun'])) {
+            $resp = is_array($resp['Urun']) && array_is_list($resp['Urun']) ? $resp['Urun'] : [$resp['Urun']];
+        }
+        return array_map(fn ($r) => $this->toArray($r), $resp);
     }
 
     protected function normalizeOne(mixed $resp): ?array
