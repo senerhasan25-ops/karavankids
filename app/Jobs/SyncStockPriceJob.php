@@ -51,10 +51,29 @@ class SyncStockPriceJob implements ShouldQueue
                         if (! $anaProduct) {
                             throw new \RuntimeException('Ana mağazada ürün bulunamadı');
                         }
-                        $stock = (int) ($anaProduct['StokAdedi'] ?? 0);
-                        $price = (float) ($anaProduct['SatisFiyati'] ?? 0);
 
-                        $bayi->updateStockAndPrice($m->bayi_product_id, $stock, $price);
+                        // Stok ve fiyat varyasyon seviyesinde — birincil varyasyondan al
+                        $anaVar = $this->primaryVariant($anaProduct);
+                        if (! $anaVar) {
+                            throw new \RuntimeException('Ana ürünün varyasyonu yok');
+                        }
+                        $stock = (int) ($anaVar['StokAdedi'] ?? 0);
+                        $price = (float) ($anaVar['SatisFiyati'] ?? 0);
+                        $kdv = (float) ($anaVar['KdvOrani'] ?? 20);
+                        $kdvDahil = (bool) ($anaVar['KdvDahil'] ?? true);
+
+                        // Bayi tarafının VARYASYON ID'sini bul (UrunKartiID değil!)
+                        $bayiProduct = $bayi->getProductByBarcode($m->barcode);
+                        $bayiVar = $bayiProduct ? $this->primaryVariant($bayiProduct) : null;
+                        if (! $bayiVar) {
+                            throw new \RuntimeException('Bayi ürün/varyasyon bulunamadı');
+                        }
+                        $bayiVarId = (string) ($bayiVar['ID'] ?? 0);
+
+                        // Stok güncelle (varyasyon ID + barkod)
+                        $bayi->updateStock($bayiVarId, $stock, $m->barcode);
+                        // Fiyat güncelle (barkod üzerinden)
+                        $bayi->updatePrice($m->barcode, $price, $kdv, $kdvDahil);
 
                         $m->update([
                             'last_stock' => $stock,
@@ -80,6 +99,21 @@ class SyncStockPriceJob implements ShouldQueue
             ]);
             throw $e;
         }
+    }
+
+    /**
+     * UrunKarti içinden birincil varyasyonu çıkar (SOAP wrapper'ı handle ederek).
+     */
+    protected function primaryVariant(array $urunKarti): ?array
+    {
+        $v = $urunKarti['Varyasyonlar'] ?? [];
+        if (isset($v['Varyasyon'])) {
+            $v = is_array($v['Varyasyon']) && array_is_list($v['Varyasyon']) ? $v['Varyasyon'] : [$v['Varyasyon']];
+        }
+        if (! is_array($v) || empty($v)) {
+            return null;
+        }
+        return is_array($v[0] ?? null) ? $v[0] : null;
     }
 
     protected function log(SyncJob $job, string $barcode, string $status, string $msg): void

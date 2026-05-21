@@ -90,29 +90,38 @@ class ProductServiceTest extends TestCase
         $this->assertSame(99, $result['ID']);
     }
 
-    public function test_update_stock_StokAdediGuncelle_cagirir(): void
+    public function test_update_stock_StokAdediGuncelle_varyasyon_listesi_cagirir(): void
     {
         $client = Mockery::mock(TicimaxClient::class);
         $client->shouldReceive('getUyeKodu')->andReturn('U');
         $client->shouldReceive('call')->once()
-            ->with('product', 'StokAdediGuncelle', Mockery::on(fn ($p) => $p['urunId'] === 123 && $p['StokAdedi'] === 7))
-            ->andReturn((object) ['ok' => true]);
+            ->with('product', 'StokAdediGuncelle', Mockery::on(function ($p) {
+                return is_array($p['urunler'])
+                    && $p['urunler'][0]['ID'] === 9472
+                    && $p['urunler'][0]['StokAdedi'] === 7
+                    && $p['urunler'][0]['Barkod'] === 'B-123';
+            }))
+            ->andReturn((object) ['StokAdediGuncelleResult' => 1]);
 
         $svc = new ProductService($client);
-        $svc->updateStock('123', 7);
+        $svc->updateStock('9472', 7, 'B-123');
         $this->addToAssertionCount(1);
     }
 
-    public function test_update_price_UpdateUrunFiyat_cagirir(): void
+    public function test_update_price_UpdateUrunFiyat_barkod_ve_ayar_cagirir(): void
     {
         $client = Mockery::mock(TicimaxClient::class);
         $client->shouldReceive('getUyeKodu')->andReturn('U');
         $client->shouldReceive('call')->once()
-            ->with('product', 'UpdateUrunFiyat', Mockery::on(fn ($p) => $p['urunId'] === 123 && $p['SatisFiyati'] === 99.5))
-            ->andReturn((object) ['ok' => true]);
+            ->with('product', 'UpdateUrunFiyat', Mockery::on(function ($p) {
+                return $p['request'][0]['Barkod'] === 'B-123'
+                    && $p['request'][0]['Fiyatlar']['SatisFiyati'] === 99.5
+                    && $p['ayar']['BarkodKodunaGoreGuncelle'] === true;
+            }))
+            ->andReturn((object) ['UpdateUrunFiyatResult' => (object) ['IsError' => false]]);
 
         $svc = new ProductService($client);
-        $svc->updatePrice('123', 99.5);
+        $svc->updatePrice('B-123', 99.5);
         $this->addToAssertionCount(1);
     }
 
@@ -126,7 +135,7 @@ class ProductServiceTest extends TestCase
             ->with('product', 'UpdateUrunFiyat', Mockery::any())->andReturn((object) ['ok' => true]);
 
         $svc = new ProductService($client);
-        $svc->updateStockAndPrice('123', 7, 99.5);
+        $svc->updateStockAndPrice('9472', 7, 99.5, 'B-123');
         $this->addToAssertionCount(1);
     }
 
