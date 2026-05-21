@@ -151,12 +151,19 @@ npm install && npm run build
 copy .env.example .env
 php artisan key:generate
 php artisan migrate --seed
-# Auto-push hook'u kur (her commit sonrası otomatik git push):
+# Auto-push hook (her commit sonrası otomatik git push):
 powershell -ExecutionPolicy Bypass -File scripts\install-hooks.ps1
 # Linux/Mac için: sh scripts/install-hooks.sh
+# Auto-pull (her 10dk arkadasının push'larını çeker, sadece Windows):
+powershell -ExecutionPolicy Bypass -File scripts\install-autopull.ps1
 php artisan serve
 # Ayrı terminal: php artisan queue:work
 ```
+
+### Sürekli Sync Akışı
+- **Auto-push:** Her `git commit` sonrası post-commit hook otomatik `git push` yapar.
+- **Auto-pull:** Windows Scheduled Task her 10 dakikada bir `git pull --ff-only` çalıştırır. Uncommitted değişiklik varsa pull atlanır (kullanıcının işine dokunmaz). Log: `storage/logs/auto-pull.log`.
+- **Çatışma:** ff-only pull başarısız olursa log'a yazılır, commit/push akışını bozmaz. Manuel `git pull --rebase` ile çöz.
 
 ### Çalışma Komutları
 ```powershell
