@@ -117,7 +117,18 @@ class SyncNewProductsJob implements ShouldQueue
                     }
                     $payload = $mapper->anaToBayiCreatePayload($urunKarti);
                     $created = $bayi->createProduct($payload);
-                    $mapping->bayi_product_id = (string) ($created['ID'] ?? '');
+                    $newId = (int) ($created['ID'] ?? 0);
+
+                    // SaveUrun bazen 0 dönüyor — gerçek ID için barkodla yeniden çek
+                    if ($newId === 0) {
+                        $verify = $bayi->getProductByBarcode($primaryBarcode);
+                        $newId = (int) ($verify['ID'] ?? 0);
+                    }
+
+                    if ($newId === 0) {
+                        throw new \RuntimeException('SaveUrun başarılı görünüyor ama bayi tarafında ürün bulunamadı (ID alınamadı)');
+                    }
+                    $mapping->bayi_product_id = (string) $newId;
                     $action = 'created';
                 }
             } else {

@@ -83,11 +83,21 @@ class TicimaxRetryErrorsCommand extends Command
 
                 $payload = $mapper->anaToBayiCreatePayload($anaUrun);
                 $created = $bayi->createProduct($payload);
-                $newId = (string) ($created['ID'] ?? '');
+                $newId = (int) ($created['ID'] ?? 0);
+
+                // SaveUrun bazen 0 dönüyor — barkodla yeniden çek
+                if ($newId === 0) {
+                    $verify = $bayi->getProductByBarcode($bar);
+                    $newId = (int) ($verify['ID'] ?? 0);
+                }
+
+                if ($newId === 0) {
+                    throw new \RuntimeException('SaveUrun başarılı ama bayi\'de ürün bulunamadı (ID alınamadı)');
+                }
 
                 $mapping->update([
                     'ana_product_id' => (string) ($anaUrun['ID'] ?? ''),
-                    'bayi_product_id' => $newId,
+                    'bayi_product_id' => (string) $newId,
                     'status' => 'synced',
                     'last_error' => null,
                     'last_synced_at' => now(),
