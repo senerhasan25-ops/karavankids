@@ -40,6 +40,16 @@ class TicimaxClient
         ];
     }
 
+    public function getUyeKodu(): string
+    {
+        return (string) $this->credential->username;
+    }
+
+    public function getUyeSifre(): string
+    {
+        return (string) $this->credential->password;
+    }
+
     public function client(string $service): SoapClient
     {
         if (isset($this->clients[$service])) {

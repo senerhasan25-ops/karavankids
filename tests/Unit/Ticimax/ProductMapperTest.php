@@ -15,111 +15,96 @@ class ProductMapperTest extends TestCase
         $this->mapper = new ProductMapper();
     }
 
-    public function test_temel_alanlar_kopyalanir(): void
+    public function test_urun_karti_temel_alanlar_kopyalanir(): void
     {
         $payload = $this->mapper->anaToBayiCreatePayload([
-            'Barkod' => '8690000000001',
-            'StokKodu' => 'KK-001',
+            'ID' => 1001,
             'UrunAdi' => 'Test Oyuncak',
-            'KisaAciklama' => 'Kısa',
             'Aciklama' => 'Uzun açıklama',
-            'KategoriID' => 5,
+            'OnYazi' => 'Kısa',
+            'Aktif' => true,
+            'AnaKategori' => 'Oyuncaklar',
+            'AnaKategoriID' => 5,
             'Marka' => 'Karavankids',
-            'SatisFiyati' => 199.90,
-            'KdvOrani' => 20,
-            'StokAdedi' => 12,
+            'MarkaID' => 3,
         ]);
 
-        $this->assertSame('8690000000001', $payload['Barkod']);
-        $this->assertSame('KK-001', $payload['StokKodu']);
+        $this->assertSame(0, $payload['ID'], 'Yeni kayıt için ID=0 olmalı (ana ID atılır)');
         $this->assertSame('Test Oyuncak', $payload['UrunAdi']);
-        $this->assertSame(5, $payload['KategoriID']);
+        $this->assertSame('Uzun açıklama', $payload['Aciklama']);
+        $this->assertSame('Kısa', $payload['OnYazi']);
+        $this->assertSame('Oyuncaklar', $payload['AnaKategori']);
+        $this->assertSame(5, $payload['AnaKategoriID']);
         $this->assertSame('Karavankids', $payload['Marka']);
-        $this->assertSame(199.90, $payload['SatisFiyati']);
-        $this->assertSame(20, $payload['KdvOrani']);
-        $this->assertSame(12, $payload['StokAdedi']);
-        $this->assertSame(0, $payload['UrunKartiID'], 'Yeni ürün için UrunKartiID=0 olmalı');
+        $this->assertSame(3, $payload['MarkaID']);
+        $this->assertTrue($payload['Aktif']);
     }
 
-    public function test_stok_kodu_yoksa_barkod_kullanilir(): void
+    public function test_seo_alanlari_dogru_isimle_aktarilir(): void
     {
         $payload = $this->mapper->anaToBayiCreatePayload([
-            'Barkod' => 'BARCODE1',
-            'UrunAdi' => 'X',
-        ]);
-        $this->assertSame('BARCODE1', $payload['StokKodu']);
-    }
-
-    public function test_seo_alanlari_dolduruluyorsa_korunur(): void
-    {
-        $payload = $this->mapper->anaToBayiCreatePayload([
-            'Barkod' => 'B1',
             'UrunAdi' => 'Ad',
-            'SeoBaslik' => 'Özel SEO Başlık',
-            'SeoAciklama' => 'Özel Meta',
-            'SeoUrl' => 'ozel-url',
+            'SeoSayfaBaslik' => 'Özel SEO Başlık',
+            'SeoSayfaAciklama' => 'Özel Meta',
+            'SeoAnahtarKelime' => 'oyuncak,test',
+            'UrunSayfaAdresi' => '/oyuncak/test',
         ]);
-        $this->assertSame('Özel SEO Başlık', $payload['SeoBaslik']);
-        $this->assertSame('Özel Meta', $payload['SeoAciklama']);
-        $this->assertSame('ozel-url', $payload['SeoUrl']);
+        $this->assertSame('Özel SEO Başlık', $payload['SeoSayfaBaslik']);
+        $this->assertSame('Özel Meta', $payload['SeoSayfaAciklama']);
+        $this->assertSame('oyuncak,test', $payload['SeoAnahtarKelime']);
+        $this->assertSame('/oyuncak/test', $payload['UrunSayfaAdresi']);
     }
 
     public function test_seo_baslik_yoksa_urun_adi_kullanilir(): void
     {
         $payload = $this->mapper->anaToBayiCreatePayload([
-            'Barkod' => 'B1',
             'UrunAdi' => 'Varsayılan Ad',
         ]);
-        $this->assertSame('Varsayılan Ad', $payload['SeoBaslik']);
+        $this->assertSame('Varsayılan Ad', $payload['SeoSayfaBaslik']);
     }
 
     public function test_resimler_url_listesi_olur(): void
     {
         $payload = $this->mapper->anaToBayiCreatePayload([
-            'Barkod' => 'B1',
             'UrunAdi' => 'X',
             'Resimler' => [
-                ['ResimUrl' => 'https://cdn.karavankids.com/p/1.jpg'],
-                ['Url' => 'https://cdn.karavankids.com/p/2.jpg'],
-                'https://cdn.karavankids.com/p/3.jpg',
+                'https://cdn.karavankids.com/p/1.jpg',
+                'https://cdn.karavankids.com/p/2.jpg',
             ],
         ]);
 
-        $this->assertCount(3, $payload['Resimler']);
+        $this->assertCount(2, $payload['Resimler']);
         $this->assertSame('https://cdn.karavankids.com/p/1.jpg', $payload['Resimler'][0]);
-        $this->assertSame('https://cdn.karavankids.com/p/2.jpg', $payload['Resimler'][1]);
-        $this->assertSame('https://cdn.karavankids.com/p/3.jpg', $payload['Resimler'][2]);
     }
 
-    public function test_bos_veya_invalid_resimler_filtrelenir(): void
+    public function test_soap_wrapper_yapisindaki_resimler_acilir(): void
     {
+        // SOAP'tan dönen ArrayOfstring şekli: ['string' => [...]]
         $payload = $this->mapper->anaToBayiCreatePayload([
-            'Barkod' => 'B1',
             'UrunAdi' => 'X',
-            'Resimler' => [
-                ['ResimUrl' => 'https://x/1.jpg'],
-                ['BasterAlan' => 'unknown'],
-                null,
-            ],
+            'Resimler' => ['string' => ['https://x/1.jpg', 'https://x/2.jpg']],
         ]);
-        $this->assertCount(1, $payload['Resimler']);
+        $this->assertCount(2, $payload['Resimler']);
     }
 
-    public function test_varyasyonlar_aktarilir(): void
+    public function test_varyasyonlar_aktarilir_ve_ID_sifirlanir(): void
     {
         $payload = $this->mapper->anaToBayiCreatePayload([
-            'Barkod' => 'PARENT',
             'UrunAdi' => 'Ana Ürün',
             'Varyasyonlar' => [
                 [
+                    'ID' => 555,
+                    'UrunKartiID' => 1001,
                     'Barkod' => 'V-RED',
                     'StokKodu' => 'KK-001-R',
                     'StokAdedi' => 5,
                     'SatisFiyati' => 199.90,
-                    'Ozellikler' => [['OzellikAdi' => 'Renk', 'Deger' => 'Kırmızı']],
-                    'Resimler' => ['https://x/red.jpg'],
+                    'KdvOrani' => 20,
+                    'KdvDahil' => true,
+                    'Ozellikler' => [['Tanim' => 'Renk', 'Deger' => 'Kırmızı']],
                 ],
                 [
+                    'ID' => 556,
                     'Barkod' => 'V-BLUE',
                     'StokKodu' => 'KK-001-B',
                     'StokAdedi' => 3,
@@ -129,52 +114,76 @@ class ProductMapperTest extends TestCase
         ]);
 
         $this->assertCount(2, $payload['Varyasyonlar']);
-        $this->assertSame('V-RED', $payload['Varyasyonlar'][0]['Barkod']);
-        $this->assertSame(5, $payload['Varyasyonlar'][0]['StokAdedi']);
-        $this->assertCount(1, $payload['Varyasyonlar'][0]['Resimler']);
-        $this->assertSame('V-BLUE', $payload['Varyasyonlar'][1]['Barkod']);
-        $this->assertSame([], $payload['Varyasyonlar'][1]['Resimler'], 'Resimler verilmediyse boş dizi olmalı');
+
+        $v1 = $payload['Varyasyonlar'][0];
+        $this->assertSame(0, $v1['ID'], 'Varyasyon ID sıfırlanmalı');
+        $this->assertSame(0, $v1['UrunKartiID'], 'Varyasyonun UrunKartiID de sıfırlanmalı');
+        $this->assertSame('V-RED', $v1['Barkod']);
+        $this->assertSame(5.0, $v1['StokAdedi']);
+        $this->assertSame(199.90, $v1['SatisFiyati']);
+        $this->assertSame(20.0, $v1['KdvOrani']);
+        $this->assertTrue($v1['KdvDahil']);
+        $this->assertCount(1, $v1['Ozellikler']);
+        $this->assertSame('Kırmızı', $v1['Ozellikler'][0]['Deger']);
     }
 
-    public function test_varyasyon_listesi_yoksa_bos_dizi_doner(): void
+    public function test_varyasyon_listesi_bos_ama_barkod_varsa_fallback_olusturulur(): void
     {
         $payload = $this->mapper->anaToBayiCreatePayload([
-            'Barkod' => 'B1',
+            'UrunAdi' => 'Tekil Ürün',
+            'Barkod' => '8690000000001',
+            'StokKodu' => 'KK-X',
+            'StokAdedi' => 12,
+            'SatisFiyati' => 99.90,
+            'KdvOrani' => 20,
+        ]);
+
+        $this->assertCount(1, $payload['Varyasyonlar'], 'Üst seviye barkod varsa fallback varyasyon üretilmeli');
+        $v = $payload['Varyasyonlar'][0];
+        $this->assertSame('8690000000001', $v['Barkod']);
+        $this->assertSame(12.0, $v['StokAdedi']);
+        $this->assertSame(99.90, $v['SatisFiyati']);
+    }
+
+    public function test_hicbir_barkod_yoksa_varyasyon_listesi_bos_kalir(): void
+    {
+        $payload = $this->mapper->anaToBayiCreatePayload([
             'UrunAdi' => 'X',
         ]);
         $this->assertSame([], $payload['Varyasyonlar']);
     }
 
-    public function test_fiyat_tipleri_floata_cast_edilir(): void
+    public function test_soap_wrapper_yapisindaki_varyasyonlar_acilir(): void
     {
         $payload = $this->mapper->anaToBayiCreatePayload([
-            'Barkod' => 'B1',
             'UrunAdi' => 'X',
-            'SatisFiyati' => '149.50',
-            'AlisFiyati' => '100',
-            'Desi' => '0.5',
+            'Varyasyonlar' => ['Varyasyon' => [
+                ['Barkod' => 'V1', 'SatisFiyati' => 10],
+                ['Barkod' => 'V2', 'SatisFiyati' => 20],
+            ]],
         ]);
-        $this->assertSame(149.50, $payload['SatisFiyati']);
-        $this->assertSame(100.0, $payload['AlisFiyati']);
-        $this->assertSame(0.5, $payload['Desi']);
+        $this->assertCount(2, $payload['Varyasyonlar']);
+        $this->assertSame('V1', $payload['Varyasyonlar'][0]['Barkod']);
     }
 
-    public function test_stok_int_cast_edilir(): void
+    public function test_kategoriler_int_listesi_acilir(): void
     {
         $payload = $this->mapper->anaToBayiCreatePayload([
-            'Barkod' => 'B1',
             'UrunAdi' => 'X',
-            'StokAdedi' => '7',
+            'Kategoriler' => ['int' => [5, 7, 11]],
         ]);
-        $this->assertSame(7, $payload['StokAdedi']);
+        $this->assertSame([5, 7, 11], $payload['Kategoriler']);
     }
 
     public function test_aktif_bayrak_default_true(): void
     {
-        $payload = $this->mapper->anaToBayiCreatePayload([
-            'Barkod' => 'B1',
-            'UrunAdi' => 'X',
-        ]);
+        $payload = $this->mapper->anaToBayiCreatePayload(['UrunAdi' => 'X']);
         $this->assertTrue($payload['Aktif']);
+    }
+
+    public function test_deactivate_payload(): void
+    {
+        $payload = $this->mapper->deactivatePayload();
+        $this->assertSame(['Aktif' => false], $payload);
     }
 }
