@@ -17,6 +17,8 @@ class TicimaxTestCommand extends Command
         {--user= : Override kullanıcı kodu}
         {--password= : Override şifre}
         {--methods : Bütün SOAP method listesini yazdır (WSDL doğrulama için)}
+        {--types : Bütün WSDL tip tanımlarını yazdır (struct alanları için)}
+        {--inspect= : Belirli bir tipin alanlarını göster (örn: --inspect=WebUrun)}
         {--list-products : Son 7 günde değişen ilk 3 ürünü listele}';
 
     protected $description = 'Ticimax bağlantısını test et. DB kaydı veya --endpoint/--user/--password ile çalışır.';
@@ -83,6 +85,26 @@ class TicimaxTestCommand extends Command
                     $this->error("  hata: " . $e->getMessage());
                 }
                 $this->newLine();
+            }
+        }
+
+        if ($this->option('types') || $this->option('inspect')) {
+            $filter = $this->option('inspect');
+            $this->newLine();
+            $this->info($filter ? "--- WSDL Types matching '{$filter}' ---" : '--- WSDL Types ---');
+            foreach (['product', 'order'] as $svc) {
+                try {
+                    $types = $client->client($svc)->__getTypes();
+                    foreach ($types as $t) {
+                        if (! $filter || stripos($t, $filter) !== false) {
+                            $this->line("[{$svc}]");
+                            $this->line($t);
+                            $this->newLine();
+                        }
+                    }
+                } catch (Throwable $e) {
+                    $this->error("[{$svc}] hata: " . $e->getMessage());
+                }
             }
         }
 

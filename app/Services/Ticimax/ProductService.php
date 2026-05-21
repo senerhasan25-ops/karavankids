@@ -21,89 +21,181 @@ class ProductService
     }
 
     /**
-     * SelectUrun çağrısı — filtreli ürün listesi döner.
-     * Ticimax'in gerçek imzası: SelectUrun(UyeKodu, UyeSifre, f: WebUrunFiltre).
+     * Ticimax SelectUrun(UyeKodu, f: UrunFiltre, s: UrunSayfalama).
+     * f filtre / s sayfalama ayrı yapılar.
      */
     public function getNewProducts(?Carbon $since = null, int $page = 1, int $perPage = 50): array
     {
-        $params = $this->client->getAuth() + [
+        $startIdx = max(0, ($page - 1) * $perPage);
+        $params = [
+            'UyeKodu' => $this->client->getUyeKodu(),
             'f' => [
                 'Aktif' => -1,
                 'Firsat' => -1,
                 'Indirimli' => -1,
-                'Sayfa' => $page,
-                'SayfadakiUrunSayisi' => $perPage,
-                'TarihGuncellemeBaslangic' => $since?->format('Y-m-d H:i:s') ?? '',
-                'TarihGuncellemeBitis' => '',
+                'DuzenlemeTarihiBaslangic' => $since?->format('Y-m-d\TH:i:s') ?? '',
+                'DuzenlemeTarihiBitis' => '',
+            ],
+            's' => [
+                'BaslangicIndex' => $startIdx,
+                'KayitSayisi' => $perPage,
+                'KayitSayisinaGoreGetir' => true,
+                'SiralamaDegeri' => 'ID',
+                'SiralamaYonu' => 'ASC',
             ],
         ];
         $resp = $this->client->call('product', $this->method('select'), $params);
-        return $this->normalizeList($resp, $this->method('select'));
+        return $this->normalizeList($resp, $this->method('select'), 'UrunKarti');
     }
 
     /**
-     * Barkoda göre tek ürün. SelectUrun'a Barkod filtresi vererek arıyoruz
-     * (Ticimax'te ayrı GetUrunByBarkod yok).
+     * Barkoda göre tek ürün — SelectUrun'a Barkod filtresi verir.
      */
     public function getProductByBarcode(string $barcode): ?array
     {
-        $params = $this->client->getAuth() + [
+        $params = [
+            'UyeKodu' => $this->client->getUyeKodu(),
             'f' => [
                 'Aktif' => -1,
                 'Barkod' => $barcode,
-                'Sayfa' => 1,
-                'SayfadakiUrunSayisi' => 1,
+            ],
+            's' => [
+                'BaslangicIndex' => 0,
+                'KayitSayisi' => 1,
+                'KayitSayisinaGoreGetir' => true,
             ],
         ];
         $resp = $this->client->call('product', $this->method('select'), $params);
-        $list = $this->normalizeList($resp, $this->method('select'));
+        $list = $this->normalizeList($resp, $this->method('select'), 'UrunKarti');
         return $list[0] ?? null;
     }
 
-    public function createProduct(array $payload): array
+    /**
+     * SaveUrun: UrunKarti listesi + UrunKartiAyar + VaryasyonAyar gönderilir.
+     * Tek ürün için bile array'e sarıp gönderiyoruz.
+     */
+    public function createProduct(array $urunKarti): array
     {
-        $params = $this->client->getAuth() + ['urun' => $payload];
-        $resp = $this->client->call('product', $this->method('save'), $params);
-        return $this->normalizeOne($resp) ?? [];
+        return $this->saveBatch([$urunKarti], $this->fullCreateAyarlari())[0] ?? [];
     }
 
-    public function updateProduct(string $productId, array $payload): array
+    public function updateProduct(string $productId, array $urunKarti): array
     {
-        $params = $this->client->getAuth() + ['urun' => array_merge($payload, ['UrunKartiID' => $productId])];
+        $urunKarti['ID'] = (int) $productId;
+        return $this->saveBatch([$urunKarti], $this->fullUpdateAyarlari())[0] ?? [];
+    }
+
+    /**
+     * Birden fazla ürünü tek SaveUrun çağrısında gönderir.
+     */
+    public function saveBatch(array $urunKartlari, array $ayarlar = []): array
+    {
+        $ayarlar = array_replace_recursive($this->fullCreateAyarlari(), $ayarlar);
+        $params = [
+            'UyeKodu' => $this->client->getUyeKodu(),
+            'urunKartlari' => $urunKartlari,
+            'ukAyar' => $ayarlar['ukAyar'],
+            'vAyar' => $ayarlar['vAyar'],
+        ];
         $resp = $this->client->call('product', $this->method('save'), $params);
+        $result = $this->normalizeList($resp, $this->method('save'), 'UrunKarti');
+        return $result;
+    }
+
+    /**
+     * Sadece stok güncelle — StokAdediGuncelle (Varyasyon ID üzerinden çalışır).
+     */
+    public function updateStock(string $varyasyonId, int $stock): array
+    {
+        $params = [
+            'UyeKodu' => $this->client->getUyeKodu(),
+            'urunId' => (int) $varyasyonId,
+            'StokAdedi' => $stock,
+        ];
+        $resp = $this->client->call('product', $this->method('update_stock'), $params);
         return $this->normalizeOne($resp) ?? [];
     }
 
     /**
-     * Stok ve fiyat güncellemesi. Ticimax'te tek call yok — iki ayrı SOAP çağrısı.
-     * Hata olursa exception fırlatır (her ikisi de bağımsız).
+     * Sadece fiyat güncelle — UpdateUrunFiyat.
      */
-    public function updateStockAndPrice(string $productId, int $stock, float $price): array
+    public function updatePrice(string $varyasyonId, float $price): array
     {
-        $auth = $this->client->getAuth();
-
-        $stockResp = $this->client->call('product', $this->method('update_stock'), $auth + [
-            'urunId' => $productId,
-            'StokAdedi' => $stock,
-        ]);
-
-        $priceResp = $this->client->call('product', $this->method('update_price'), $auth + [
-            'urunId' => $productId,
+        $params = [
+            'UyeKodu' => $this->client->getUyeKodu(),
+            'urunId' => (int) $varyasyonId,
             'SatisFiyati' => $price,
-        ]);
+        ];
+        $resp = $this->client->call('product', $this->method('update_price'), $params);
+        return $this->normalizeOne($resp) ?? [];
+    }
 
+    /**
+     * Stok + fiyat — iki ayrı SOAP çağrısı.
+     */
+    public function updateStockAndPrice(string $varyasyonId, int $stock, float $price): array
+    {
         return [
-            'stock' => $this->normalizeOne($stockResp),
-            'price' => $this->normalizeOne($priceResp),
+            'stock' => $this->updateStock($varyasyonId, $stock),
+            'price' => $this->updatePrice($varyasyonId, $price),
         ];
     }
 
     /**
-     * Ticimax'te ayrı SetUrunAktif yok — SaveUrun ile Aktif alanı güncellenir.
+     * UrunKarti.Aktif alanını güncellemek için SaveUrun ile sadece Aktif update.
      */
     public function setActive(string $productId, bool $active): array
     {
         return $this->updateProduct($productId, ['Aktif' => $active]);
+    }
+
+    /**
+     * Tam ürün oluşturmada hangi alanların yazılacağı (UrunKartiAyar + VaryasyonAyar).
+     * Hepsini true yaparak gönderdiğimiz tüm alanların yazılmasını söylüyoruz.
+     */
+    protected function fullCreateAyarlari(): array
+    {
+        return [
+            'ukAyar' => [
+                'AciklamaGuncelle' => true,
+                'AktifGuncelle' => true,
+                'AnaKategoriGuncelle' => true,
+                'AramaAnahtarKelimeGuncelle' => true,
+                'EtiketGuncelle' => true,
+                'KategoriGuncelle' => true,
+                'ListedeGosterGuncelle' => true,
+                'MarkaGuncelle' => true,
+                'OnYaziGuncelle' => true,
+                'ResimOlmayanlaraResimEkle' => true,
+                'SatisBirimiGuncelle' => true,
+                'SeoAnahtarKelimeGuncelle' => true,
+                'SeoSayfaAciklamaGuncelle' => true,
+                'SeoSayfaBaslikGuncelle' => true,
+                'OncekiResimleriSil' => false,
+                'Base64Resim' => false,
+                'ResimleriIndirme' => false,
+            ],
+            'vAyar' => [
+                'AktifGuncelle' => true,
+                'AlisFiyatiGuncelle' => true,
+                'BarkodGuncelle' => true,
+                'IndirimliFiyatiGuncelle' => true,
+                'KdvDahilGuncelle' => true,
+                'KdvOraniGuncelle' => true,
+                'ParaBirimiGuncelle' => true,
+                'PiyasaFiyatiGuncelle' => true,
+                'SatisFiyatiGuncelle' => true,
+                'StokAdediGuncelle' => true,
+                'StokKoduGuncelle' => true,
+                'UrunKartiAktifGuncelle' => true,
+                'OncekiResimleriSil' => false,
+            ],
+        ];
+    }
+
+    protected function fullUpdateAyarlari(): array
+    {
+        return $this->fullCreateAyarlari();
     }
 
     protected function method(string $key): string
@@ -111,11 +203,21 @@ class ProductService
         return (string) config("ticimax.methods.product.{$key}");
     }
 
-    protected function normalizeList(mixed $resp, string $method = ''): array
+    /**
+     * Result'tan UrunKarti listesini çıkarır. Ticimax tek elemanı obje, çoklu elemanları array
+     * dönebiliyor. ArrayOfUrunKarti wrapper'ı UrunKarti anahtarı ile geliyor.
+     */
+    protected function normalizeList(mixed $resp, string $method = '', string $itemKey = 'UrunKarti'): array
     {
         $resultKey = $method . 'Result';
-        if (is_object($resp) && isset($resp->{$resultKey})) {
-            $resp = $resp->{$resultKey};
+        if (is_object($resp)) {
+            // SaveUrun gibi method'larda Result alanı sadece status int olabilir.
+            // Önce urunKartlari (gerçek payload) varsa onu kullan; yoksa Result alanına bak.
+            if (isset($resp->urunKartlari)) {
+                $resp = $resp->urunKartlari;
+            } elseif (isset($resp->{$resultKey}) && (is_object($resp->{$resultKey}) || is_array($resp->{$resultKey}))) {
+                $resp = $resp->{$resultKey};
+            }
         }
         if (is_object($resp)) {
             $resp = (array) $resp;
@@ -123,10 +225,8 @@ class ProductService
         if (! is_array($resp)) {
             return [];
         }
-        // Ticimax çoğu liste için tek elemanı obje, çoklu elemanları array döner.
-        // Wrapper olarak Urun anahtarı kullanır.
-        if (isset($resp['Urun'])) {
-            $resp = is_array($resp['Urun']) && array_is_list($resp['Urun']) ? $resp['Urun'] : [$resp['Urun']];
+        if (isset($resp[$itemKey])) {
+            $resp = is_array($resp[$itemKey]) && array_is_list($resp[$itemKey]) ? $resp[$itemKey] : [$resp[$itemKey]];
         } elseif (! array_is_list($resp)) {
             $resp = [$resp];
         }

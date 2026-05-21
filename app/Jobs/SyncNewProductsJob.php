@@ -49,9 +49,9 @@ class SyncNewProductsJob implements ShouldQueue
                     break;
                 }
 
-                foreach ($products as $p) {
+                foreach ($products as $urunKarti) {
                     $job->increment('total');
-                    $this->processOne($job, $p, $bayi, $mapper);
+                    $this->processOne($job, $urunKarti, $bayi, $mapper);
                 }
 
                 if (count($products) < $perPage) {
@@ -71,40 +71,47 @@ class SyncNewProductsJob implements ShouldQueue
         }
     }
 
-    protected function processOne(SyncJob $job, array $p, ProductService $bayi, ProductMapper $mapper): void
+    /**
+     * Ticimax UrunKarti yapısında: barkodlar Varyasyon altında. Her varyasyonu ayrı mapping yazıyoruz.
+     */
+    protected function processOne(SyncJob $job, array $urunKarti, ProductService $bayi, ProductMapper $mapper): void
     {
-        $barcode = $p['Barkod'] ?? null;
-        if (! $barcode) {
-            $this->logError($job, null, 'Barkod yok, atlandı');
+        $anaUrunId = (string) ($urunKarti['ID'] ?? '');
+        $varyasyonlar = $this->extractVariants($urunKarti);
+        $primaryBarcode = $varyasyonlar[0]['Barkod'] ?? null;
+
+        if (! $primaryBarcode) {
+            $this->logError($job, null, "Üründe barkod yok (ID={$anaUrunId})");
             return;
         }
 
         try {
-            $mapping = ProductMapping::firstOrNew(['barcode' => $barcode]);
-            $isActive = (bool) ($p['Aktif'] ?? true);
+            $mapping = ProductMapping::firstOrNew(['barcode' => $primaryBarcode]);
+            $isActive = (bool) ($urunKarti['Aktif'] ?? true);
+            $action = '';
 
             if (! $mapping->bayi_product_id) {
-                $existing = $bayi->getProductByBarcode($barcode);
-                if ($existing && ! empty($existing['UrunKartiID'])) {
-                    $mapping->bayi_product_id = (string) $existing['UrunKartiID'];
+                $existing = $bayi->getProductByBarcode($primaryBarcode);
+                if ($existing && ! empty($existing['ID'])) {
+                    $mapping->bayi_product_id = (string) $existing['ID'];
                     $action = 'matched_existing';
                 } else {
                     if (! $isActive) {
-                        $this->logError($job, $barcode, 'Ana ürün pasif, bayi\'de oluşturulmadı');
+                        $this->logError($job, $primaryBarcode, "Ana ürün pasif, bayi'de oluşturulmadı");
                         $mapping->fill([
-                            'ana_product_id' => (string) ($p['UrunKartiID'] ?? ''),
+                            'ana_product_id' => $anaUrunId,
                             'status' => 'pending',
                             'last_error' => 'Ana ürün pasif',
                         ])->save();
                         return;
                     }
-                    $payload = $mapper->anaToBayiCreatePayload($p);
+                    $payload = $mapper->anaToBayiCreatePayload($urunKarti);
                     $created = $bayi->createProduct($payload);
-                    $mapping->bayi_product_id = (string) ($created['UrunKartiID'] ?? $created['Id'] ?? '');
+                    $mapping->bayi_product_id = (string) ($created['ID'] ?? '');
                     $action = 'created';
                 }
             } else {
-                $payload = $mapper->anaToBayiCreatePayload($p);
+                $payload = $mapper->anaToBayiCreatePayload($urunKarti);
                 $bayi->updateProduct($mapping->bayi_product_id, $payload);
                 $action = 'updated';
             }
@@ -114,26 +121,57 @@ class SyncNewProductsJob implements ShouldQueue
                     $bayi->setActive($mapping->bayi_product_id, false);
                     $action .= '_deactivated';
                 } catch (Throwable $e) {
-                    // Aktif=false ayarı başarısız olsa bile mapping kaydı yaz, bir sonraki turda denenir
+                    // sessizce devam — bir sonraki sync'te yeniden denenebilir
                 }
             }
 
-            $mapping->ana_product_id = (string) ($p['UrunKartiID'] ?? $p['Id'] ?? '');
-            $mapping->last_price = (float) ($p['SatisFiyati'] ?? 0);
-            $mapping->last_stock = (int) ($p['StokAdedi'] ?? 0);
+            $mapping->ana_product_id = $anaUrunId;
+            $mapping->last_price = (float) ($varyasyonlar[0]['SatisFiyati'] ?? 0);
+            $mapping->last_stock = (int) ($varyasyonlar[0]['StokAdedi'] ?? 0);
             $mapping->status = 'synced';
             $mapping->last_error = null;
             $mapping->last_synced_at = now();
             $mapping->save();
 
-            $this->logSuccess($job, $barcode, "Ürün {$action}");
+            $this->logSuccess($job, $primaryBarcode, "UrunKarti {$action}");
+
+            // Diğer varyasyonların kendi mapping kayıtları (aynı UrunKarti'ye bağlanır)
+            for ($i = 1; $i < count($varyasyonlar); $i++) {
+                $v = $varyasyonlar[$i];
+                if (! ($v['Barkod'] ?? null)) {
+                    continue;
+                }
+                ProductMapping::updateOrCreate(
+                    ['barcode' => $v['Barkod']],
+                    [
+                        'ana_product_id' => $anaUrunId,
+                        'bayi_product_id' => $mapping->bayi_product_id, // ana UrunKarti'nin bayi karşılığı
+                        'last_price' => (float) ($v['SatisFiyati'] ?? 0),
+                        'last_stock' => (int) ($v['StokAdedi'] ?? 0),
+                        'status' => 'synced',
+                        'last_synced_at' => now(),
+                    ]
+                );
+            }
         } catch (Throwable $e) {
-            $this->logError($job, $barcode, $e->getMessage());
+            $this->logError($job, $primaryBarcode, $e->getMessage());
             ProductMapping::updateOrCreate(
-                ['barcode' => $barcode],
+                ['barcode' => $primaryBarcode],
                 ['status' => 'error', 'last_error' => $e->getMessage()]
             );
         }
+    }
+
+    /**
+     * UrunKarti içinden varyasyon listesini düz array olarak çek.
+     */
+    protected function extractVariants(array $urunKarti): array
+    {
+        $v = $urunKarti['Varyasyonlar'] ?? [];
+        if (isset($v['Varyasyon'])) {
+            $v = is_array($v['Varyasyon']) && array_is_list($v['Varyasyon']) ? $v['Varyasyon'] : [$v['Varyasyon']];
+        }
+        return is_array($v) ? array_values($v) : [];
     }
 
     protected function logSuccess(SyncJob $job, ?string $barcode, string $msg): void
