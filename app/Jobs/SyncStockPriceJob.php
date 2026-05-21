@@ -69,11 +69,19 @@ class SyncStockPriceJob implements ShouldQueue
                             throw new \RuntimeException('Bayi ürün/varyasyon bulunamadı');
                         }
                         $bayiVarId = (string) ($bayiVar['ID'] ?? 0);
+                        $oldStock = (int) ($bayiVar['StokAdedi'] ?? 0);
+                        $oldPrice = (float) ($bayiVar['SatisFiyati'] ?? 0);
 
-                        // Stok güncelle (varyasyon ID + barkod)
-                        $bayi->updateStock($bayiVarId, $stock, $m->barcode);
-                        // Fiyat güncelle (barkod üzerinden)
-                        $bayi->updatePrice($m->barcode, $price, $kdv, $kdvDahil);
+                        // Sadece değişiklik varsa güncelle (gereksiz API call'ı önle)
+                        $stockChanged = $oldStock !== $stock;
+                        $priceChanged = abs($oldPrice - $price) > 0.01;
+
+                        if ($stockChanged) {
+                            $bayi->updateStock($bayiVarId, $stock, $m->barcode);
+                        }
+                        if ($priceChanged) {
+                            $bayi->updatePrice($m->barcode, $price, $kdv, $kdvDahil);
+                        }
 
                         $m->update([
                             'last_stock' => $stock,
@@ -82,7 +90,18 @@ class SyncStockPriceJob implements ShouldQueue
                             'status' => 'synced',
                             'last_error' => null,
                         ]);
-                        $this->log($job, $m->barcode, 'success', "Stok={$stock}, Fiyat={$price}");
+
+                        $msgParts = [];
+                        if ($stockChanged) {
+                            $msgParts[] = "stok {$oldStock}→{$stock}";
+                        }
+                        if ($priceChanged) {
+                            $msgParts[] = sprintf('fiyat %.2f→%.2f', $oldPrice, $price);
+                        }
+                        if (empty($msgParts)) {
+                            $msgParts[] = "değişiklik yok (stok={$stock} fiyat=" . number_format($price, 2) . ')';
+                        }
+                        $this->log($job, $m->barcode, 'success', implode(' | ', $msgParts));
                     } catch (Throwable $e) {
                         $m->update(['status' => 'error', 'last_error' => $e->getMessage()]);
                         $this->log($job, $m->barcode, 'error', $e->getMessage());
