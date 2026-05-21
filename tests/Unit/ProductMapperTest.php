@@ -46,7 +46,7 @@ class ProductMapperTest extends TestCase
         $line = $payload['Urunler'][0];
         $this->assertSame(999, $line['UrunKartiID']);
         $this->assertSame('B001', $line['Barkod']);
-        $this->assertSame(2, $line['Adet']);
+        $this->assertSame(2.0, $line['Adet']);
         $this->assertSame(125.0, $line['BirimFiyat']);
     }
 
@@ -108,8 +108,8 @@ class ProductMapperTest extends TestCase
         $payload = $mapper->bayiOrderToAnaCreatePayload($bayiOrder, ['X' => 1]);
         $line = $payload['Urunler'][0];
 
-        $this->assertSame(3, $line['Adet']);
+        $this->assertSame(3.0, $line['Adet']);
         $this->assertSame(49.9, $line['BirimFiyat']);
-        $this->assertSame(18, $line['KdvOrani']);
+        $this->assertSame(18.0, $line['KdvOrani']);
     }
 }
