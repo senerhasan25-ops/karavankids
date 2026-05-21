@@ -21,20 +21,135 @@ class ProductService
     }
 
     /**
+     * Bayi mağazasının tüm markalarını çek, ad → ID map'i döner.
+     * Sonuç bir requesti boyunca cache'lenir (in-memory).
+     */
+    private ?array $brandCache = null;
+
+    public function getBrandMap(): array
+    {
+        if ($this->brandCache !== null) {
+            return $this->brandCache;
+        }
+        $resp = $this->client->call('product', 'SelectMarka', [
+            'UyeKodu' => $this->client->getUyeKodu(),
+        ]);
+        $list = $resp->SelectMarkaResult->Marka ?? [];
+        if (! is_array($list)) {
+            $list = [$list];
+        }
+        $map = [];
+        foreach ($list as $brand) {
+            $name = trim((string) ($brand->Tanim ?? ''));
+            $id = (int) ($brand->ID ?? 0);
+            if ($name !== '' && $id > 0) {
+                $map[mb_strtolower($name)] = $id;
+            }
+        }
+        return $this->brandCache = $map;
+    }
+
+    /**
+     * Bayi mağazasının tedarikçilerini getir, ad → ID map'i.
+     */
+    private ?array $supplierCache = null;
+
+    public function getSupplierMap(): array
+    {
+        if ($this->supplierCache !== null) {
+            return $this->supplierCache;
+        }
+        $resp = $this->client->call('product', 'SelectTedarikci', [
+            'UyeKodu' => $this->client->getUyeKodu(),
+        ]);
+        $list = $resp->SelectTedarikciResult->Tedarikci ?? [];
+        if (! is_array($list)) {
+            $list = [$list];
+        }
+        $map = [];
+        foreach ($list as $sup) {
+            $name = trim((string) ($sup->Tanim ?? ''));
+            $id = (int) ($sup->ID ?? 0);
+            if ($name !== '' && $id > 0 && ! isset($map[mb_strtolower($name)])) {
+                $map[mb_strtolower($name)] = $id;
+            }
+        }
+        return $this->supplierCache = $map;
+    }
+
+    public function findOrCreateSupplierId(string $name): int
+    {
+        $name = trim($name);
+        if ($name === '') {
+            return 0;
+        }
+        $map = $this->getSupplierMap();
+        $key = mb_strtolower($name);
+        if (isset($map[$key])) {
+            return $map[$key];
+        }
+        $resp = $this->client->call('product', 'SaveTedarikci', [
+            'UyeKodu' => $this->client->getUyeKodu(),
+            'tedarikci' => ['ID' => 0, 'Tanim' => $name, 'Aktif' => true],
+        ]);
+        $newId = (int) ($resp->SaveTedarikciResult ?? 0);
+        if ($newId > 0) {
+            $this->supplierCache[$key] = $newId;
+        }
+        return $newId;
+    }
+
+    /**
+     * Marka adına göre ID bul; yoksa SaveMarka ile yeni oluştur ve ID döner.
+     */
+    public function findOrCreateBrandId(string $name): int
+    {
+        $name = trim($name);
+        if ($name === '') {
+            return 0;
+        }
+        $map = $this->getBrandMap();
+        $key = mb_strtolower($name);
+        if (isset($map[$key])) {
+            return $map[$key];
+        }
+
+        // Yeni marka oluştur
+        $resp = $this->client->call('product', 'SaveMarka', [
+            'UyeKodu' => $this->client->getUyeKodu(),
+            'marka' => [
+                'ID' => 0,
+                'Tanim' => $name,
+                'Aktif' => true,
+                'Sira' => 0,
+            ],
+        ]);
+        $newId = (int) ($resp->SaveMarkaResult ?? 0);
+        if ($newId > 0) {
+            $this->brandCache[$key] = $newId;
+        }
+        return $newId;
+    }
+
+    /**
      * Ticimax SelectUrun(UyeKodu, f: UrunFiltre, s: UrunSayfalama).
      * f filtre / s sayfalama ayrı yapılar.
      */
+    /**
+     * Ticimax DateTime alanları empty string kabul etmiyor — minimum DateTime kullanılır.
+     * Bu, "filtre uygulama" anlamına gelir.
+     */
+    private const MIN_DATETIME = '0001-01-01T00:00:00';
+    private const MAX_DATETIME = '9999-12-31T23:59:59';
+
     public function getNewProducts(?Carbon $since = null, int $page = 1, int $perPage = 50): array
     {
         $startIdx = max(0, ($page - 1) * $perPage);
         $params = [
             'UyeKodu' => $this->client->getUyeKodu(),
-            'f' => [
-                'Aktif' => -1,
-                'Firsat' => -1,
-                'Indirimli' => -1,
-                'DuzenlemeTarihiBaslangic' => $since?->format('Y-m-d\TH:i:s') ?? '',
-                'DuzenlemeTarihiBitis' => '',
+            'f' => $this->baseFilter() + [
+                'DuzenlemeTarihiBaslangic' => $since ? $since->format('Y-m-d\TH:i:s') : self::MIN_DATETIME,
+                'DuzenlemeTarihiBitis' => self::MAX_DATETIME,
             ],
             's' => [
                 'BaslangicIndex' => $startIdx,
@@ -53,21 +168,49 @@ class ProductService
      */
     public function getProductByBarcode(string $barcode): ?array
     {
+        $filter = $this->baseFilter() + ['Barkod' => $barcode];
         $params = [
             'UyeKodu' => $this->client->getUyeKodu(),
-            'f' => [
-                'Aktif' => -1,
-                'Barkod' => $barcode,
-            ],
+            'f' => $filter,
             's' => [
                 'BaslangicIndex' => 0,
                 'KayitSayisi' => 1,
                 'KayitSayisinaGoreGetir' => true,
             ],
         ];
-        $resp = $this->client->call('product', $this->method('select'), $params);
+        try {
+            $resp = $this->client->call('product', $this->method('select'), $params);
+        } catch (\Throwable $e) {
+            // Ticimax bayi servisinde bilinen bug: bulunamayan barkod için null ref fırlatıyor.
+            // Bu durumu "barkod yok" olarak yorumla.
+            if (str_contains($e->getMessage(), 'Value cannot be null') && str_contains($e->getMessage(), 'source')) {
+                return null;
+            }
+            throw $e;
+        }
         $list = $this->normalizeList($resp, $this->method('select'), 'UrunKarti');
         return $list[0] ?? null;
+    }
+
+    /**
+     * UrunFiltre için varsayılan alanlar — Ticimax bazılarını zorunlu görüyor (DateTime, vb).
+     */
+    protected function baseFilter(): array
+    {
+        return [
+            'Aktif' => -1,
+            'Firsat' => -1,
+            'Indirimli' => -1,
+            // DateTime alanları min-max ile filtre uygulamayı kapatır
+            'EklemeTarihiBaslangic' => self::MIN_DATETIME,
+            'EklemeTarihiBitis' => self::MAX_DATETIME,
+            'StokGuncellemeTarihiBaslangic' => self::MIN_DATETIME,
+            'StokGuncellemeTarihiBitis' => self::MAX_DATETIME,
+            'ResimEklemeTarihiBaslangic' => self::MIN_DATETIME,
+            'ResimEklemeTarihiBitis' => self::MAX_DATETIME,
+            'YayinTarihiBaslangic' => self::MIN_DATETIME,
+            'YayinTarihiBitis' => self::MAX_DATETIME,
+        ];
     }
 
     /**
@@ -159,11 +302,13 @@ class ProductService
             'ukAyar' => [
                 'AciklamaGuncelle' => true,
                 'AktifGuncelle' => true,
-                'AnaKategoriGuncelle' => true,
+                // Kategori ID'leri mağazalar arasında farklı; kapalı tutuyoruz.
+                'AnaKategoriGuncelle' => false,
                 'AramaAnahtarKelimeGuncelle' => true,
-                'EtiketGuncelle' => true,
-                'KategoriGuncelle' => true,
+                'EtiketGuncelle' => false,
+                'KategoriGuncelle' => false,
                 'ListedeGosterGuncelle' => true,
+                // Marka brand-resolver ile ada göre eşlenir; güncelleme açık.
                 'MarkaGuncelle' => true,
                 'OnYaziGuncelle' => true,
                 'ResimOlmayanlaraResimEkle' => true,
