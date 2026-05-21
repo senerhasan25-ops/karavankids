@@ -9,6 +9,8 @@ class ApiCredential extends Model
     protected $fillable = [
         'store_key',
         'endpoint_url',
+        'wsdl_path_product',
+        'wsdl_path_order',
         'username',
         'password',
         'is_active',

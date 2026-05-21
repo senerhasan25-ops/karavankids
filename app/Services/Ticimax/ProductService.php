@@ -20,6 +20,10 @@ class ProductService
         return $this->client;
     }
 
+    /**
+     * SelectUrun çağrısı — filtreli ürün listesi döner.
+     * Ticimax'in gerçek imzası: SelectUrun(UyeKodu, UyeSifre, f: WebUrunFiltre).
+     */
     public function getNewProducts(?Carbon $since = null, int $page = 1, int $perPage = 50): array
     {
         $params = $this->client->getAuth() + [
@@ -37,11 +41,23 @@ class ProductService
         return $this->normalizeList($resp, $this->method('select'));
     }
 
+    /**
+     * Barkoda göre tek ürün. SelectUrun'a Barkod filtresi vererek arıyoruz
+     * (Ticimax'te ayrı GetUrunByBarkod yok).
+     */
     public function getProductByBarcode(string $barcode): ?array
     {
-        $params = $this->client->getAuth() + ['Barkod' => $barcode];
-        $resp = $this->client->call('product', $this->method('get_by_barcode'), $params);
-        return $this->normalizeOne($resp);
+        $params = $this->client->getAuth() + [
+            'f' => [
+                'Aktif' => -1,
+                'Barkod' => $barcode,
+                'Sayfa' => 1,
+                'SayfadakiUrunSayisi' => 1,
+            ],
+        ];
+        $resp = $this->client->call('product', $this->method('select'), $params);
+        $list = $this->normalizeList($resp, $this->method('select'));
+        return $list[0] ?? null;
     }
 
     public function createProduct(array $payload): array
@@ -58,25 +74,36 @@ class ProductService
         return $this->normalizeOne($resp) ?? [];
     }
 
+    /**
+     * Stok ve fiyat güncellemesi. Ticimax'te tek call yok — iki ayrı SOAP çağrısı.
+     * Hata olursa exception fırlatır (her ikisi de bağımsız).
+     */
     public function updateStockAndPrice(string $productId, int $stock, float $price): array
     {
-        $params = $this->client->getAuth() + [
+        $auth = $this->client->getAuth();
+
+        $stockResp = $this->client->call('product', $this->method('update_stock'), $auth + [
             'urunId' => $productId,
             'StokAdedi' => $stock,
+        ]);
+
+        $priceResp = $this->client->call('product', $this->method('update_price'), $auth + [
+            'urunId' => $productId,
             'SatisFiyati' => $price,
+        ]);
+
+        return [
+            'stock' => $this->normalizeOne($stockResp),
+            'price' => $this->normalizeOne($priceResp),
         ];
-        $resp = $this->client->call('product', $this->method('update_stock_price'), $params);
-        return $this->normalizeOne($resp) ?? [];
     }
 
+    /**
+     * Ticimax'te ayrı SetUrunAktif yok — SaveUrun ile Aktif alanı güncellenir.
+     */
     public function setActive(string $productId, bool $active): array
     {
-        $params = $this->client->getAuth() + [
-            'urunId' => $productId,
-            'Aktif' => $active,
-        ];
-        $resp = $this->client->call('product', $this->method('set_active'), $params);
-        return $this->normalizeOne($resp) ?? [];
+        return $this->updateProduct($productId, ['Aktif' => $active]);
     }
 
     protected function method(string $key): string
@@ -96,8 +123,12 @@ class ProductService
         if (! is_array($resp)) {
             return [];
         }
+        // Ticimax çoğu liste için tek elemanı obje, çoklu elemanları array döner.
+        // Wrapper olarak Urun anahtarı kullanır.
         if (isset($resp['Urun'])) {
             $resp = is_array($resp['Urun']) && array_is_list($resp['Urun']) ? $resp['Urun'] : [$resp['Urun']];
+        } elseif (! array_is_list($resp)) {
+            $resp = [$resp];
         }
         return array_map(fn ($r) => $this->toArray($r), $resp);
     }

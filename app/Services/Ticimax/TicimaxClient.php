@@ -46,12 +46,19 @@ class TicimaxClient
             return $this->clients[$service];
         }
 
-        $wsdlPath = config("ticimax.wsdl_paths.{$service}");
+        // Önce credential'ın kendi override'ına bak; yoksa config default'una düş.
+        $credPathKey = "wsdl_path_{$service}";
+        $wsdlPath = $this->credential->{$credPathKey} ?: config("ticimax.wsdl_paths.{$service}");
         if (! $wsdlPath) {
             throw new Exception("Unknown Ticimax service: {$service}");
         }
 
-        $url = rtrim($this->credential->endpoint_url, '/') . $wsdlPath;
+        // wsdlPath bir tam URL ise (http ile başlıyorsa) doğrudan kullan; yoksa endpoint'in ardına ekle.
+        if (preg_match('#^https?://#i', $wsdlPath)) {
+            $url = $wsdlPath;
+        } else {
+            $url = rtrim($this->credential->endpoint_url, '/') . '/' . ltrim($wsdlPath, '/');
+        }
 
         try {
             $this->clients[$service] = new SoapClient($url, [

@@ -13,21 +13,23 @@ return [
     ],
 
     /*
-    | WSDL'den doğrulanması gereken method isimleri.
-    | Ticimax sürümleri arasında farklılık olabilir; gerçek WSDL'e bakıp burayı düzeltmek yeterli.
+    | Gerçek Ticimax WSDL'inden doğrulanmış method isimleri (digitalsupport.ticimaxtest.com).
     */
     'methods' => [
         'product' => [
-            'select' => env('TICIMAX_METHOD_SELECT_URUNLER', 'SelectUrunler'),
-            'get_by_barcode' => env('TICIMAX_METHOD_GET_URUN_BY_BARKOD', 'GetUrunByBarkod'),
-            'save' => env('TICIMAX_METHOD_SAVE_URUN', 'SaveUrun'),
-            'update_stock_price' => env('TICIMAX_METHOD_SET_STOK_FIYAT', 'SetUrunStokFiyat'),
-            'set_active' => env('TICIMAX_METHOD_SET_URUN_AKTIF', 'SetUrunAktif'),
+            'select' => 'SelectUrun',
+            'select_stock_price' => 'SelectUrunStokFiyat',
+            'save' => 'SaveUrun',
+            'update_stock' => 'StokAdediGuncelle',
+            'update_price' => 'UpdateUrunFiyat',
+            'save_variant' => 'SaveVaryasyon',
+            'select_variant' => 'SelectVaryasyon',
         ],
         'order' => [
-            'select' => env('TICIMAX_METHOD_SELECT_SIPARISLER', 'SelectSiparisler'),
-            'save' => env('TICIMAX_METHOD_SAVE_SIPARIS', 'SaveSiparis'),
-            'mark_note' => env('TICIMAX_METHOD_SET_ADMIN_NOTU', 'SetSiparisAdminNotu'),
+            'select' => 'SelectSiparis',
+            'save' => 'SaveSiparis',
+            'mark_transferred' => 'SetSiparisAktarildi',
+            'set_status' => 'SetSiparisDurum',
         ],
     ],
 ];
