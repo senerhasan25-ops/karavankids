@@ -5,10 +5,16 @@
 ## Hızlı Başlangıç (Dev)
 
 ```powershell
-cd C:\Users\hasan\karavankids-sync
+git clone https://github.com/senerhasan25-ops/karavankids.git
+cd karavankids
 composer install
+copy .env.example .env
+php artisan key:generate
 php artisan migrate --seed
 npm install && npm run build
+# Auto-push hook (her commit sonrası git push otomatik):
+powershell -ExecutionPolicy Bypass -File scripts\install-hooks.ps1
+# Linux/Mac: sh scripts/install-hooks.sh
 php artisan serve
 # Ayrı terminalde:
 php artisan queue:work

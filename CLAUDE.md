@@ -142,15 +142,18 @@ Ana mağazada sipariş `SaveSiparis` ile oluşturulunca Ticimax stoğu **kendi i
 - **Laragon** (https://laragon.org) — MySQL için (veya MySQL Community Installer)
 - **Composer Setup** (https://getcomposer.org/Composer-Setup.exe)
 
-### Kurulum Adımları
+### Kurulum Adımları (clone sonrası)
 ```powershell
-cd C:\Users\hasan\karavankids-sync
-composer create-project laravel/laravel . "^11.0"
-composer require livewire/livewire laravel/breeze
-php artisan breeze:install blade
+git clone https://github.com/senerhasan25-ops/karavankids.git
+cd karavankids
+composer install
 npm install && npm run build
-# .env'de DB ayarlarını yap
-php artisan migrate
+copy .env.example .env
+php artisan key:generate
+php artisan migrate --seed
+# Auto-push hook'u kur (her commit sonrası otomatik git push):
+powershell -ExecutionPolicy Bypass -File scripts\install-hooks.ps1
+# Linux/Mac için: sh scripts/install-hooks.sh
 php artisan serve
 # Ayrı terminal: php artisan queue:work
 ```
