@@ -7,6 +7,14 @@
 
         <title>{{ config('app.name', 'Laravel') }}</title>
 
+        <script>
+            (function () {
+                const mode = localStorage.getItem('theme') || 'system';
+                const isDark = mode === 'dark' || (mode === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+                if (isDark) document.documentElement.classList.add('dark');
+            })();
+        </script>
+
         <!-- Fonts -->
         <link rel="preconnect" href="https://fonts.bunny.net">
         <link href="https://fonts.bunny.net/css?family=figtree:400,500,600&display=swap" rel="stylesheet" />

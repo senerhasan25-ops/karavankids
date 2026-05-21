@@ -6,7 +6,7 @@
     <div class="py-8">
         <div class="max-w-7xl mx-auto sm:px-6 lg:px-8 space-y-4">
             {{-- Last 24h summary cards --}}
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-4">
                     <div class="text-xs uppercase text-gray-500">Son 24 Saat — Toplam İş</div>
                     <div class="text-2xl font-semibold text-gray-900 dark:text-gray-100 mt-1">{{ $jobs24h }}</div>
@@ -26,7 +26,7 @@
             </div>
 
             <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
-                <div class="grid grid-cols-1 md:grid-cols-5 gap-4 mb-4">
+                <div class="grid grid-cols-1 sm:grid-cols-5 gap-4 mb-4">
                     <select wire:model.live="typeFilter"
                             class="rounded-md border-gray-300 dark:bg-gray-900 dark:border-gray-700 dark:text-gray-200">
                         <option value="">Tüm Tipler</option>

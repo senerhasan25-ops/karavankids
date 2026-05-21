@@ -13,7 +13,7 @@
 
             <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
                 {{-- Filters --}}
-                <div class="grid grid-cols-1 md:grid-cols-5 gap-3 mb-4">
+                <div class="grid grid-cols-1 sm:grid-cols-5 gap-3 mb-4">
                     <select wire:model.live="statusFilter"
                             class="rounded-md border-gray-300 dark:bg-gray-900 dark:border-gray-700 dark:text-gray-200">
                         <option value="">Tüm durumlar</option>
