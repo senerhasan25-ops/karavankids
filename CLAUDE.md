@@ -20,7 +20,7 @@ Müşterimiz **Karavankids** (oyuncak satan e-ticaret + IT danışmanlığı) ik
   - **Görseller:** ana görsel + galeri (URL referansı, re-upload yok)
   - **Varyasyonlar:** renk, beden vb. alt ürünler tam aktarılır
   - **SEO:** URL, meta title, meta description
-- **Eşleştirme anahtarı:** Barkod (her iki mağazada da unique kabul edilir).
+- **Eşleştirme anahtarı:** `TedarikciKodu` (her iki mağazada da Ticimax-native upsert anahtarı; format: `SUP|{anaUrunId}|{stokKodu}` UrunKarti seviyesinde, varyasyonlara `|renk|beden` ekiyle). Barkod artık eşleştirme için kullanılmıyor.
 
 ### 2.2 Stok & Fiyat Güncellemesi (Ana → Bayi)
 - Mevcut eşleşmiş ürünlerde **stok** ve **fiyat** ana mağazadan bayi mağazasına itilir.
@@ -59,8 +59,12 @@ Müşterimiz **Karavankids** (oyuncak satan e-ticaret + IT danışmanlığı) ik
 users                    # Breeze default
 api_credentials          # store_key (ana|bayi), endpoint_url, username, password (encrypted), is_active
 sync_settings            # key, value (interval_minutes, otomatik_aktif, last_run_at vb.)
-product_mappings         # barcode UNIQUE, ana_product_id, bayi_product_id, last_synced_at,
-                         # last_price, last_stock, status (synced|pending|error), last_error
+product_mappings         # YALNIZCA AUDIT — eşleştirme için artık kullanılmıyor!
+                         # barcode UNIQUE (ya barkod ya da TedarikciKodu fallback),
+                         # ana_product_id, bayi_product_id (null olabilir),
+                         # last_synced_at, last_price, last_stock,
+                         # status (synced|pending|error), last_error.
+                         # Sadece Dashboard sayaçları ve sync geçmişi için tutulur.
 sync_jobs                # type (product_create|stock_price_update|order_pull), status,
                          # started_at, finished_at, total, success_count, error_count
 sync_logs                # job_id FK, barcode, action, direction, status, message, created_at
@@ -69,8 +73,9 @@ order_transfers          # bayi_order_id UNIQUE, ana_order_id, status (pending|t
 ```
 
 **İdempotency anahtarları:**
-- `product_mappings.barcode` UNIQUE → ürün aktarımı tekrar güvenli
-- `order_transfers.bayi_order_id` UNIQUE → sipariş aktarımı tekrar güvenli
+- **Ürün aktarımı:** `TedarikciKodu` (Ticimax-native upsert, lokal kayıt gerekmez). `SaveUrun` çağrısında `ukAyar.TedarikciKodunaGoreGuncelle = true` flag'i ile Ticimax mevcudu günceller, yoksa yeni oluşturur.
+- **Sipariş aktarımı:** `order_transfers.bayi_order_id` UNIQUE → tekrar güvenli (lokal tablo).
+- **Sipariş satırı eşleştirme:** Her satırın `StokKodu`'su sipariş aktarımı sırasında ana mağazada `SelectUrun(f.StokKodu)` ile **runtime** lookup → ilk varyasyonun `ID`'si ana sipariş line'ında `UrunID` olarak yazılır. Lokal mapping tablosu kullanılmaz.
 
 ## 5. Mimari (Klasör Yapısı)
 
@@ -104,17 +109,22 @@ routes/web.php
 
 ## 6. Kilit Akış Notları (AI'ların ENİYİ bilmesi gereken)
 
-### 6.1 Ürün Aktarımı İdempotency
-Yeni ürün oluşturmadan önce bayi'de `GetUrunByBarkod` ile kontrol edilir. Varsa sadece `product_mappings` kaydı yazılır, `SaveUrun` çağrılmaz. Bu sayede:
-- İlk kez var olan ürünler eşleştirilir
-- Manuel müdahaleyle eklenmiş ürünler bozulmaz
-- Tekrar çalıştırma güvenli
+### 6.1 Ürün Aktarımı İdempotency (Ticimax-native upsert)
+Lokal "varsa atla" kontrolü YOK. Bunun yerine:
+1. Ana üründen `TedarikciKodu = SUP|{anaId}|{stokKodu}` üretilir (Mapper).
+2. `SaveUrun` çağrılırken `ukAyar.TedarikciKodunaGoreGuncelle = true` ve `vAyar.TedarikciKodunaGoreGuncelle = true` flag'leri set edilir.
+3. Ticimax aynı TedarikciKodu'lu UrunKarti/Varyasyon varsa **üzerine yazar**, yoksa **yeni oluşturur**.
+4. Tekrar çalıştırma güvenli — aynı kodu her seferinde aynı şekilde üretiyoruz.
+
+Bu yaklaşım `siparis_aktar.py`/`urun_aktar.py` çalışan örneğinin birebir port'u (`C:\ticibot`).
 
 ### 6.2 Görseller
 Ticimax `SaveUrun` çağrısında resimler URL listesi olarak gönderilir. **Ana mağaza CDN URL'leri doğrudan bayi'ye iletilir** — dosya indirme/yeniden yükleme yok. Opsiyonel HEAD kontrolü (URL 200 dönüyor mu) eklenebilir.
 
 ### 6.3 Varyasyonlar
-Ana ürünün `Varyasyonlar` koleksiyonu Mapper'da bayi formatına çevrilir. **Her varyasyonun barkodu kendi `product_mappings` satırına yazılır.** Yani 1 ürün + 5 varyasyon = 6 mapping kaydı (ana + her varyasyon).
+Ana ürünün `Varyasyonlar` koleksiyonu Mapper'da bayi formatına çevrilir. Her varyasyonun `TedarikciKodu`'su parent ürünün koduna `|renk|beden` eklenerek üretilir (örn. `SUP|555|ABC|Kırmızı|L`). Ticimax bu kodla varyasyon-seviyesinde upsert yapar.
+
+`product_mappings` tablosuna varyasyon başına ayrı kayıt yazılmaz — sadece UrunKarti seviyesinde audit kaydı tutulur.
 
 ### 6.4 Stok Düşmesi
 Ana mağazada sipariş `SaveSiparis` ile oluşturulunca Ticimax stoğu **kendi içinde** düşürür. Bizim ayrıca `updateStockAndPrice` çağırmamıza gerek yok. Bir sonraki sync döngüsünde yeni stok zaten bayi'ye iter.
