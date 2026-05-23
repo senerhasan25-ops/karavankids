@@ -33,8 +33,13 @@
                 </div>
             </div>
 
+            <!-- Queue Control (her sayfada görünür) -->
+            <div class="hidden sm:flex sm:items-center sm:ms-6">
+                @livewire('queue-control')
+            </div>
+
             <!-- Theme Switcher -->
-            <div class="hidden sm:flex sm:items-center sm:ms-6"
+            <div class="hidden sm:flex sm:items-center sm:ms-3"
                  x-data="{
                     theme: localStorage.getItem('theme') || 'system',
                     set(m) { this.theme = m; window.__setTheme(m); },
