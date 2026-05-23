@@ -118,6 +118,40 @@ class ProductService
     }
 
     /**
+     * Bayi'nin kategorilerini ID listesi olarak getir; SaveUrun'da yeni urun yaratmak icin
+     * en az 1 kategori zorunlu (bos Kategoriler -> SaveUrunResult=0 sessiz red).
+     * "Kategorisiz" varsa onu, yoksa ilk kategoriyi default kabul eder.
+     */
+    private ?int $defaultCategoryCache = null;
+
+    public function getDefaultCategoryId(): int
+    {
+        if ($this->defaultCategoryCache !== null) {
+            return $this->defaultCategoryCache;
+        }
+        try {
+            $resp = $this->client->call('product', 'SelectKategori', [
+                'UyeKodu' => $this->client->getUyeKodu(),
+            ]);
+            $list = $resp->SelectKategoriResult->Kategori ?? [];
+            if (! is_array($list)) {
+                $list = [$list];
+            }
+            // Once "Kategorisiz" / "Diger" gibi default arayan, sonra ilk geceni al
+            foreach ($list as $kat) {
+                $name = mb_strtolower(trim((string) ($kat->Tanim ?? '')));
+                if (in_array($name, ['kategorisiz', 'diğer', 'diger', 'genel'])) {
+                    return $this->defaultCategoryCache = (int) ($kat->ID ?? 0);
+                }
+            }
+            $first = $list[0] ?? null;
+            return $this->defaultCategoryCache = (int) ($first->ID ?? 0);
+        } catch (\Throwable) {
+            return $this->defaultCategoryCache = 0;
+        }
+    }
+
+    /**
      * Marka adına göre ID bul; yoksa SaveMarka ile yeni oluştur ve ID döner.
      */
     public function findOrCreateBrandId(string $name): int

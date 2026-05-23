@@ -54,7 +54,8 @@ class ProductMapperTest extends TestCase
         $this->assertSame('Özel SEO Başlık', $payload['SeoSayfaBaslik']);
         $this->assertSame('Özel Meta', $payload['SeoSayfaAciklama']);
         $this->assertSame('oyuncak,test', $payload['SeoAnahtarKelime']);
-        $this->assertSame('/oyuncak/test', $payload['UrunSayfaAdresi']);
+        // UrunSayfaAdresi artık her zaman boş — Ticimax kendi üretsin (slug çakışmalarını önlemek için)
+        $this->assertSame('', $payload['UrunSayfaAdresi']);
     }
 
     public function test_seo_baslik_yoksa_urun_adi_kullanilir(): void

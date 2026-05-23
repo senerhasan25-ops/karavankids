@@ -29,6 +29,9 @@ class ProductMapper
     /** @var callable|null  Tedarikçi (ana ID) → bayi tedarikçi ID'si çözümleyici */
     protected $supplierResolver = null;
 
+    /** Bayi'nin default kategori ID'si — Kategoriler boş kalmasın diye fallback */
+    protected int $defaultCategoryId = 0;
+
     public function setBrandResolver(?callable $resolver): void
     {
         $this->brandResolver = $resolver;
@@ -37,6 +40,11 @@ class ProductMapper
     public function setSupplierResolver(?callable $resolver): void
     {
         $this->supplierResolver = $resolver;
+    }
+
+    public function setDefaultCategoryId(int $id): void
+    {
+        $this->defaultCategoryId = $id;
     }
 
     // ============================================================
@@ -64,8 +72,8 @@ class ProductMapper
             'AramaAnahtarKelime' => $this->sanitizeText((string) ($ana['AramaAnahtarKelime'] ?? '')),
 
             'AnaKategori' => (string) ($ana['AnaKategori'] ?? ''),
-            'AnaKategoriID' => 0,
-            'Kategoriler' => [],
+            'AnaKategoriID' => $this->defaultCategoryId, // 0 ise Ticimax 'kategori bayi'de yok' diye sessizce reddediyor
+            'Kategoriler' => $this->defaultCategoryId > 0 ? ['int' => [$this->defaultCategoryId]] : [],
 
             'Marka' => (string) ($ana['Marka'] ?? ''),
             'MarkaID' => $this->resolveBrandId((string) ($ana['Marka'] ?? '')),
@@ -73,7 +81,8 @@ class ProductMapper
             'SeoSayfaBaslik' => $this->sanitizeText((string) ($ana['SeoSayfaBaslik'] ?? $ana['UrunAdi'] ?? '')),
             'SeoSayfaAciklama' => $this->sanitizeText((string) ($ana['SeoSayfaAciklama'] ?? ($ana['OnYazi'] ?? ''))),
             'SeoAnahtarKelime' => $this->sanitizeText((string) ($ana['SeoAnahtarKelime'] ?? '')),
-            'UrunSayfaAdresi' => (string) ($ana['UrunSayfaAdresi'] ?? ''),
+            // Ana'nın slug'ı bayi'de çakışabilir; boş bırak, Ticimax üretsin
+            'UrunSayfaAdresi' => '',
 
             'ListedeGoster' => (bool) ($ana['ListedeGoster'] ?? true),
             'Vitrin' => (bool) ($ana['Vitrin'] ?? false),

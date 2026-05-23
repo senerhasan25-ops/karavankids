@@ -50,6 +50,8 @@ class SyncNewProductsJob implements ShouldQueue
 
             $defaultBrandId = $bayi->getDefaultBrandId();
             $defaultSupplierId = $bayi->getDefaultSupplierId();
+            $defaultCategoryId = $bayi->getDefaultCategoryId();
+            $mapper->setDefaultCategoryId($defaultCategoryId);
 
             $mapper->setBrandResolver(function (string $name) use ($bayi, $defaultBrandId) {
                 $id = $bayi->findOrCreateBrandId($name);
