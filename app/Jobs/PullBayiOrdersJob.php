@@ -6,10 +6,12 @@ use App\Models\OrderTransfer;
 use App\Models\SyncJob;
 use App\Models\SyncLog;
 use App\Models\SyncSetting;
+use App\Livewire\QueueControl;
 use App\Services\Ticimax\OrderService;
 use App\Services\Ticimax\ProductMapper;
 use App\Services\Ticimax\ProductService;
 use Illuminate\Bus\Queueable;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
@@ -61,13 +63,22 @@ class PullBayiOrdersJob implements ShouldQueue
             $page = 1;
             $perPage = (int) config('ticimax.batch_size', 50);
 
+            $stoppedEarly = false;
             while (true) {
+                if (Cache::get(QueueControl::STOP_FLAG_KEY, false)) {
+                    $stoppedEarly = true;
+                    break;
+                }
                 $orders = $bayi->getNewOrders($since, $page, $perPage);
                 if (empty($orders)) {
                     break;
                 }
 
                 foreach ($orders as $o) {
+                    if (Cache::get(QueueControl::STOP_FLAG_KEY, false)) {
+                        $stoppedEarly = true;
+                        break 2;
+                    }
                     $job->increment('total');
                     $bayiOrderId = (string) ($o['ID'] ?? $o['SiparisID'] ?? '');
                     if (! $bayiOrderId) {
@@ -145,8 +156,14 @@ class PullBayiOrdersJob implements ShouldQueue
                 $page++;
             }
 
-            SyncSetting::put('last_order_pull_at', now()->toDateTimeString());
-            $job->update(['status' => 'completed', 'finished_at' => now()]);
+            if (! $stoppedEarly) {
+                SyncSetting::put('last_order_pull_at', now()->toDateTimeString());
+            }
+            $job->update([
+                'status' => $stoppedEarly ? 'failed' : 'completed',
+                'finished_at' => now(),
+                'last_error' => $stoppedEarly ? 'Kullanıcı tarafından manuel durduruldu' : null,
+            ]);
         } catch (Throwable $e) {
             $job->update([
                 'status' => 'failed',

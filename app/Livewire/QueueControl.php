@@ -4,6 +4,7 @@ namespace App\Livewire;
 
 use App\Models\SyncJob;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\On;
 use Livewire\Component;
@@ -19,8 +20,12 @@ use Livewire\Component;
  */
 class QueueControl extends Component
 {
+    /** Cache key — job'lar bu flag'i her ürün/sipariş arasında okur */
+    public const STOP_FLAG_KEY = 'sync_stop_requested';
+
     public int $pendingJobs = 0;
     public int $runningSyncJobs = 0;
+    public bool $stopRequested = false;
     public ?string $statusMsg = null;
 
     public function mount(): void
@@ -31,13 +36,13 @@ class QueueControl extends Component
     #[On('queue-changed')]
     public function refreshCounts(): void
     {
-        // jobs tablosu (database queue driver) — yoksa 0
         try {
             $this->pendingJobs = (int) DB::table('jobs')->count();
         } catch (\Throwable) {
             $this->pendingJobs = 0;
         }
         $this->runningSyncJobs = (int) SyncJob::where('status', 'running')->count();
+        $this->stopRequested = (bool) Cache::get(self::STOP_FLAG_KEY, false);
     }
 
     /**
@@ -46,7 +51,11 @@ class QueueControl extends Component
      */
     public function stopAll(): void
     {
-        // 1) Bekleyen job'ları temizle
+        // 1) IN-JOB STOP FLAG — uzun süren job'lar (SyncNewProductsJob 2469 ürün dönerken)
+        //    her ürün arasında bu flag'i kontrol eder, true ise nazikçe çıkar.
+        Cache::put(self::STOP_FLAG_KEY, true, now()->addHour());
+
+        // 2) Bekleyen job'ları sil (henüz alınmamış olanlar)
         $cleared = 0;
         try {
             $cleared = (int) DB::table('jobs')->count();
@@ -54,20 +63,28 @@ class QueueControl extends Component
         } catch (\Throwable) {
         }
 
-        // 2) Failed_jobs tablosundakileri de istersek temizleyebiliriz — yapmıyoruz, audit kalsın
-
-        // 3) Worker'lara graceful restart sinyali (cache flag) — bir sonraki iterasyonda exit eder
+        // 3) Worker'a graceful restart sinyali (job arası kontrol noktasında çıkar)
         Artisan::call('queue:restart');
 
-        // 4) Çalışan SyncJob satırlarını manuel kapat
-        $cancelled = SyncJob::where('status', 'running')->update([
-            'status' => 'failed',
-            'finished_at' => now(),
-            'last_error' => 'Kullanıcı tarafından manuel durduruldu',
+        // 4) DB'deki "running" SyncJob satırlarını işaretle — UI'da tutarlı görünsün
+        //    (Job kendisi cancelled status yazacak ama bu görsel için anında değişiklik)
+        SyncJob::where('status', 'running')->update([
+            'last_error' => 'Kullanıcı tarafından durdurma sinyali yollandı...',
         ]);
 
         $this->refreshCounts();
-        $this->statusMsg = "Kuyruk durduruldu: {$cleared} bekleyen iş silindi, {$cancelled} çalışan iş iptal edildi.";
+        $this->statusMsg = "Sinyal yollandı. {$cleared} bekleyen iş silindi. Çalışan job(lar) bir sonraki kontrol noktasında (her ürün/sipariş arasında) nazikçe çıkacak.";
+    }
+
+    /**
+     * Stop flag'ini sıfırla — yeni sync başlatmadan önce çağrılmalı, yoksa job hemen çıkar.
+     * runNow tarafından otomatik temizlenir.
+     */
+    public function clearStopFlag(): void
+    {
+        Cache::forget(self::STOP_FLAG_KEY);
+        $this->refreshCounts();
+        $this->statusMsg = 'Durdur flag temizlendi — yeni sync başlatılabilir.';
     }
 
     public function render()

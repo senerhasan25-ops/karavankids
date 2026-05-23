@@ -5,7 +5,9 @@ namespace App\Livewire;
 use App\Jobs\PullBayiOrdersJob;
 use App\Jobs\SyncNewProductsJob;
 use App\Jobs\SyncStockPriceJob;
+use App\Livewire\QueueControl;
 use App\Models\SyncSetting;
+use Illuminate\Support\Facades\Cache;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Component;
@@ -47,6 +49,10 @@ class SyncSettings extends Component
      */
     public function runNow(string $what = 'all'): void
     {
+        // Önceki "stop" flag'i kalmış olabilir — yeni sync başlatmadan önce temizle,
+        // yoksa job hemen "stop signal var" görüp anında çıkar.
+        Cache::forget(QueueControl::STOP_FLAG_KEY);
+
         $dispatched = [];
 
         if ($what === 'all' || $what === 'products') {

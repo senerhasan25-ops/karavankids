@@ -5,9 +5,11 @@ namespace App\Jobs;
 use App\Models\ProductMapping;
 use App\Models\SyncJob;
 use App\Models\SyncLog;
+use App\Livewire\QueueControl;
 use App\Services\Ticimax\ProductMapper;
 use App\Services\Ticimax\ProductService;
 use Illuminate\Bus\Queueable;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
@@ -69,13 +71,23 @@ class SyncNewProductsJob implements ShouldQueue
             $page = 1;
             $perPage = (int) config('ticimax.batch_size', 50);
 
+            $stoppedEarly = false;
             while (true) {
+                if (Cache::get(QueueControl::STOP_FLAG_KEY, false)) {
+                    $stoppedEarly = true;
+                    break;
+                }
                 $products = $ana->getNewProducts($since, $page, $perPage);
                 if (empty($products)) {
                     break;
                 }
 
                 foreach ($products as $urunKarti) {
+                    // Her ürün arasında durdur sinyalini kontrol et — nazikçe çık
+                    if (Cache::get(QueueControl::STOP_FLAG_KEY, false)) {
+                        $stoppedEarly = true;
+                        break 2;
+                    }
                     $job->increment('total');
                     $this->processOne($job, $urunKarti, $bayi, $mapper);
                 }
@@ -86,7 +98,11 @@ class SyncNewProductsJob implements ShouldQueue
                 $page++;
             }
 
-            $job->update(['status' => 'completed', 'finished_at' => now()]);
+            $job->update([
+                'status' => $stoppedEarly ? 'failed' : 'completed',
+                'finished_at' => now(),
+                'last_error' => $stoppedEarly ? 'Kullanıcı tarafından manuel durduruldu' : null,
+            ]);
         } catch (Throwable $e) {
             $job->update([
                 'status' => 'failed',
