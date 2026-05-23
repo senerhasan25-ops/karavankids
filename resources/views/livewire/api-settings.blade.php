@@ -45,15 +45,22 @@
                                        placeholder="/Servis/SiparisServis.svc?wsdl"
                                        class="mt-1 block w-full rounded-md border-gray-300 dark:bg-gray-900 dark:border-gray-700 dark:text-gray-200 shadow-sm font-mono text-sm">
                             </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Kullanıcı Adı (Üye Kodu)</label>
+                            <div class="md:col-span-2">
+                                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Web Servis Yetki Kodu / Üye Kodu</label>
                                 <input type="text" wire:model="{{ $store }}_username"
-                                       class="mt-1 block w-full rounded-md border-gray-300 dark:bg-gray-900 dark:border-gray-700 dark:text-gray-200 shadow-sm">
+                                       class="mt-1 block w-full rounded-md border-gray-300 dark:bg-gray-900 dark:border-gray-700 dark:text-gray-200 shadow-sm font-mono text-sm">
+                                <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                    Yeni Ticimax B2B kurulumlarında bu tek alan yeterli (Web Servis Yetki Kodu).
+                                    Eski Üye Kodu/Şifre çifti kullanan kurulumlar için ayrıca aşağıdaki şifre alanını doldur.
+                                </p>
                                 @error("{$store}_username")<span class="text-red-600 text-xs">{{ $message }}</span>@enderror
                             </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Şifre</label>
+                            <div class="md:col-span-2">
+                                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                                    Şifre <span class="text-xs text-gray-500">(opsiyonel — yeni kurulumlarda boş bırak)</span>
+                                </label>
                                 <input type="password" wire:model="{{ $store }}_password"
+                                       placeholder="Yeni Ticimax'ta boş bırakın"
                                        class="mt-1 block w-full rounded-md border-gray-300 dark:bg-gray-900 dark:border-gray-700 dark:text-gray-200 shadow-sm">
                                 @error("{$store}_password")<span class="text-red-600 text-xs">{{ $message }}</span>@enderror
                             </div>

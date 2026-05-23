@@ -34,9 +34,11 @@ class TicimaxClient
 
     public function getAuth(): array
     {
+        // Yeni Ticimax B2B: UyeKodu = Web Servis Yetki Kodu, UyeSifre bos string.
+        // Eski kurulumlar: ikisi de dolu (username/password ciftleri).
         return [
-            'UyeKodu' => $this->credential->username,
-            'UyeSifre' => $this->credential->password,
+            'UyeKodu' => (string) $this->credential->username,
+            'UyeSifre' => (string) $this->credential->password,
         ];
     }
 

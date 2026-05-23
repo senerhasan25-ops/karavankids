@@ -63,12 +63,12 @@ class ApiSettings extends Component
             'ana_wsdl_product' => ['nullable', 'string'],
             'ana_wsdl_order' => ['nullable', 'string'],
             'ana_username' => ['required', 'string'],
-            'ana_password' => ['required', 'string'],
+            'ana_password' => ['nullable', 'string'],
             'bayi_endpoint' => ['required', 'url'],
             'bayi_wsdl_product' => ['nullable', 'string'],
             'bayi_wsdl_order' => ['nullable', 'string'],
             'bayi_username' => ['required', 'string'],
-            'bayi_password' => ['required', 'string'],
+            'bayi_password' => ['nullable', 'string'],
         ];
     }
 
