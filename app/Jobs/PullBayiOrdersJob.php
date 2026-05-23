@@ -82,10 +82,25 @@ class PullBayiOrdersJob implements ShouldQueue
                     $transfer = $existing ?? new OrderTransfer(['bayi_order_id' => $bayiOrderId]);
                     $transfer->payload_snapshot = $o;
 
+                    // Sipariş üzerinden context bilgisi
+                    $musteri = (string) ($o['AdiSoyadi'] ?? $o['UyeAdi'] ?? '');
+                    $ilkUrunStok = (string) ($o['Urunler'][0]['StokKodu']
+                        ?? $o['Urunler']['WebSiparisUrun'][0]['StokKodu']
+                        ?? $o['Urunler']['WebSiparisUrun']['StokKodu']
+                        ?? '');
+                    $context = [
+                        'barcode' => $bayiOrderId,
+                        'stok_kodu' => $ilkUrunStok ?: null,
+                        'urun_adi' => $musteri ?: null, // sipariş için müşteri adını burada gösterelim
+                        'ana_id' => null,
+                        'bayi_id' => $bayiOrderId,
+                    ];
+
                     try {
                         $anaPayload = $mapper->bayiOrderToAnaCreatePayload($o, $resolver);
                         $created = $ana->createOrder($anaPayload);
                         $anaOrderId = (string) ($created['SiparisID'] ?? $created['ID'] ?? $created['SaveSiparisResult'] ?? '');
+                        $context['ana_id'] = $anaOrderId ?: null;
 
                         // CRITICAL: aktarılan durumu önce kaydet — markOrderTransferred patlarsa
                         // yeniden deneme ana'da duplicate oluşturmasın.
@@ -109,14 +124,18 @@ class PullBayiOrdersJob implements ShouldQueue
                             ]);
                         }
 
-                        $this->log($job, $bayiOrderId, 'success', "Ana #{$anaOrderId}");
+                        $this->log($job, $context, 'success', "Ana #{$anaOrderId}");
                     } catch (Throwable $e) {
                         $transfer->fill([
                             'status' => 'failed',
                             'retry_count' => ($transfer->retry_count ?? 0) + 1,
                             'last_error' => $e->getMessage(),
                         ])->save();
-                        $this->log($job, $bayiOrderId, 'error', $e->getMessage());
+                        // Hangi servis patladıysa raw XML'i oradan al
+                        $client = $ana->getClient();
+                        $this->log($job, $context, 'error', $e->getMessage(),
+                            $client->getLastRequestXml(),
+                            $client->getLastResponseXml());
                     }
                 }
 
@@ -138,20 +157,21 @@ class PullBayiOrdersJob implements ShouldQueue
         }
     }
 
-    protected function log(SyncJob $job, string $bayiOrderId, string $status, string $msg): void
+    protected function log(SyncJob $job, array $ctx, string $status, string $msg, ?string $rawRequest = null, ?string $rawResponse = null): void
     {
         if ($status === 'success') {
             $job->increment('success_count');
         } else {
             $job->increment('error_count');
         }
-        SyncLog::create([
+        SyncLog::create(array_merge($ctx, [
             'job_id' => $job->id,
-            'barcode' => $bayiOrderId,
             'action' => 'transfer_order',
             'direction' => 'bayi_to_ana',
             'status' => $status,
             'message' => $msg,
-        ]);
+            'raw_request' => $rawRequest,
+            'raw_response' => $rawResponse,
+        ]));
     }
 }

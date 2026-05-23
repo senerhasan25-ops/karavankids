@@ -13,6 +13,13 @@ class TicimaxClient
     protected ApiCredential $credential;
     protected array $clients = [];
 
+    /** Son SOAP request XML'i (debug için job'lar __getLastRequest() yerine bunu okuyabilir) */
+    protected ?string $lastRequestXml = null;
+    /** Son SOAP response XML'i */
+    protected ?string $lastResponseXml = null;
+    /** Son çağrı bilgisi: service, method, store */
+    protected array $lastCallMeta = [];
+
     public function __construct(string $storeKey)
     {
         $cred = ApiCredential::forStore($storeKey);
@@ -92,12 +99,23 @@ class TicimaxClient
         $attempts = (int) config('ticimax.retry_attempts', 3);
         $delay = (int) config('ticimax.retry_delay_seconds', 5);
 
+        $this->lastCallMeta = ['service' => $service, 'method' => $method, 'store' => $this->credential->store_key];
+
         $last = null;
         for ($i = 1; $i <= $attempts; $i++) {
             try {
                 $client = $this->client($service);
-                return $client->__soapCall($method, [$params]);
+                $result = $client->__soapCall($method, [$params]);
+                // Başarılı çağrıda da raw'ı sakla (audit için)
+                $this->lastRequestXml = $this->maskCredentials((string) $client->__getLastRequest());
+                $this->lastResponseXml = (string) $client->__getLastResponse();
+                return $result;
             } catch (SoapFault $e) {
+                // Hata olsa da raw'ı yakala — job debug için kullanır
+                if (isset($client)) {
+                    $this->lastRequestXml = $this->maskCredentials((string) $client->__getLastRequest());
+                    $this->lastResponseXml = (string) $client->__getLastResponse();
+                }
                 $last = $e;
                 Log::warning("Ticimax SOAP attempt {$i} failed", [
                     'service' => $service,
@@ -122,6 +140,33 @@ class TicimaxClient
             }
         }
         throw new Exception("Ticimax call failed after {$attempts} attempts: " . ($last?->getMessage() ?? 'unknown'), 0, $last);
+    }
+
+    public function getLastRequestXml(): ?string
+    {
+        return $this->lastRequestXml;
+    }
+
+    public function getLastResponseXml(): ?string
+    {
+        return $this->lastResponseXml;
+    }
+
+    public function getLastCallMeta(): array
+    {
+        return $this->lastCallMeta;
+    }
+
+    /**
+     * UyeKodu (auth token) icerikleri loglarda gozukmesin diye maskele.
+     */
+    protected function maskCredentials(string $xml): string
+    {
+        return preg_replace(
+            '#(<[^>]*UyeKodu[^>]*>)([^<]+)(</[^>]*UyeKodu>)#i',
+            '$1***MASKED***$3',
+            $xml
+        ) ?? $xml;
     }
 
     public function testConnection(): array

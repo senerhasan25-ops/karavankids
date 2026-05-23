@@ -22,6 +22,7 @@ class SyncLogs extends Component
     public string $dateTo = '';
 
     public ?int $expandedJobId = null;
+    public ?int $detailLogId = null;
 
     public function updatingTypeFilter(): void
     {
@@ -54,6 +55,16 @@ class SyncLogs extends Component
         $this->expandedJobId = $this->expandedJobId === $jobId ? null : $jobId;
     }
 
+    public function showLogDetail(int $logId): void
+    {
+        $this->detailLogId = $logId;
+    }
+
+    public function closeLogDetail(): void
+    {
+        $this->detailLogId = null;
+    }
+
     public function render()
     {
         $jobs = SyncJob::query()
@@ -73,8 +84,10 @@ class SyncLogs extends Component
         $jobs24h = SyncJob::where('started_at', '>=', $last24h)->count();
         $failedJobs24h = SyncJob::where('status', 'failed')->where('started_at', '>=', $last24h)->count();
 
+        $detailLog = $this->detailLogId ? SyncLog::find($this->detailLogId) : null;
+
         return view('livewire.sync-logs', compact(
-            'jobs', 'expandedLogs', 'errors24h', 'jobs24h', 'failedJobs24h'
+            'jobs', 'expandedLogs', 'errors24h', 'jobs24h', 'failedJobs24h', 'detailLog'
         ));
     }
 }

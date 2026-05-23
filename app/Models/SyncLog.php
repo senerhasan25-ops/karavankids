@@ -10,10 +10,16 @@ class SyncLog extends Model
     protected $fillable = [
         'job_id',
         'barcode',
+        'stok_kodu',
+        'urun_adi',
+        'ana_id',
+        'bayi_id',
         'action',
         'direction',
         'status',
         'message',
+        'raw_request',
+        'raw_response',
     ];
 
     public function job(): BelongsTo

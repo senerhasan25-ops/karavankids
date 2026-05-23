@@ -101,24 +101,29 @@ class SyncNewProductsJob implements ShouldQueue
         $stokKodu = $mapper->resolveStokKodu($urunKarti);
         $tedKodu = $mapper->buildTedarikciKodu((int) $anaUrunId, $stokKodu);
         $primaryBarcode = $this->primaryBarcode($urunKarti);
+        $urunAdi = (string) ($urunKarti['UrunAdi'] ?? '');
+
+        $context = [
+            'barcode' => $primaryBarcode ?: null,
+            'stok_kodu' => $stokKodu ?: null,
+            'urun_adi' => $urunAdi ?: null,
+            'ana_id' => $anaUrunId ?: null,
+        ];
 
         if ($stokKodu === '' && $primaryBarcode === '') {
-            $this->logError($job, null, "Üründe ne StokKodu ne Barkod var (ID={$anaUrunId})");
+            $this->logError($job, $context, "Üründe ne StokKodu ne Barkod var (ID={$anaUrunId})");
             return;
         }
 
         try {
             $payload = $mapper->anaToBayiCreatePayload($urunKarti);
-            // Ticimax-native upsert: TedarikciKodunaGoreGuncelle true ile mevcudu günceller,
-            // yoksa yeni oluşturur. Lokal lookup yok.
             $bayi->createProduct($payload);
 
-            // Audit kaydı (mapping)
             ProductMapping::updateOrCreate(
-                ['barcode' => $primaryBarcode ?: $tedKodu], // benzersizlik için fallback ted kodu
+                ['barcode' => $primaryBarcode ?: $tedKodu],
                 [
                     'ana_product_id' => $anaUrunId,
-                    'bayi_product_id' => null, // artık bilmiyoruz/önemsiyoruz
+                    'bayi_product_id' => null,
                     'last_price' => $this->primaryPrice($urunKarti),
                     'last_stock' => $this->primaryStock($urunKarti),
                     'status' => 'synced',
@@ -127,9 +132,17 @@ class SyncNewProductsJob implements ShouldQueue
                 ]
             );
 
-            $this->logSuccess($job, $primaryBarcode ?: $tedKodu, "TedarikciKodu={$tedKodu}");
+            $this->logSuccess($job, $context, "TedarikciKodu={$tedKodu}");
         } catch (Throwable $e) {
-            $this->logError($job, $primaryBarcode ?: $tedKodu, $e->getMessage());
+            // Ham SOAP XML'i client'tan çek (hata anında ne gönderdik, ne döndü)
+            $client = $bayi->getClient();
+            $this->logError(
+                $job,
+                $context,
+                $e->getMessage(),
+                $client->getLastRequestXml(),
+                $client->getLastResponseXml()
+            );
             ProductMapping::updateOrCreate(
                 ['barcode' => $primaryBarcode ?: $tedKodu],
                 ['ana_product_id' => $anaUrunId, 'status' => 'error', 'last_error' => $e->getMessage()]
@@ -164,29 +177,29 @@ class SyncNewProductsJob implements ShouldQueue
         return is_array($v) ? array_values($v) : [];
     }
 
-    protected function logSuccess(SyncJob $job, ?string $barcode, string $msg): void
+    protected function logSuccess(SyncJob $job, array $ctx, string $msg): void
     {
         $job->increment('success_count');
-        SyncLog::create([
+        SyncLog::create(array_merge($ctx, [
             'job_id' => $job->id,
-            'barcode' => $barcode,
             'action' => 'create_product',
             'direction' => 'ana_to_bayi',
             'status' => 'success',
             'message' => $msg,
-        ]);
+        ]));
     }
 
-    protected function logError(SyncJob $job, ?string $barcode, string $msg): void
+    protected function logError(SyncJob $job, array $ctx, string $msg, ?string $rawRequest = null, ?string $rawResponse = null): void
     {
         $job->increment('error_count');
-        SyncLog::create([
+        SyncLog::create(array_merge($ctx, [
             'job_id' => $job->id,
-            'barcode' => $barcode,
             'action' => 'create_product',
             'direction' => 'ana_to_bayi',
             'status' => 'error',
             'message' => $msg,
-        ]);
+            'raw_request' => $rawRequest,
+            'raw_response' => $rawResponse,
+        ]));
     }
 }
