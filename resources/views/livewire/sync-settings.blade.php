@@ -36,6 +36,36 @@
                     </button>
                 </div>
             </form>
+
+            {{-- Manuel tetik kartı: tek seferlik çalıştırma --}}
+            <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6 mt-6 space-y-4">
+                <div>
+                    <h3 class="text-base font-semibold text-gray-800 dark:text-gray-200">Şimdi Çalıştır</h3>
+                    <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        Otomatik scheduler'ı beklemeden ilgili sync'i hemen kuyruğa alır.
+                        İşlerin ilerlemesini <strong>Loglar</strong> sekmesinden görebilirsin.
+                    </p>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                    <button type="button" wire:click="runNow('all')"
+                            class="px-3 py-2 bg-blue-600 text-white text-sm rounded hover:bg-blue-700">
+                        Hepsini Çalıştır
+                    </button>
+                    <button type="button" wire:click="runNow('products')"
+                            class="px-3 py-2 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 text-sm rounded hover:bg-gray-300 dark:hover:bg-gray-600">
+                        Sadece Ürünler
+                    </button>
+                    <button type="button" wire:click="runNow('stock')"
+                            class="px-3 py-2 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 text-sm rounded hover:bg-gray-300 dark:hover:bg-gray-600">
+                        Sadece Stok/Fiyat
+                    </button>
+                    <button type="button" wire:click="runNow('orders')"
+                            class="px-3 py-2 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 text-sm rounded hover:bg-gray-300 dark:hover:bg-gray-600">
+                        Sadece Siparişler
+                    </button>
+                </div>
+            </div>
         </div>
     </div>
 </div>
