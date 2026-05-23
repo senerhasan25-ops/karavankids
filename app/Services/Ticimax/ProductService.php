@@ -182,6 +182,55 @@ class ProductService
     }
 
     /**
+     * StokKodu ile aktif tek ürünü çek; ilk varyasyonun ID'sini döndürür.
+     * Sipariş aktarımı için kullanılır (siparis_aktar.py:get_target_product_id pattern).
+     *
+     * @return int|null Varyasyon.ID (sipariş line'ında UrunID olarak yazılır), bulunamazsa null
+     */
+    public function getVariantIdByStokKodu(string $stokKodu): ?int
+    {
+        $stokKodu = trim($stokKodu);
+        if ($stokKodu === '') {
+            return null;
+        }
+        $filter = $this->baseFilter() + ['StokKodu' => $stokKodu, 'Aktif' => 1];
+        $params = [
+            'UyeKodu' => $this->client->getUyeKodu(),
+            'f' => $filter,
+            's' => [
+                'BaslangicIndex' => 0,
+                'KayitSayisi' => 1,
+                'KayitSayisinaGoreGetir' => true,
+                'SiralamaDegeri' => 'ID',
+                'SiralamaYonu' => 'ASC',
+            ],
+        ];
+        try {
+            $resp = $this->client->call('product', $this->method('select'), $params);
+        } catch (\Throwable $e) {
+            // Ticimax bayi servisindeki "Value cannot be null (source)" bug'ı = bulunamadı.
+            if (str_contains($e->getMessage(), 'Value cannot be null') && str_contains($e->getMessage(), 'source')) {
+                return null;
+            }
+            throw $e;
+        }
+        $list = $this->normalizeList($resp, $this->method('select'), 'UrunKarti');
+        if (empty($list)) {
+            return null;
+        }
+        $first = $list[0];
+        $varyasyonlar = $first['Varyasyonlar'] ?? [];
+        if (isset($varyasyonlar['Varyasyon'])) {
+            $varyasyonlar = is_array($varyasyonlar['Varyasyon']) && array_is_list($varyasyonlar['Varyasyon'])
+                ? $varyasyonlar['Varyasyon']
+                : [$varyasyonlar['Varyasyon']];
+        }
+        $first = $varyasyonlar[0] ?? null;
+        $id = $first ? (int) ($first['ID'] ?? 0) : 0;
+        return $id > 0 ? $id : null;
+    }
+
+    /**
      * Barkoda göre tek ürün — SelectUrun'a Barkod filtresi verir.
      */
     public function getProductByBarcode(string $barcode): ?array
@@ -390,6 +439,9 @@ class ProductService
                 'OncekiResimleriSil' => false,
                 'Base64Resim' => false,
                 'ResimleriIndirme' => false,
+                // KRITIK: TedarikciKodu eşleşirse Ticimax mevcudu günceller, yoksa yeni oluşturur.
+                // Bizim lokal product_mappings tablosuna olan bağımlılığı bu flag kaldırıyor.
+                'TedarikciKodunaGoreGuncelle' => true,
             ],
             'vAyar' => [
                 'AktifGuncelle' => true,
@@ -405,6 +457,8 @@ class ProductService
                 'StokKoduGuncelle' => true,
                 'UrunKartiAktifGuncelle' => true,
                 'OncekiResimleriSil' => false,
+                // Varyasyon seviyesinde de TedarikciKodu upsert anahtarı.
+                'TedarikciKodunaGoreGuncelle' => true,
             ],
         ];
     }

@@ -3,11 +3,11 @@
 namespace App\Jobs;
 
 use App\Models\OrderTransfer;
-use App\Models\ProductMapping;
 use App\Models\SyncJob;
 use App\Models\SyncLog;
 use App\Services\Ticimax\OrderService;
 use App\Services\Ticimax\ProductMapper;
+use App\Services\Ticimax\ProductService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -41,9 +41,21 @@ class RetryFailedOrderTransferJob implements ShouldQueue
 
             $bayi = OrderService::for('bayi');
             $ana = OrderService::for('ana');
+            $anaProduct = ProductService::for('ana');
             $mapper = new ProductMapper();
 
-            $query->chunkById(50, function ($transfers) use ($job, $bayi, $ana, $mapper) {
+            // StokKodu → ana Varyasyon.ID cache (job içinde)
+            $variantCache = [];
+            $resolver = function (string $stokKodu) use ($anaProduct, &$variantCache): ?int {
+                if (array_key_exists($stokKodu, $variantCache)) {
+                    return $variantCache[$stokKodu];
+                }
+                $id = $anaProduct->getVariantIdByStokKodu($stokKodu);
+                $variantCache[$stokKodu] = $id;
+                return $id;
+            };
+
+            $query->chunkById(50, function ($transfers) use ($job, $bayi, $ana, $mapper, $resolver) {
                 foreach ($transfers as $transfer) {
                     $job->increment('total');
                     $o = $transfer->payload_snapshot ?? [];
@@ -70,16 +82,9 @@ class RetryFailedOrderTransferJob implements ShouldQueue
                             continue;
                         }
 
-                        $barcodes = collect($o['Urunler'] ?? [])->pluck('Barkod')->filter()->unique()->all();
-                        $map = ProductMapping::whereIn('barcode', $barcodes)->pluck('ana_product_id', 'barcode')->all();
-                        $missing = array_diff($barcodes, array_keys($map));
-                        if (! empty($missing)) {
-                            throw new \RuntimeException('Ana eşleşmesi yok: ' . implode(',', $missing));
-                        }
-
-                        $anaPayload = $mapper->bayiOrderToAnaCreatePayload($o, $map);
+                        $anaPayload = $mapper->bayiOrderToAnaCreatePayload($o, $resolver);
                         $created = $ana->createOrder($anaPayload);
-                        $anaOrderId = (string) ($created['SiparisID'] ?? $created['Id'] ?? '');
+                        $anaOrderId = (string) ($created['SiparisID'] ?? $created['ID'] ?? $created['SaveSiparisResult'] ?? '');
 
                         // CRITICAL: persist ana_order_id BEFORE marking — see PullBayiOrdersJob comment.
                         $transfer->update([

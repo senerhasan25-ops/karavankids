@@ -15,6 +15,15 @@ use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Carbon;
 use Throwable;
 
+/**
+ * Ana → Bayi ürün sync.
+ *
+ * UPSERT: ProductMapper TedarikciKodu = "SUP|{anaId}|{stokKodu}" yazar; ProductService
+ * SaveUrun çağrısında `TedarikciKodunaGoreGuncelle: true` flag'i ile gönderir →
+ * Ticimax mevcutsa günceller, yoksa yeni oluşturur. Lokal eşleşme tablosuna gerek YOK.
+ *
+ * ProductMapping tablosu sadece audit/dashboard için tutulur (kaç sync, son hata vs.).
+ */
 class SyncNewProductsJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
@@ -38,17 +47,15 @@ class SyncNewProductsJob implements ShouldQueue
             $ana = ProductService::for('ana');
             $bayi = ProductService::for('bayi');
             $mapper = new ProductMapper();
-            // Bayi'de zorunlu olan default fallback'ler.
+
             $defaultBrandId = $bayi->getDefaultBrandId();
             $defaultSupplierId = $bayi->getDefaultSupplierId();
 
-            // Marka: ada göre eşle/oluştur, yoksa bayi'nin varsayılan markası
             $mapper->setBrandResolver(function (string $name) use ($bayi, $defaultBrandId) {
                 $id = $bayi->findOrCreateBrandId($name);
                 return $id > 0 ? $id : $defaultBrandId;
             });
 
-            // Tedarikçi: ana_id → ana adı → bayi_id, yoksa bayi'nin varsayılan tedarikçisi
             $anaSupplierIdToName = array_flip($ana->getSupplierMap());
             $mapper->setSupplierResolver(function (int $anaId) use ($anaSupplierIdToName, $bayi, $defaultSupplierId) {
                 $name = $anaSupplierIdToName[$anaId] ?? '';
@@ -56,8 +63,6 @@ class SyncNewProductsJob implements ShouldQueue
                 return $id > 0 ? $id : $defaultSupplierId;
             });
 
-            // $since null ise ProductService MIN_DATETIME kullanır (tüm ürünler).
-            // Açıkça belirtilirse o tarihten sonrakiler.
             $since = $this->since;
             $page = 1;
             $perPage = (int) config('ticimax.batch_size', 50);
@@ -90,111 +95,66 @@ class SyncNewProductsJob implements ShouldQueue
         }
     }
 
-    /**
-     * Ticimax UrunKarti yapısında: barkodlar Varyasyon altında. Her varyasyonu ayrı mapping yazıyoruz.
-     */
     protected function processOne(SyncJob $job, array $urunKarti, ProductService $bayi, ProductMapper $mapper): void
     {
         $anaUrunId = (string) ($urunKarti['ID'] ?? '');
-        $varyasyonlar = $this->extractVariants($urunKarti);
-        $primaryBarcode = $varyasyonlar[0]['Barkod'] ?? null;
+        $stokKodu = $mapper->resolveStokKodu($urunKarti);
+        $tedKodu = $mapper->buildTedarikciKodu((int) $anaUrunId, $stokKodu);
+        $primaryBarcode = $this->primaryBarcode($urunKarti);
 
-        if (! $primaryBarcode) {
-            $this->logError($job, null, "Üründe barkod yok (ID={$anaUrunId})");
+        if ($stokKodu === '' && $primaryBarcode === '') {
+            $this->logError($job, null, "Üründe ne StokKodu ne Barkod var (ID={$anaUrunId})");
             return;
         }
 
         try {
-            $mapping = ProductMapping::firstOrNew(['barcode' => $primaryBarcode]);
-            $isActive = (bool) ($urunKarti['Aktif'] ?? true);
-            $action = '';
+            $payload = $mapper->anaToBayiCreatePayload($urunKarti);
+            // Ticimax-native upsert: TedarikciKodunaGoreGuncelle true ile mevcudu günceller,
+            // yoksa yeni oluşturur. Lokal lookup yok.
+            $bayi->createProduct($payload);
 
-            if (! $mapping->bayi_product_id) {
-                $existing = $bayi->getProductByBarcode($primaryBarcode);
-                if ($existing && ! empty($existing['ID'])) {
-                    $mapping->bayi_product_id = (string) $existing['ID'];
-                    $action = 'matched_existing';
-                } else {
-                    if (! $isActive) {
-                        $this->logError($job, $primaryBarcode, "Ana ürün pasif, bayi'de oluşturulmadı");
-                        $mapping->fill([
-                            'ana_product_id' => $anaUrunId,
-                            'status' => 'pending',
-                            'last_error' => 'Ana ürün pasif',
-                        ])->save();
-                        return;
-                    }
-                    $payload = $mapper->anaToBayiCreatePayload($urunKarti);
-                    $created = $bayi->createProduct($payload);
-                    $newId = (int) ($created['ID'] ?? 0);
-
-                    // SaveUrun bazen 0 dönüyor — gerçek ID için barkodla yeniden çek
-                    if ($newId === 0) {
-                        $verify = $bayi->getProductByBarcode($primaryBarcode);
-                        $newId = (int) ($verify['ID'] ?? 0);
-                    }
-
-                    if ($newId === 0) {
-                        throw new \RuntimeException('SaveUrun başarılı görünüyor ama bayi tarafında ürün bulunamadı (ID alınamadı)');
-                    }
-                    $mapping->bayi_product_id = (string) $newId;
-                    $action = 'created';
-                }
-            } else {
-                $payload = $mapper->anaToBayiCreatePayload($urunKarti);
-                $bayi->updateProduct($mapping->bayi_product_id, $payload);
-                $action = 'updated';
-            }
-
-            if (! $isActive && $mapping->bayi_product_id) {
-                try {
-                    $bayi->setActive($mapping->bayi_product_id, false);
-                    $action .= '_deactivated';
-                } catch (Throwable $e) {
-                    // sessizce devam — bir sonraki sync'te yeniden denenebilir
-                }
-            }
-
-            $mapping->ana_product_id = $anaUrunId;
-            $mapping->last_price = (float) ($varyasyonlar[0]['SatisFiyati'] ?? 0);
-            $mapping->last_stock = (int) ($varyasyonlar[0]['StokAdedi'] ?? 0);
-            $mapping->status = 'synced';
-            $mapping->last_error = null;
-            $mapping->last_synced_at = now();
-            $mapping->save();
-
-            $this->logSuccess($job, $primaryBarcode, "UrunKarti {$action}");
-
-            // Diğer varyasyonların kendi mapping kayıtları (aynı UrunKarti'ye bağlanır)
-            for ($i = 1; $i < count($varyasyonlar); $i++) {
-                $v = $varyasyonlar[$i];
-                if (! ($v['Barkod'] ?? null)) {
-                    continue;
-                }
-                ProductMapping::updateOrCreate(
-                    ['barcode' => $v['Barkod']],
-                    [
-                        'ana_product_id' => $anaUrunId,
-                        'bayi_product_id' => $mapping->bayi_product_id, // ana UrunKarti'nin bayi karşılığı
-                        'last_price' => (float) ($v['SatisFiyati'] ?? 0),
-                        'last_stock' => (int) ($v['StokAdedi'] ?? 0),
-                        'status' => 'synced',
-                        'last_synced_at' => now(),
-                    ]
-                );
-            }
-        } catch (Throwable $e) {
-            $this->logError($job, $primaryBarcode, $e->getMessage());
+            // Audit kaydı (mapping)
             ProductMapping::updateOrCreate(
-                ['barcode' => $primaryBarcode],
-                ['status' => 'error', 'last_error' => $e->getMessage()]
+                ['barcode' => $primaryBarcode ?: $tedKodu], // benzersizlik için fallback ted kodu
+                [
+                    'ana_product_id' => $anaUrunId,
+                    'bayi_product_id' => null, // artık bilmiyoruz/önemsiyoruz
+                    'last_price' => $this->primaryPrice($urunKarti),
+                    'last_stock' => $this->primaryStock($urunKarti),
+                    'status' => 'synced',
+                    'last_error' => null,
+                    'last_synced_at' => now(),
+                ]
+            );
+
+            $this->logSuccess($job, $primaryBarcode ?: $tedKodu, "TedarikciKodu={$tedKodu}");
+        } catch (Throwable $e) {
+            $this->logError($job, $primaryBarcode ?: $tedKodu, $e->getMessage());
+            ProductMapping::updateOrCreate(
+                ['barcode' => $primaryBarcode ?: $tedKodu],
+                ['ana_product_id' => $anaUrunId, 'status' => 'error', 'last_error' => $e->getMessage()]
             );
         }
     }
 
-    /**
-     * UrunKarti içinden varyasyon listesini düz array olarak çek.
-     */
+    protected function primaryBarcode(array $urunKarti): string
+    {
+        $variants = $this->extractVariants($urunKarti);
+        return trim((string) ($variants[0]['Barkod'] ?? $urunKarti['Barkod'] ?? ''));
+    }
+
+    protected function primaryPrice(array $urunKarti): float
+    {
+        $variants = $this->extractVariants($urunKarti);
+        return (float) ($variants[0]['SatisFiyati'] ?? $urunKarti['SatisFiyati'] ?? 0);
+    }
+
+    protected function primaryStock(array $urunKarti): int
+    {
+        $variants = $this->extractVariants($urunKarti);
+        return (int) ($variants[0]['StokAdedi'] ?? $urunKarti['StokAdedi'] ?? 0);
+    }
+
     protected function extractVariants(array $urunKarti): array
     {
         $v = $urunKarti['Varyasyonlar'] ?? [];

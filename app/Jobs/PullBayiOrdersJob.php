@@ -3,12 +3,12 @@
 namespace App\Jobs;
 
 use App\Models\OrderTransfer;
-use App\Models\ProductMapping;
 use App\Models\SyncJob;
 use App\Models\SyncLog;
 use App\Models\SyncSetting;
 use App\Services\Ticimax\OrderService;
 use App\Services\Ticimax\ProductMapper;
+use App\Services\Ticimax\ProductService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -17,6 +17,12 @@ use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Carbon;
 use Throwable;
 
+/**
+ * Bayi'den yeni siparişleri çek → ana mağazada SaveSiparis ile oluştur → bayi'de "aktarıldı" işaretle.
+ *
+ * EŞLEŞTİRME: Her sipariş satırının StokKodu'su ana mağazada SelectUrun ile aranır,
+ * bulunan Varyasyon.ID line'da UrunID olarak yazılır. Lokal product_mappings'e bağımlılık YOK.
+ */
 class PullBayiOrdersJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
@@ -35,7 +41,19 @@ class PullBayiOrdersJob implements ShouldQueue
         try {
             $bayi = OrderService::for('bayi');
             $ana = OrderService::for('ana');
+            $anaProduct = ProductService::for('ana');
             $mapper = new ProductMapper();
+
+            // StokKodu → ana Varyasyon.ID cache (tek job içinde, tekrar tekrar SOAP atma)
+            $variantCache = [];
+            $resolver = function (string $stokKodu) use ($anaProduct, &$variantCache): ?int {
+                if (array_key_exists($stokKodu, $variantCache)) {
+                    return $variantCache[$stokKodu];
+                }
+                $id = $anaProduct->getVariantIdByStokKodu($stokKodu);
+                $variantCache[$stokKodu] = $id;
+                return $id;
+            };
 
             $sinceRaw = SyncSetting::get('last_order_pull_at');
             $since = $sinceRaw ? Carbon::parse($sinceRaw) : Carbon::now()->subDay();
@@ -51,7 +69,7 @@ class PullBayiOrdersJob implements ShouldQueue
 
                 foreach ($orders as $o) {
                     $job->increment('total');
-                    $bayiOrderId = (string) ($o['SiparisID'] ?? $o['Id'] ?? '');
+                    $bayiOrderId = (string) ($o['ID'] ?? $o['SiparisID'] ?? '');
                     if (! $bayiOrderId) {
                         continue;
                     }
@@ -65,19 +83,12 @@ class PullBayiOrdersJob implements ShouldQueue
                     $transfer->payload_snapshot = $o;
 
                     try {
-                        $barcodes = collect($o['Urunler'] ?? [])->pluck('Barkod')->filter()->unique()->all();
-                        $map = ProductMapping::whereIn('barcode', $barcodes)->pluck('ana_product_id', 'barcode')->all();
-                        $missing = array_diff($barcodes, array_keys($map));
-                        if (! empty($missing)) {
-                            throw new \RuntimeException('Ana eşleşmesi yok: ' . implode(',', $missing));
-                        }
-
-                        $anaPayload = $mapper->bayiOrderToAnaCreatePayload($o, $map);
+                        $anaPayload = $mapper->bayiOrderToAnaCreatePayload($o, $resolver);
                         $created = $ana->createOrder($anaPayload);
-                        $anaOrderId = (string) ($created['SiparisID'] ?? $created['Id'] ?? '');
+                        $anaOrderId = (string) ($created['SiparisID'] ?? $created['ID'] ?? $created['SaveSiparisResult'] ?? '');
 
-                        // CRITICAL: persist transferred state BEFORE marking the bayi order.
-                        // If the mark call fails, retrying must NOT create a duplicate ana order.
+                        // CRITICAL: aktarılan durumu önce kaydet — markOrderTransferred patlarsa
+                        // yeniden deneme ana'da duplicate oluşturmasın.
                         $transfer->fill([
                             'ana_order_id' => $anaOrderId,
                             'status' => 'transferred',
@@ -88,15 +99,13 @@ class PullBayiOrdersJob implements ShouldQueue
                         try {
                             $bayi->markOrderTransferred($bayiOrderId, "Ana #{$anaOrderId} olarak aktarıldı");
                         } catch (Throwable $markEx) {
-                            // Ana order is already created and persisted — don't fail the transfer.
-                            // Log the mark failure so it can be re-marked manually if needed.
                             SyncLog::create([
                                 'job_id' => $job->id,
                                 'barcode' => $bayiOrderId,
                                 'action' => 'mark_order',
                                 'direction' => 'bayi_to_ana',
                                 'status' => 'error',
-                                'message' => 'markOrderTransferred patladı (ana sipariş #' . $anaOrderId . ' zaten oluştu): ' . $markEx->getMessage(),
+                                'message' => 'markOrderTransferred patladı (ana #' . $anaOrderId . ' zaten oluştu): ' . $markEx->getMessage(),
                             ]);
                         }
 

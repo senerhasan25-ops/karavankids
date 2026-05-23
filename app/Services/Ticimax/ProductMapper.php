@@ -4,18 +4,29 @@ namespace App\Services\Ticimax;
 
 /**
  * Ticimax UrunKarti/Varyasyon yapısı ile çalışır.
- * Ana ve bayi aynı şemayı kullandığı için "mapper" temelde:
- *  - ID alanlarını sıfırlar (yeni ürün için ana'nın ID'sini bayi'ye geçirme)
- *  - Sadece SaveUrun'un beklediği alt kümeyi geçirir
- *  - Varyasyon listesini düzenler
- *  - Bayi siparişini ana'ya yazmak için ters yön mapper
+ *
+ * İki yönü var:
+ *  1) Ana → Bayi (Hasan'ın akışı): anaToBayiCreatePayload()
+ *     - Yeni ürünleri bayi'de TedarikciKodu = "SUP|{ana_urun_id}|{stok_kodu}" ile oluşturur.
+ *     - Varyasyonlara renk/beden ekiyle "SUP|{ana_urun_id}|{stok_kodu}|{renk}|{beden}" yazar.
+ *     - Bayi tarafında SaveUrun çağrılırken `TedarikciKodunaGoreGuncelle: true` ile
+ *       upsert yapılır — Ticimax mevcutsa günceller, yoksa oluşturur. Lokal mapping yok.
+ *
+ *  2) Bayi → Ana (Ali'nin akışı): bayiOrderToAnaCreatePayload()
+ *     - Bayi'den çekilen siparişi ana'da SaveSiparis için gerçek WebSiparis envelope'una uygun
+ *       hale getirir.
+ *     - Sipariş satırlarındaki StokKodu ile ana'da lookup yapılır (callback'le sağlanır).
+ *       Bulunan ana varyasyon ID'si line'da `UrunID` olarak yazılır.
  */
 class ProductMapper
 {
+    /** TedarikciKodu prefix'i — gelecekte ayrı versiyonlar için tek noktadan değiştirilebilsin. */
+    public const TED_KODU_PREFIX = 'SUP';
+
     /** @var callable|null  Marka adı → bayi marka ID'si çözümleyici (opsiyonel) */
     protected $brandResolver = null;
 
-    /** @var callable|null  Tedarikçi adı → bayi tedarikçi ID'si çözümleyici */
+    /** @var callable|null  Tedarikçi (ana ID) → bayi tedarikçi ID'si çözümleyici */
     protected $supplierResolver = null;
 
     public function setBrandResolver(?callable $resolver): void
@@ -28,27 +39,32 @@ class ProductMapper
         $this->supplierResolver = $resolver;
     }
 
+    // ============================================================
+    //  ANA → BAYİ  (ürün oluşturma / upsert)
+    // ============================================================
+
     /**
      * Ana mağazadan gelen UrunKarti objesini bayi'ye SaveUrun payload'una çevirir.
+     * TedarikciKodu gömülür → Ticimax kendi upsert'ünü TedarikciKodunaGoreGuncelle ile yapar.
      */
     public function anaToBayiCreatePayload(array $ana): array
     {
+        $anaId = (int) ($ana['ID'] ?? 0);
+        $stokKodu = $this->resolveStokKodu($ana);
+        $kartTedKodu = $this->buildTedarikciKodu($anaId, $stokKodu);
+
         $kart = [
-            'ID' => 0, // yeni kayıt — ana'nın ID'sini geçirme
+            'ID' => 0, // upsert için 0 — TedarikciKodu eşleşirse Ticimax günceller, yoksa yeni oluşturur
             'Aktif' => (bool) ($ana['Aktif'] ?? true),
             'UrunAdi' => (string) ($ana['UrunAdi'] ?? ''),
             'Aciklama' => (string) ($ana['Aciklama'] ?? ''),
             'OnYazi' => (string) ($ana['OnYazi'] ?? ''),
             'AramaAnahtarKelime' => (string) ($ana['AramaAnahtarKelime'] ?? ''),
 
-            // Kategori ID'leri de mağazalar arasında farklı olabilir; isim ile eşletmek
-            // için ID 0 gönderiyoruz. Eğer bayi'de aynı kategori varsa otomatik eşleşir.
             'AnaKategori' => (string) ($ana['AnaKategori'] ?? ''),
             'AnaKategoriID' => 0,
-            'Kategoriler' => [], // ana mağazadaki ID'ler bayi'de geçerli değil — boş bırakıyoruz
+            'Kategoriler' => [],
 
-            // MarkaID ana ve bayi'de farklı; eğer brand resolver verilmişse adına göre
-            // bayi ID'sini bul/oluştur, yoksa 0 gönder (ürün markasız oluşur).
             'Marka' => (string) ($ana['Marka'] ?? ''),
             'MarkaID' => $this->resolveBrandId((string) ($ana['Marka'] ?? '')),
 
@@ -61,85 +77,253 @@ class ProductMapper
             'Vitrin' => (bool) ($ana['Vitrin'] ?? false),
             'YeniUrun' => (bool) ($ana['YeniUrun'] ?? false),
 
-            // Tedarikçi ana ID → bayi ID (resolver ana adına çevirip bayi'de bulur/oluşturur)
             'TedarikciID' => $this->resolveSupplierId((int) ($ana['TedarikciID'] ?? 0)),
-            'TedarikciKodu' => '',
+            'TedarikciKodu' => $kartTedKodu, // ← Ticimax upsert anahtarı
             'TedarikciKodu2' => '',
 
             'Resimler' => $this->mapImages($ana['Resimler'] ?? []),
 
-            'Varyasyonlar' => $this->mapVariations($ana['Varyasyonlar'] ?? []),
+            'Varyasyonlar' => $this->mapVariations($ana['Varyasyonlar'] ?? [], $kartTedKodu),
         ];
 
-        // Eğer ana'da hiç varyasyon yoksa, üst seviyedeki barkod/stok/fiyat alanlarından
-        // 1 tane varsayılan varyasyon oluştur (Ticimax böyle ürünleri de Varyasyon altında saklar).
+        // Üst seviyede tek varyasyonsuz ürün geldiyse fallback
         if (empty($kart['Varyasyonlar']) && ($ana['Barkod'] ?? null || $ana['StokKodu'] ?? null)) {
-            $kart['Varyasyonlar'] = [$this->fallbackVariantFromTopLevel($ana)];
+            $kart['Varyasyonlar'] = [$this->fallbackVariantFromTopLevel($ana, $kartTedKodu)];
         }
 
         return $kart;
     }
 
     /**
-     * Bayi siparişini ana mağazada SaveSiparis için payload'a çevirir.
+     * "SUP|{anaId}|{stokKodu}" — boş stokKodu durumunda son segment boş kalır ("SUP|123|").
+     * Hash benzersizliği için stokKodu yoksa anaId yeterlidir.
      */
-    public function bayiOrderToAnaCreatePayload(array $bayiOrder, array $barcodeToAnaIdMap): array
+    public function buildTedarikciKodu(int $anaId, string $stokKodu): string
     {
-        $satirlar = [];
-        foreach (($bayiOrder['Urunler'] ?? []) as $line) {
-            $barkod = $line['Barkod'] ?? null;
-            if (! $barkod || ! isset($barcodeToAnaIdMap[$barkod])) {
-                throw new \RuntimeException("Bayi siparişindeki ürün ana tarafta eşleşmedi (barkod: " . ($barkod ?? 'yok') . ")");
+        return self::TED_KODU_PREFIX . '|' . $anaId . '|' . trim($stokKodu);
+    }
+
+    /**
+     * Üründen StokKodu çıkarır; üstte yoksa varyasyon listesinden en düşük ID'li olanı seçer
+     * (deterministik kalsın, API yanıt sıralaması değişse bile aynı kod üretilsin).
+     */
+    public function resolveStokKodu(array $ana): string
+    {
+        $top = trim((string) ($ana['StokKodu'] ?? ''));
+        if ($top !== '') {
+            return $top;
+        }
+        $variants = $this->flattenVariants($ana['Varyasyonlar'] ?? []);
+        usort($variants, fn ($a, $b) => ((int) ($a['ID'] ?? 0)) <=> ((int) ($b['ID'] ?? 0)));
+        foreach ($variants as $v) {
+            $sk = trim((string) ($v['StokKodu'] ?? ''));
+            if ($sk !== '') {
+                return $sk;
             }
+        }
+        return '';
+    }
+
+    protected function flattenVariants(mixed $variations): array
+    {
+        if (! is_array($variations)) {
+            return [];
+        }
+        if (isset($variations['Varyasyon'])) {
+            $variations = is_array($variations['Varyasyon']) && array_is_list($variations['Varyasyon'])
+                ? $variations['Varyasyon']
+                : [$variations['Varyasyon']];
+        }
+        return is_array($variations) ? array_values($variations) : [];
+    }
+
+    // ============================================================
+    //  BAYİ → ANA  (sipariş aktarımı)
+    // ============================================================
+
+    /**
+     * Bayi siparişini ana mağazada SaveSiparis için gerçek WebSiparis envelope'una uygun
+     * payload'a çevirir.
+     *
+     * @param  array     $bayiOrder  Bayi'den dönen WebSiparis (Urunler altında WebSiparisUrun listesi)
+     * @param  callable  $resolveAnaUrunIdByStokKodu  fn(string $stokKodu): ?int — ana'daki Varyasyon.ID
+     *
+     * @throws \RuntimeException StokKodu ana'da bulunamazsa
+     */
+    public function bayiOrderToAnaCreatePayload(array $bayiOrder, callable $resolveAnaUrunIdByStokKodu): array
+    {
+        // Sipariş satırlarını (WebSiparisUrun) WebSiparisSaveUrun haline getir
+        $bayiUrunler = $this->flattenOrderLines($bayiOrder['Urunler'] ?? []);
+        $satirlar = [];
+        $kdvToplam = 0.0;
+        $araToplam = 0.0;
+
+        foreach ($bayiUrunler as $line) {
+            $stokKodu = trim((string) ($line['StokKodu'] ?? ''));
+            if ($stokKodu === '') {
+                throw new \RuntimeException('Bayi sipariş satırında StokKodu yok — eşleşme yapılamaz.');
+            }
+            $anaUrunId = $resolveAnaUrunIdByStokKodu($stokKodu);
+            if (! $anaUrunId) {
+                throw new \RuntimeException("Ana'da bu StokKodu ile aktif ürün bulunamadı: {$stokKodu}");
+            }
+
+            $adet = (int) ($line['Adet'] ?? 1);
+            $birimFiyat = (float) ($line['Tutar'] ?? $line['BirimFiyat'] ?? $line['SatisFiyati'] ?? 0);
+            $kdvOrani = (float) ($line['KdvOrani'] ?? 20);
+            $kdvTutari = isset($line['KdvTutari'])
+                ? (float) $line['KdvTutari']
+                : round($birimFiyat * $adet * ($kdvOrani / (100 + $kdvOrani)), 4);
+
             $satirlar[] = [
-                'UrunKartiID' => (int) $barcodeToAnaIdMap[$barkod],
-                'Barkod' => $barkod,
-                'StokKodu' => (string) ($line['StokKodu'] ?? ''),
-                'UrunAdi' => (string) ($line['UrunAdi'] ?? ''),
-                'Adet' => (int) ($line['Adet'] ?? 1),
-                'BirimFiyat' => (float) ($line['BirimFiyat'] ?? ($line['SatisFiyati'] ?? 0)),
-                'KdvOrani' => (int) ($line['KdvOrani'] ?? 20),
+                'Adet' => $adet,
+                'KdvOrani' => $kdvOrani,
+                'KdvTutari' => $kdvTutari,
+                'MagazaId' => 0,
+                'MagazaStokKontrolEt' => false,
+                'Maliyet' => 0,
+                'MarketPlaceOdemeAlindi' => true,
+                'Tutar' => $birimFiyat,
+                'UrunID' => $anaUrunId,
+                'UrunIndirimsizFiyati' => 0,
             ];
+
+            $araToplam += $birimFiyat * $adet;
+            $kdvToplam += $kdvTutari;
         }
 
+        $kargoBrut = (float) ($bayiOrder['KargoTutari'] ?? 0);
+        $genelToplam = (float) ($bayiOrder['OdenenTutar'] ?? $bayiOrder['SiparisToplamTutari'] ?? ($araToplam + $kargoBrut));
+
+        $alici = (string) ($bayiOrder['AdiSoyadi'] ?? $bayiOrder['UyeAdi'] ?? '');
+        $mail = trim((string) ($bayiOrder['Mail'] ?? $bayiOrder['UyeMail'] ?? ''));
+        if (strlen($mail) <= 5) {
+            $mail = 'destek@karavankids.com';
+        }
+        $telefon = (string) ($bayiOrder['Telefon']
+            ?? $bayiOrder['UyeCep']
+            ?? $bayiOrder['TeslimatAdresi']['AliciTelefon']
+            ?? '5555555555');
+
+        $faturaSrc = $bayiOrder['FaturaAdresi'] ?? [];
+        $teslimatSrc = $bayiOrder['TeslimatAdresi'] ?? [];
+        $tarih = now()->format('Y-m-d\TH:i:s');
+
         return [
-            'SiparisKaynagi' => 'BayiPaneli',
-            'Aciklama' => 'Bayi siparişi: ' . ($bayiOrder['SiparisKodu'] ?? ''),
-            'AdminNotu' => 'Bayi: ' . ($bayiOrder['UyeKodu'] ?? ''),
-            'Uye' => [
-                'AdSoyad' => $bayiOrder['MusteriAdSoyad'] ?? ($bayiOrder['UyeAdSoyad'] ?? ''),
-                'Email' => $bayiOrder['Email'] ?? '',
-                'TelefonCep' => $bayiOrder['Telefon'] ?? '',
+            'BNPLNo' => '',
+            'FaturaAdres' => $this->buildFaturaAdres($faturaSrc),
+            'FaturaAdresId' => 0,
+            'HediyePaketiVar' => false,
+            'IndirimTutari' => 0,
+            'IsMarketplace' => true,
+            'KargoAdresId' => 0,
+            'KargoDesi' => 0,
+            'KargoFirmaId' => (int) ($bayiOrder['KargoFirmaID'] ?? $bayiOrder['KargoFirmaId'] ?? 1),
+            'KargoKatkiPayi' => 0,
+            'KargoTutari' => $kargoBrut,
+            'KargoKdvOrani' => 0,
+            'KargoyaSonVerilmeTarihiGuncelle' => false,
+            'KdvOraniniSiparisUrundenAl' => false,
+            'MarketPlaceOdemeAlindi' => true,
+            'MarketplaceKampanyaKodu' => '',
+            'Odeme' => [
+                'BankaKomisyonu' => 0,
+                'HavaleHesapID' => 0,
+                'KapidaOdemeTutari' => 0,
+                'OdemeDurumu' => (string) ($bayiOrder['Odeme']['OdemeDurumu'] ?? $bayiOrder['OdemeDurumu'] ?? '1'),
+                'OdemeIndirimi' => 0,
+                'OdemeSecenekID' => 0,
+                'OdemeTipi' => (string) ($bayiOrder['Odeme']['OdemeTipi'] ?? $bayiOrder['OdemeTipi'] ?? '10'),
+                'TaksitSayisi' => 0,
+                'Tarih' => $tarih,
+                'Tutar' => $genelToplam,
             ],
-            'TeslimatAdresi' => $bayiOrder['TeslimatAdresi'] ?? [],
-            'FaturaAdresi' => $bayiOrder['FaturaAdresi'] ?? ($bayiOrder['TeslimatAdresi'] ?? []),
-            'OdemeYontemi' => $bayiOrder['OdemeYontemi'] ?? 'Havale',
-            'KargoFirmasi' => $bayiOrder['KargoFirmasi'] ?? '',
-            'Urunler' => $satirlar,
-            'AraToplam' => (float) ($bayiOrder['AraToplam'] ?? 0),
-            'KargoTutari' => (float) ($bayiOrder['KargoTutari'] ?? 0),
-            'GenelToplam' => (float) ($bayiOrder['GenelToplam'] ?? 0),
+            'OzelAlan3' => '',
+            'ParaBirimi' => 'TRY',
+            'PazaryeriButikId' => 0,
+            'PazaryeriIhracat' => 0,
+            'SiparisKaynagi' => 'KaravanKids',
+            'SiparisNo' => (string) ($bayiOrder['SiparisNo'] ?? $bayiOrder['SiparisKodu'] ?? ''),
+            'SiparisNotu' => '',
+            'SmsGonder' => false,
+            'TeslimatAdres' => $this->buildTeslimatAdres($teslimatSrc, $alici, $telefon),
+            'TeslimatTarihi' => $tarih,
+            'UrunTutari' => round($araToplam - $kdvToplam, 4),
+            'UrunTutariKdv' => round($kdvToplam, 4),
+            'Urunler' => ['WebSiparisSaveUrun' => $satirlar],
+            'UyeAdi' => $alici,
+            'UyeCep' => $telefon,
+            'UyeId' => 0,
+            'UyeKazanimAktif' => false,
+            'UyeMail' => $mail,
+        ];
+    }
+
+    protected function buildFaturaAdres(array $src): array
+    {
+        return [
+            'Adres' => (string) ($src['Adres'] ?? ''),
+            'AdresTarifi' => '',
+            'FirmaAdi' => (string) ($src['FirmaAdi'] ?? ''),
+            'Il' => (string) ($src['Il'] ?? ''),
+            'Ilce' => (string) ($src['Ilce'] ?? ''),
+            'Mahalle' => (string) ($src['Mahalle'] ?? ''),
+            'PostaKodu' => (string) ($src['PostaKodu'] ?? ''),
+            'Semt' => (string) ($src['Semt'] ?? ''),
+            'Ulke' => (string) ($src['Ulke'] ?? 'Türkiye'),
+            'VergiDairesi' => (string) ($src['VergiDairesi'] ?? ''),
+            'VergiNo' => (string) ($src['VergiNo'] ?? ''),
+            'isKurumsal' => (bool) ($src['isKurumsal'] ?? false),
+        ];
+    }
+
+    protected function buildTeslimatAdres(array $src, string $alici, string $telefon): array
+    {
+        return [
+            'Adres' => (string) ($src['Adres'] ?? ''),
+            'AdresTarifi' => '',
+            'AliciAdi' => (string) ($src['AliciAdi'] ?? $alici),
+            'AliciTelefon' => (string) ($src['AliciTelefon'] ?? $telefon),
+            'Il' => (string) ($src['Il'] ?? ''),
+            'Ilce' => (string) ($src['Ilce'] ?? ''),
+            'Mahalle' => (string) ($src['Mahalle'] ?? ''),
+            'Semt' => (string) ($src['Semt'] ?? ''),
+            'Ulke' => (string) ($src['Ulke'] ?? 'Türkiye'),
         ];
     }
 
     /**
-     * Ana mağazada Aktif=false bir ürün için: bayi'de sadece UrunKarti.Aktif=false yapacak update payload'u.
+     * Bayi'den dönen Urunler — bazen array (list), bazen `WebSiparisUrun` anahtarı altında, bazen tek obje.
      */
+    protected function flattenOrderLines(mixed $lines): array
+    {
+        if (! is_array($lines)) {
+            return [];
+        }
+        if (isset($lines['WebSiparisUrun'])) {
+            $lines = is_array($lines['WebSiparisUrun']) && array_is_list($lines['WebSiparisUrun'])
+                ? $lines['WebSiparisUrun']
+                : [$lines['WebSiparisUrun']];
+        } elseif (! array_is_list($lines)) {
+            $lines = [$lines];
+        }
+        return is_array($lines) ? $lines : [];
+    }
+
+    // ============================================================
+    //  ORTAK / Yardımcılar
+    // ============================================================
+
     public function deactivatePayload(): array
     {
         return ['Aktif' => false];
     }
 
-    /**
-     * Ana üründen gelen Resimler — ArrayOfstring (URL listesi) bekleniyor.
-     * Ana mağazanın CDN URL'leri olduğu gibi gönderilir, bayi tekrar indirir.
-     */
     protected function mapImages(mixed $images): array
     {
         if (! is_array($images)) {
             return [];
         }
-        // ArrayOfstring SOAP wrapper: ['string' => [...]] olabilir
         if (isset($images['string'])) {
             $images = is_array($images['string']) && array_is_list($images['string']) ? $images['string'] : [$images['string']];
         }
@@ -155,43 +339,62 @@ class ProductMapper
     }
 
     /**
-     * Varyasyon listesini Ticimax Varyasyon şemasına göre üretir.
+     * Varyasyon listesini Ticimax Varyasyon şemasına göre üretir ve her birine
+     * "{baseTedKodu}|{renk}|{beden}" formatında TedarikciKodu yazar.
      */
-    protected function mapVariations(mixed $variations): array
+    protected function mapVariations(mixed $variations, string $baseTedKodu): array
     {
-        if (! is_array($variations)) {
+        $variations = $this->flattenVariants($variations);
+        if (empty($variations)) {
             return [];
         }
-        // ArrayOfVaryasyon wrapper
-        if (isset($variations['Varyasyon'])) {
-            $variations = is_array($variations['Varyasyon']) && array_is_list($variations['Varyasyon']) ? $variations['Varyasyon'] : [$variations['Varyasyon']];
-        }
 
-        return array_map(fn ($v) => [
-            'ID' => 0,
-            'UrunKartiID' => 0,
-            'Aktif' => (bool) ($v['Aktif'] ?? true),
-            'Barkod' => (string) ($v['Barkod'] ?? ''),
-            'StokKodu' => (string) ($v['StokKodu'] ?? ''),
-            'StokAdedi' => (float) ($v['StokAdedi'] ?? 0),
-            'SatisFiyati' => (float) ($v['SatisFiyati'] ?? 0),
-            'IndirimliFiyati' => (float) ($v['IndirimliFiyati'] ?? 0),
-            'AlisFiyati' => (float) ($v['AlisFiyati'] ?? 0),
-            'PiyasaFiyati' => (float) ($v['PiyasaFiyati'] ?? 0),
-            'KdvOrani' => (float) ($v['KdvOrani'] ?? 20),
-            'KdvDahil' => (bool) ($v['KdvDahil'] ?? true),
-            'ParaBirimi' => (string) ($v['ParaBirimi'] ?? 'TL'),
-            'ParaBirimiID' => (int) ($v['ParaBirimiID'] ?? 1), // 1 = TL (default)
-            'Desi' => (float) ($v['Desi'] ?? 0),
-            'UrunAgirligi' => (float) ($v['UrunAgirligi'] ?? 0),
-            'Ozellikler' => $this->mapVariantProps($v['Ozellikler'] ?? []),
-            'Resimler' => $this->mapImages($v['Resimler'] ?? []),
-        ], $variations);
+        return array_map(function ($v) use ($baseTedKodu) {
+            $ozellikler = $this->mapVariantProps($v['Ozellikler'] ?? []);
+            $renk = '';
+            $beden = '';
+            foreach ($ozellikler as $oz) {
+                $tanim = mb_strtolower(trim((string) ($oz['Tanim'] ?? '')));
+                $deger = trim((string) ($oz['Deger'] ?? ''));
+                if ($tanim === 'renk') {
+                    $renk = $deger;
+                } elseif ($tanim === 'beden') {
+                    $beden = $deger;
+                }
+            }
+            $tedKodu = $baseTedKodu;
+            if ($renk !== '') {
+                $tedKodu .= '|' . $renk;
+            }
+            if ($beden !== '') {
+                $tedKodu .= '|' . $beden;
+            }
+
+            return [
+                'ID' => 0,
+                'UrunKartiID' => 0,
+                'Aktif' => (bool) ($v['Aktif'] ?? true),
+                'Barkod' => (string) ($v['Barkod'] ?? ''),
+                'StokKodu' => (string) ($v['StokKodu'] ?? ''),
+                'StokAdedi' => (float) ($v['StokAdedi'] ?? 0),
+                'SatisFiyati' => (float) ($v['SatisFiyati'] ?? 0),
+                'IndirimliFiyati' => (float) ($v['IndirimliFiyati'] ?? 0),
+                'AlisFiyati' => (float) ($v['AlisFiyati'] ?? 0),
+                'PiyasaFiyati' => (float) ($v['PiyasaFiyati'] ?? 0),
+                'KdvOrani' => (float) ($v['KdvOrani'] ?? 20),
+                'KdvDahil' => (bool) ($v['KdvDahil'] ?? true),
+                'ParaBirimi' => (string) ($v['ParaBirimi'] ?? 'TL'),
+                'ParaBirimiID' => (int) ($v['ParaBirimiID'] ?? 1),
+                'Desi' => (float) ($v['Desi'] ?? 0),
+                'UrunAgirligi' => (float) ($v['UrunAgirligi'] ?? 0),
+                'TedarikciKodu' => $tedKodu, // ← varyasyon seviyesi upsert anahtarı
+                'TedarikciKodu2' => '',
+                'Ozellikler' => $ozellikler,
+                'Resimler' => $this->mapImages($v['Resimler'] ?? []),
+            ];
+        }, $variations);
     }
 
-    /**
-     * Varyasyon özellikleri (renk/beden vb).
-     */
     protected function mapVariantProps(mixed $props): array
     {
         if (! is_array($props)) {
@@ -207,10 +410,7 @@ class ProductMapper
         ], $props);
     }
 
-    /**
-     * Varyasyonsuz ürünlerde üst seviyeden tek bir Varyasyon objesi türetir.
-     */
-    protected function fallbackVariantFromTopLevel(array $ana): array
+    protected function fallbackVariantFromTopLevel(array $ana, string $baseTedKodu): array
     {
         return [
             'ID' => 0,
@@ -225,8 +425,10 @@ class ProductMapper
             'KdvOrani' => (float) ($ana['KdvOrani'] ?? 20),
             'KdvDahil' => (bool) ($ana['KdvDahil'] ?? true),
             'ParaBirimi' => (string) ($ana['ParaBirimi'] ?? 'TL'),
-            'ParaBirimiID' => (int) ($ana['ParaBirimiID'] ?? 1), // 1 = TL
+            'ParaBirimiID' => (int) ($ana['ParaBirimiID'] ?? 1),
             'Desi' => (float) ($ana['Desi'] ?? 0),
+            'TedarikciKodu' => $baseTedKodu,
+            'TedarikciKodu2' => '',
             'Ozellikler' => [],
             'Resimler' => [],
         ];
@@ -239,7 +441,7 @@ class ProductMapper
         }
         try {
             return (int) call_user_func($this->brandResolver, $name);
-        } catch (\Throwable $e) {
+        } catch (\Throwable) {
             return 0;
         }
     }
@@ -251,19 +453,8 @@ class ProductMapper
         }
         try {
             return (int) call_user_func($this->supplierResolver, $anaSupplierId);
-        } catch (\Throwable $e) {
+        } catch (\Throwable) {
             return 0;
         }
-    }
-
-    protected function normalizeIntList(mixed $list): array
-    {
-        if (! is_array($list)) {
-            return [];
-        }
-        if (isset($list['int'])) {
-            $list = is_array($list['int']) && array_is_list($list['int']) ? $list['int'] : [$list['int']];
-        }
-        return array_values(array_filter(array_map(fn ($v) => is_numeric($v) ? (int) $v : null, $list), fn ($v) => $v !== null));
     }
 }

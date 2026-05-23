@@ -15,42 +15,97 @@ class OrderService
         return new self(TicimaxClient::for($storeKey));
     }
 
+    public function getClient(): TicimaxClient
+    {
+        return $this->client;
+    }
+
+    /**
+     * Henüz aktarılmamış (EntegrasyonAktarildi=0), ödemesi alınmış, paketlenmemiş siparişleri çek.
+     * siparis_aktar.py:get_source_orders ile aynı filtre.
+     */
     public function getNewOrders(?Carbon $since = null, int $page = 1, int $perPage = 50): array
     {
-        $params = $this->client->getAuth() + [
+        $startIdx = max(0, ($page - 1) * $perPage);
+        $bas = ($since ?? Carbon::now()->subDays(3))->format('Y-m-d\T00:00:00');
+        $son = Carbon::now()->format('Y-m-d\T23:59:59');
+
+        $params = [
+            'UyeKodu' => $this->client->getUyeKodu(),
             'f' => [
-                'OnayDurumu' => -1,
-                'SiparisDurumu' => -1,
-                'Sayfa' => $page,
-                'SayfadakiKayitSayisi' => $perPage,
-                'BaslangicTarihi' => $since?->format('Y-m-d H:i:s') ?? '',
-                'BitisTarihi' => '',
-                'Aktarildi' => 0, // sadece henüz aktarılmamışlar
+                'DuzenlemeTarihiBas' => null,
+                'DuzenlemeTarihiSon' => null,
+                'EntegrasyonAktarildi' => 0,
+                'EntegrasyonParams' => [
+                    'EntegrasyonParamsAktif' => false,
+                ],
+                'IptalEdilmisUrunler' => false,
+                'KampanyaGetir' => false,
+                'KargoFirmaID' => 0,
+                'OdemeDurumu' => 1,
+                'OdemeTipi' => -1,
+                'PaketlemeDurumu' => 1, // 1 = henüz paketlenmemiş (aktarım için uygun)
+                'SiparisDurumu' => 0,
+                'SiparisID' => 0,
+                'SiparisKaynagi' => '',
+                'SiparisTarihiBas' => $bas,
+                'SiparisTarihiSon' => $son,
+                'StrSiparisDurumu' => '',
+                'TedarikciID' => -1,
+                'UrunGetir' => true,
+                'UyeID' => -1,
+            ],
+            's' => [
+                'BaslangicIndex' => $startIdx,
+                'KayitSayisi' => $perPage,
+                'SiralamaYonu' => 'ASC',
             ],
         ];
+
         $resp = $this->client->call('order', $this->method('select'), $params);
         return $this->normalizeList($resp, $this->method('select'));
     }
 
     /**
-     * Ticimax'te 'SetSiparisAktarildi' var — admin notu yerine bunu kullanıyoruz.
-     * Sipariş bayi'de "aktarıldı" olarak işaretlenir, bir daha çekilmez.
+     * Ana mağazada sipariş oluştur. Payload ProductMapper::bayiOrderToAnaCreatePayload
+     * tarafından gerçek WebSiparis envelope şemasında hazırlanır.
      */
-    public function markOrderTransferred(string $orderId, ?string $externalRef = null): array
+    public function createOrder(array $payload): array
     {
-        $params = $this->client->getAuth() + [
-            'siparisId' => $orderId,
-            'aktarilanSiparisKodu' => $externalRef ?? '',
+        $params = [
+            'UyeKodu' => $this->client->getUyeKodu(),
+            'siparis' => $payload,
         ];
-        $resp = $this->client->call('order', $this->method('mark_transferred'), $params);
+        $resp = $this->client->call('order', $this->method('save'), $params);
         return $this->normalizeOne($resp) ?? [];
     }
 
-    public function createOrder(array $payload): array
+    /**
+     * Aktarım sonrası bayi'deki siparişe "aktarıldı" damgası vur.
+     * Eski API'de SetSiparisAktarildi vardı; siparis_aktar.py'de Hasan
+     * SetSiparisPaketlemeDurum(2) kullanıyor (paketlendi → bir daha çekilmez).
+     * Burada ikisini de destekliyoruz: önce SetSiparisAktarildi dene, yoksa paketleme.
+     */
+    public function markOrderTransferred(string $orderId, ?string $externalRef = null): array
     {
-        $params = $this->client->getAuth() + ['siparis' => $payload];
-        $resp = $this->client->call('order', $this->method('save'), $params);
-        return $this->normalizeOne($resp) ?? [];
+        try {
+            $params = [
+                'UyeKodu' => $this->client->getUyeKodu(),
+                'siparisId' => (int) $orderId,
+                'aktarilanSiparisKodu' => $externalRef ?? '',
+            ];
+            $resp = $this->client->call('order', $this->method('mark_transferred'), $params);
+            return $this->normalizeOne($resp) ?? ['method' => 'SetSiparisAktarildi'];
+        } catch (\Throwable $e) {
+            // Fallback: paketleme durumunu 2 yap → bir daha "yeni" filtresine girmez.
+            $params = [
+                'UyeKodu' => $this->client->getUyeKodu(),
+                'SiparisId' => (int) $orderId,
+                'PaketlemeDurumId' => 2,
+            ];
+            $resp = $this->client->call('order', 'SetSiparisPaketlemeDurum', $params);
+            return $this->normalizeOne($resp) ?? ['method' => 'SetSiparisPaketlemeDurum', 'fallback_reason' => $e->getMessage()];
+        }
     }
 
     protected function method(string $key): string
@@ -70,9 +125,14 @@ class OrderService
         if (! is_array($resp)) {
             return [];
         }
-        if (isset($resp['Siparis'])) {
-            $resp = is_array($resp['Siparis']) && array_is_list($resp['Siparis']) ? $resp['Siparis'] : [$resp['Siparis']];
-        } elseif (! array_is_list($resp)) {
+        // WebSiparis (yeni) veya Siparis (eski) wrapper'ı
+        foreach (['WebSiparis', 'Siparis'] as $key) {
+            if (isset($resp[$key])) {
+                $resp = is_array($resp[$key]) && array_is_list($resp[$key]) ? $resp[$key] : [$resp[$key]];
+                break;
+            }
+        }
+        if (! array_is_list($resp)) {
             $resp = [$resp];
         }
         return array_map(fn ($r) => $this->toArray($r), $resp);
