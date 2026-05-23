@@ -56,10 +56,12 @@ class ProductMapper
         $kart = [
             'ID' => 0, // upsert için 0 — TedarikciKodu eşleşirse Ticimax günceller, yoksa yeni oluşturur
             'Aktif' => (bool) ($ana['Aktif'] ?? true),
-            'UrunAdi' => (string) ($ana['UrunAdi'] ?? ''),
-            'Aciklama' => (string) ($ana['Aciklama'] ?? ''),
-            'OnYazi' => (string) ($ana['OnYazi'] ?? ''),
-            'AramaAnahtarKelime' => (string) ($ana['AramaAnahtarKelime'] ?? ''),
+            'UrunAdi' => $this->sanitizeText((string) ($ana['UrunAdi'] ?? '')),
+            // Ticimax'in guvenlik filtresi <script>, <style>, <iframe>, on* event'leri,
+            // CSS expression/behavior'leri reddediyor — sanitize zorunlu.
+            'Aciklama' => $this->sanitizeHtml((string) ($ana['Aciklama'] ?? '')),
+            'OnYazi' => $this->sanitizeHtml((string) ($ana['OnYazi'] ?? '')),
+            'AramaAnahtarKelime' => $this->sanitizeText((string) ($ana['AramaAnahtarKelime'] ?? '')),
 
             'AnaKategori' => (string) ($ana['AnaKategori'] ?? ''),
             'AnaKategoriID' => 0,
@@ -68,9 +70,9 @@ class ProductMapper
             'Marka' => (string) ($ana['Marka'] ?? ''),
             'MarkaID' => $this->resolveBrandId((string) ($ana['Marka'] ?? '')),
 
-            'SeoSayfaBaslik' => (string) ($ana['SeoSayfaBaslik'] ?? $ana['UrunAdi'] ?? ''),
-            'SeoSayfaAciklama' => (string) ($ana['SeoSayfaAciklama'] ?? ($ana['OnYazi'] ?? '')),
-            'SeoAnahtarKelime' => (string) ($ana['SeoAnahtarKelime'] ?? ''),
+            'SeoSayfaBaslik' => $this->sanitizeText((string) ($ana['SeoSayfaBaslik'] ?? $ana['UrunAdi'] ?? '')),
+            'SeoSayfaAciklama' => $this->sanitizeText((string) ($ana['SeoSayfaAciklama'] ?? ($ana['OnYazi'] ?? ''))),
+            'SeoAnahtarKelime' => $this->sanitizeText((string) ($ana['SeoAnahtarKelime'] ?? '')),
             'UrunSayfaAdresi' => (string) ($ana['UrunSayfaAdresi'] ?? ''),
 
             'ListedeGoster' => (bool) ($ana['ListedeGoster'] ?? true),
@@ -317,6 +319,62 @@ class ProductMapper
     public function deactivatePayload(): array
     {
         return ['Aktif' => false];
+    }
+
+    // ============================================================
+    //  Sanitize — Ticimax güvenlik filtresine takılmamak için
+    // ============================================================
+
+    /**
+     * Ticimax `Aciklama` ve `OnYazi` gibi rich-text alanları için HTML temizleme.
+     * - <script>, <style>, <iframe>, <embed>, <object>, <link>, <meta>, <form> tamamen kaldırılır
+     * - on* (onclick, onload, ...) attribute'ları kaldırılır
+     * - javascript:, data: URL şemaları kaldırılır
+     * - CSS expression() / behavior: / @import kaldırılır
+     * - Geri kalan: <p>, <br>, <b>, <i>, <u>, <a>, <img>, <ul>, <ol>, <li>, <h1>..<h6>, <table>, <div>, <span> KALIR
+     */
+    public function sanitizeHtml(string $html): string
+    {
+        if ($html === '') {
+            return '';
+        }
+        // 1) Tehlikeli tag'leri içerikleriyle birlikte sil
+        $dangerous = ['script', 'style', 'iframe', 'embed', 'object', 'link', 'meta', 'form', 'input', 'button', 'svg', 'noscript', 'frame', 'frameset', 'applet'];
+        foreach ($dangerous as $tag) {
+            $html = preg_replace('#<\s*' . $tag . '\b[^>]*>.*?<\s*/\s*' . $tag . '\s*>#is', '', $html) ?? $html;
+            $html = preg_replace('#<\s*' . $tag . '\b[^>]*/?\s*>#i', '', $html) ?? $html;
+        }
+        // 2) on* event attribute'larını sök (onclick, onload, onerror, ...)
+        $html = preg_replace('#\s*on[a-z]+\s*=\s*"[^"]*"#i', '', $html) ?? $html;
+        $html = preg_replace("#\s*on[a-z]+\s*=\s*'[^']*'#i", '', $html) ?? $html;
+        $html = preg_replace('#\s*on[a-z]+\s*=\s*[^\s>]+#i', '', $html) ?? $html;
+        // 3) javascript: ve data: URL şemalarını sök
+        $html = preg_replace('#\b(href|src|action|formaction)\s*=\s*"\s*(?:javascript|data|vbscript)\s*:[^"]*"#i', '$1="#"', $html) ?? $html;
+        $html = preg_replace("#\b(href|src|action|formaction)\s*=\s*'\s*(?:javascript|data|vbscript)\s*:[^']*'#i", '$1="#"', $html) ?? $html;
+        // 4) CSS expression / behavior / @import (inline style içinde olabilir)
+        $html = preg_replace('#expression\s*\([^)]*\)#i', '', $html) ?? $html;
+        $html = preg_replace('#behavior\s*:[^;"\']+#i', '', $html) ?? $html;
+        $html = preg_replace('#@import[^;]+;?#i', '', $html) ?? $html;
+        // 5) HTML yorumları (içinde CDATA/script gizleme olabilir)
+        $html = preg_replace('#<!--.*?-->#s', '', $html) ?? $html;
+
+        return trim($html);
+    }
+
+    /**
+     * Düz metin alanları (UrunAdi, SEO alanları, anahtar kelimeler) için.
+     * Hiçbir HTML/tag kabul edilmez — sadece düz metin.
+     */
+    public function sanitizeText(string $text): string
+    {
+        if ($text === '') {
+            return '';
+        }
+        // HTML entity decode + tag sök + tekrar entity encode için: önce tag'leri çıkar
+        $text = strip_tags($text);
+        // \r\n → space (tek satır metinler için)
+        $text = preg_replace('#\s+#', ' ', $text) ?? $text;
+        return trim($text);
     }
 
     protected function mapImages(mixed $images): array

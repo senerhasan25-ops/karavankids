@@ -126,6 +126,51 @@ class ProductMapperTest extends TestCase
         $this->assertSame('SUP|99|', $mapper->buildTedarikciKodu(99, ''));
     }
 
+    public function test_sanitize_html_strips_script_style_and_event_handlers(): void
+    {
+        $mapper = new ProductMapper();
+        $dirty = '<p>Güvenli</p><script>alert(1)</script><style>body{}</style>'
+              . '<a href="javascript:steal()" onclick="boom()">x</a>'
+              . '<div style="behavior:url(x.htc); width:expression(alert(1))">ok</div>'
+              . '<iframe src="evil"></iframe>'
+              . '<!-- yorum -->';
+        $clean = $mapper->sanitizeHtml($dirty);
+
+        $this->assertStringNotContainsString('<script', $clean);
+        $this->assertStringNotContainsString('<style', $clean);
+        $this->assertStringNotContainsString('<iframe', $clean);
+        $this->assertStringNotContainsString('onclick', $clean);
+        $this->assertStringNotContainsString('javascript:', $clean);
+        $this->assertStringNotContainsString('expression(', $clean);
+        $this->assertStringNotContainsString('behavior:', $clean);
+        $this->assertStringNotContainsString('<!--', $clean);
+        $this->assertStringContainsString('<p>Güvenli</p>', $clean); // güvenli tag korunur
+    }
+
+    public function test_sanitize_text_strips_all_html(): void
+    {
+        $mapper = new ProductMapper();
+        $this->assertSame('Test ürün adı', $mapper->sanitizeText('<b>Test</b> ürün <i>adı</i>'));
+        $this->assertSame('Tek satır metin', $mapper->sanitizeText("Tek\n\nsatır   metin"));
+    }
+
+    public function test_ana_to_bayi_sanitizes_aciklama(): void
+    {
+        $mapper = new ProductMapper();
+        $ana = [
+            'ID' => 1,
+            'UrunAdi' => 'Test',
+            'StokKodu' => 'X',
+            'Aciklama' => '<p>OK</p><script>kötü()</script>',
+            'OnYazi' => '<div onclick="bad()">x</div>',
+            'Varyasyonlar' => [],
+        ];
+        $payload = $mapper->anaToBayiCreatePayload($ana);
+
+        $this->assertStringNotContainsString('<script', $payload['Aciklama']);
+        $this->assertStringNotContainsString('onclick', $payload['OnYazi']);
+    }
+
     public function test_ana_to_bayi_payload_embeds_tedarikci_kodu(): void
     {
         $mapper = new ProductMapper();
