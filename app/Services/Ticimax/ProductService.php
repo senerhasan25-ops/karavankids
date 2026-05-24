@@ -923,22 +923,181 @@ class ProductService
      * @param  array<string,int>  $bayiVariantIdByStokKodu  StokKodu → bayi Varyasyon.ID
      * @param  array  $selectedFields  Acik alan listesi (orn. ['urun_adi','satis_fiyati'])
      */
-    public function updateProductSelective(array $urunKarti, int $bayiProductId, array $bayiVariantIdByStokKodu, array $selectedFields): array
+    public function updateProductSelective(array $urunKarti, int $bayiProductId, array $bayiVariantIdByStokKodu, array $selectedFields, ?array $bayiKart = null): array
     {
         $urunKarti['ID'] = $bayiProductId;
+
+        // OVERRIDE KORUMASI: kullanici isaretlemediginin alanlari payload'da
+        // bayi'nin ORIJINAL degeriyle restore et — boylece elden eklenmis (manuel)
+        // urunlerde bizim audit kodumuzun veya cross-store ID'lerin sessizce
+        // ezilmesi onlenir. ($bayiKart cagiri tarafindan getProductByStokKodu/ID
+        // ile gecirilir; yoksa bu koruma calismaz — geri donus yine eskisi gibi.)
+        if ($bayiKart !== null) {
+            $urunKarti = $this->preserveBayiFields($urunKarti, $bayiKart, $selectedFields);
+        }
+
         // Varyasyonlara bayi ID'lerini yaz (lokal-oncelikli eslesme)
         if (! empty($urunKarti['Varyasyonlar']) && is_array($urunKarti['Varyasyonlar'])) {
+            // Bayi varyasyonlarini StokKodu → varyasyon obj olarak hazirla (overlay icin)
+            $bayiVarByStok = [];
+            if ($bayiKart !== null) {
+                $bv = $bayiKart['Varyasyonlar']['Varyasyon'] ?? $bayiKart['Varyasyonlar'] ?? [];
+                if (isset($bv['Barkod'])) $bv = [$bv];
+                if (is_array($bv)) {
+                    foreach ($bv as $vv) {
+                        $sk = (string) ($vv['StokKodu'] ?? '');
+                        if ($sk !== '') $bayiVarByStok[$sk] = $vv;
+                    }
+                }
+            }
             foreach ($urunKarti['Varyasyonlar'] as &$v) {
                 $sk = (string) ($v['StokKodu'] ?? '');
                 if ($sk !== '' && isset($bayiVariantIdByStokKodu[$sk])) {
                     $v['ID'] = (int) $bayiVariantIdByStokKodu[$sk];
                     $v['UrunKartiID'] = $bayiProductId;
                 }
+                // Varyasyon override koruması
+                if (isset($bayiVarByStok[$sk])) {
+                    $v = $this->preserveBayiVariantFields($v, $bayiVarByStok[$sk], $selectedFields);
+                }
             }
             unset($v);
         }
         $ayarlar = $this->buildSelectiveAyarlari($selectedFields);
         return $this->saveBatch([$urunKarti], $ayarlar)[0] ?? [];
+    }
+
+    /**
+     * UrunKarti seviyesinde override koruması: $selectedFields'da olmayan her alan
+     * icin payload'a bayi'nin orijinal degerini yaz.
+     */
+    protected function preserveBayiFields(array $payload, array $bayiKart, array $selectedFields): array
+    {
+        $sel = array_flip($selectedFields);
+        $on = fn(string $k) => isset($sel[$k]);
+
+        // urun_adi
+        if (! $on('urun_adi')) {
+            $payload['UrunAdi'] = $bayiKart['UrunAdi'] ?? ($payload['UrunAdi'] ?? '');
+            $payload['SatisBirimi'] = $bayiKart['SatisBirimi'] ?? ($payload['SatisBirimi'] ?? '');
+        }
+        // aciklama / on_yazi
+        if (! $on('aciklama')) {
+            $payload['Aciklama'] = $bayiKart['Aciklama'] ?? ($payload['Aciklama'] ?? '');
+        }
+        if (! $on('on_yazi')) {
+            $payload['OnYazi'] = $bayiKart['OnYazi'] ?? ($payload['OnYazi'] ?? '');
+        }
+        // SEO
+        if (! $on('seo')) {
+            foreach (['SeoSayfaBaslik','SeoSayfaAciklama','SeoAnahtarKelime','AramaAnahtarKelime','Etiketler','SeoNoFollow','SeoNoIndex'] as $f) {
+                if (array_key_exists($f, $bayiKart)) $payload[$f] = $bayiKart[$f];
+            }
+        }
+        // Kategori
+        if (! $on('kategori')) {
+            $payload['AnaKategori'] = $bayiKart['AnaKategori'] ?? ($payload['AnaKategori'] ?? '');
+            $payload['AnaKategoriID'] = $bayiKart['AnaKategoriID'] ?? 0;
+            $payload['Kategoriler'] = $bayiKart['Kategoriler'] ?? ($payload['Kategoriler'] ?? []);
+        }
+        // Marka
+        if (! $on('marka')) {
+            $payload['MarkaID'] = $bayiKart['MarkaID'] ?? 0;
+            $payload['Marka'] = $bayiKart['Marka'] ?? '';
+        }
+        // Tedarikci (KRITIK: TedarikciKodu manuel girilmis audit kodu olabilir)
+        if (! $on('tedarikci')) {
+            $payload['TedarikciID'] = $bayiKart['TedarikciID'] ?? 0;
+            $payload['TedarikciKodu'] = $bayiKart['TedarikciKodu'] ?? '';
+            $payload['TedarikciKodu2'] = $bayiKart['TedarikciKodu2'] ?? '';
+            $payload['TedarikciKomisyonOrani'] = $bayiKart['TedarikciKomisyonOrani'] ?? 0;
+        }
+        // Resimler
+        if (! $on('resimler')) {
+            // Bayi'nin string array'i — wrapper ile geri yaz
+            $bayiResim = $bayiKart['Resimler']['string'] ?? $bayiKart['Resimler'] ?? null;
+            if ($bayiResim !== null) {
+                if (is_string($bayiResim)) $bayiResim = [$bayiResim];
+                if (is_array($bayiResim) && ! empty($bayiResim)) {
+                    $payload['Resimler'] = ['string' => array_values($bayiResim)];
+                }
+            }
+        }
+        // Aktif & gosterim flag'leri (her biri ayri)
+        if (! $on('aktif')) {
+            $payload['Aktif'] = $bayiKart['Aktif'] ?? true;
+            $payload['ListedeGoster'] = $bayiKart['ListedeGoster'] ?? true;
+        }
+        if (! $on('vitrin')) {
+            $payload['Vitrin'] = $bayiKart['Vitrin'] ?? false;
+        }
+        if (! $on('yeni_urun')) {
+            $payload['YeniUrun'] = $bayiKart['YeniUrun'] ?? false;
+        }
+        if (! $on('firsat_urunu')) {
+            $payload['FirsatUrunu'] = $bayiKart['FirsatUrunu'] ?? false;
+        }
+
+        // UrunSayfaAdresi — biz hep boş gönderiyoruz (Ticimax üretsin); bayide
+        // mevcut SEO URL'i koru ki re-yazılınca link değişmesin
+        $payload['UrunSayfaAdresi'] = $bayiKart['UrunSayfaAdresi'] ?? '';
+
+        return $payload;
+    }
+
+    /**
+     * Varyasyon seviyesinde override koruması.
+     */
+    protected function preserveBayiVariantFields(array $v, array $bayiVar, array $selectedFields): array
+    {
+        $sel = array_flip($selectedFields);
+        $on = fn(string $k) => isset($sel[$k]);
+
+        if (! $on('stok_adedi')) {
+            $v['StokAdedi'] = $bayiVar['StokAdedi'] ?? 0;
+        }
+        if (! $on('eksi_stok_adedi')) {
+            $v['EksiStokAdedi'] = $bayiVar['EksiStokAdedi'] ?? 0;
+        }
+        if (! $on('satis_fiyati')) {
+            $v['SatisFiyati'] = $bayiVar['SatisFiyati'] ?? 0;
+            $v['AlisFiyati'] = $bayiVar['AlisFiyati'] ?? 0;
+            $v['PiyasaFiyati'] = $bayiVar['PiyasaFiyati'] ?? 0;
+        }
+        if (! $on('indirimli_fiyat')) {
+            $v['IndirimliFiyati'] = $bayiVar['IndirimliFiyati'] ?? 0;
+        }
+        if (! $on('kdv_dahil')) {
+            $v['KdvDahil'] = $bayiVar['KdvDahil'] ?? true;
+        }
+        if (! $on('kdv_orani')) {
+            $v['KdvOrani'] = $bayiVar['KdvOrani'] ?? 20;
+        }
+        if (! $on('barkod')) {
+            $v['Barkod'] = $bayiVar['Barkod'] ?? ($v['Barkod'] ?? '');
+        }
+        if (! $on('stok_kodu')) {
+            $v['StokKodu'] = $bayiVar['StokKodu'] ?? ($v['StokKodu'] ?? '');
+        }
+        // Tedarikci (varyasyon seviyesi)
+        if (! $on('tedarikci')) {
+            $v['TedarikciKodu'] = $bayiVar['TedarikciKodu'] ?? '';
+            $v['TedarikciKodu2'] = $bayiVar['TedarikciKodu2'] ?? '';
+        }
+        // Uye tipi fiyatlari 1..20
+        for ($i = 1; $i <= 20; $i++) {
+            if (! ($on('uye_tipi_fiyat') || $on('uye_tipi_fiyat_' . $i))) {
+                $key = 'UyeTipiFiyat' . $i;
+                if (isset($bayiVar[$key])) {
+                    $v[$key] = $bayiVar[$key];
+                }
+            }
+        }
+        // Aktif
+        if (! $on('aktif')) {
+            $v['Aktif'] = $bayiVar['Aktif'] ?? true;
+        }
+        return $v;
     }
 
     protected function method(string $key): string

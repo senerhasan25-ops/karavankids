@@ -353,7 +353,8 @@ class ProductPicker extends Component
                 $payload = $mapper->anaToBayiCreatePayload($raw);
                 $bayiId = (int) $bayiMevcut['ID'];
                 $varMap = $this->mapBayiVariantIds($bayiMevcut);
-                $bayi->updateProductSelective($payload, $bayiId, $varMap, $fields);
+                // bayiMevcut'u 5. parametre olarak gec — override koruması calissin
+                $bayi->updateProductSelective($payload, $bayiId, $varMap, $fields, $bayiMevcut);
 
                 $stok = $row['stok_adedi'] ?? 0;
                 $fiyat = number_format((float) ($row['satis_fiyati'] ?? 0), 2, ',', '.');
@@ -426,7 +427,8 @@ class ProductPicker extends Component
                 if ($bayiMevcut && (int) ($bayiMevcut['ID'] ?? 0) > 0) {
                     $bayiId = (int) $bayiMevcut['ID'];
                     $varMap = $this->mapBayiVariantIds($bayiMevcut);
-                    $bayi->updateProductSelective($payload, $bayiId, $varMap, $selectedFields);
+                    // bayiMevcut'u 5. parametre olarak gec — override koruması calissin
+                    $bayi->updateProductSelective($payload, $bayiId, $varMap, $selectedFields, $bayiMevcut);
                     $this->results[] = ['stok_kodu' => $stokKodu, 'urun_adi' => $urunAdi, 'durum' => 'guncellendi', 'mesaj' => "bayi ID={$bayiId}"];
                     $this->upsertMapping($row, $bayiId, $varMap);
                     $ok++;
