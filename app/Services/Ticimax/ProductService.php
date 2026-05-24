@@ -436,6 +436,71 @@ class ProductService
      * Lokal mapping doldururken kullanılır: tek SOAP çağrısı ile hem UrunKartiID hem
      * tüm Varyasyon.ID'leri tek seferde alınır.
      */
+    /**
+     * StokKodu LIKE (kismi) veya coklu (virgulle ayrilmis) ile urun listesi.
+     * - Virgul varsa: her bir kodu birebir cek, birlestir.
+     * - Tek deger: Ticimax StokKodu filtresi cogu kez birebir esler — once birebir,
+     *   sonra SelectUrun'a buyuk sayfa cek + sunucu tarafinda LIKE filtrele.
+     *
+     * @param  string  $query     Tek StokKodu, virgulle ayrilmis liste veya kismi ifade
+     * @param  int     $maxResults Tek-deger LIKE icin tarama ust limiti (varsayilan 200)
+     * @return array               UrunKarti list
+     */
+    public function searchProductsByStokKodu(string $query, int $maxResults = 200): array
+    {
+        $query = trim($query);
+        if ($query === '') {
+            return [];
+        }
+
+        // Coklu (virgul) — her parcayi birebir cek
+        if (str_contains($query, ',')) {
+            $parts = array_filter(array_map('trim', explode(',', $query)));
+            $out = [];
+            $seen = [];
+            foreach ($parts as $p) {
+                $hit = $this->getProductByStokKodu($p);
+                if ($hit && ! isset($seen[(int) ($hit['ID'] ?? 0)])) {
+                    $seen[(int) ($hit['ID'] ?? 0)] = true;
+                    $out[] = $hit;
+                }
+            }
+            return $out;
+        }
+
+        // Tek deger: once birebir dene
+        $exact = $this->getProductByStokKodu($query);
+        if ($exact) {
+            return [$exact];
+        }
+
+        // Birebir yok: ust seviyede ilk $maxResults uruncu tara + PHP tarafinda LIKE
+        $qLower = mb_strtolower($query);
+        $found = [];
+        $page = 1;
+        $perPage = 100;
+        $scanned = 0;
+        while ($scanned < $maxResults) {
+            $batch = $this->getNewProducts(null, $page, $perPage, 'DESC');
+            if (empty($batch)) break;
+            foreach ($batch as $p) {
+                $scanned++;
+                $variants = $p['Varyasyonlar']['Varyasyon'] ?? $p['Varyasyonlar'] ?? [];
+                if (isset($variants['Barkod'])) $variants = [$variants];
+                $matched = false;
+                foreach ($variants as $v) {
+                    $sk = mb_strtolower(trim((string) ($v['StokKodu'] ?? '')));
+                    if ($sk !== '' && str_contains($sk, $qLower)) { $matched = true; break; }
+                }
+                if ($matched) $found[] = $p;
+                if ($scanned >= $maxResults) break;
+            }
+            if (count($batch) < $perPage) break;
+            $page++;
+        }
+        return $found;
+    }
+
     public function getProductByStokKodu(string $stokKodu): ?array
     {
         $stokKodu = trim($stokKodu);
@@ -710,6 +775,113 @@ class ProductService
     protected function fullUpdateAyarlari(): array
     {
         return $this->fullCreateAyarlari();
+    }
+
+    /**
+     * Manuel picker UI'dan gelen alan grubu set'ine gore ukAyar/vAyar uretir.
+     * Tum 'Guncelle' flag'leri once false, sadece istenen gruptaki alanlar true yapilir.
+     *
+     * Desteklenen anahtarlar:
+     *   'urun_adi', 'aciklama', 'on_yazi', 'kategori', 'marka', 'tedarikci',
+     *   'satis_fiyati', 'indirimli_fiyat', 'stok_adedi', 'kdv_dahil', 'kdv_orani',
+     *   'seo', 'uye_tipi_fiyat', 'resimler', 'aktif'
+     *
+     * @param  array  $fields  Etkin alan kimliklerinin listesi (orn. ['urun_adi','satis_fiyati'])
+     * @return array            ['ukAyar' => [...], 'vAyar' => [...]]
+     */
+    public function buildSelectiveAyarlari(array $fields): array
+    {
+        $f = array_flip($fields);
+        $on = fn(string $k) => isset($f[$k]);
+
+        $ukAyar = [
+            // Icerik
+            'AciklamaGuncelle' => $on('aciklama'),
+            'OnYaziGuncelle' => $on('on_yazi'),
+            'AramaAnahtarKelimeGuncelle' => $on('seo'),
+            // Kategori (sadece resolver/mirror yoksa kapali tutmak isteyebiliriz —
+            // manuel akista kullanici 'kategori' isaretlediyse acalim)
+            'KategoriGuncelle' => $on('kategori'),
+            'AnaKategoriGuncelle' => $on('kategori'),
+            // Marka / tedarikci
+            'MarkaGuncelle' => $on('marka'),
+            'TedarikciGuncelle' => $on('tedarikci'),
+            // SEO
+            'SeoSayfaBaslikGuncelle' => $on('seo'),
+            'SeoSayfaAciklamaGuncelle' => $on('seo'),
+            'SeoAnahtarKelimeGuncelle' => $on('seo'),
+            // Aktiflik (UrunKarti seviyesinde)
+            'AktifGuncelle' => $on('aktif'),
+            'ListedeGosterGuncelle' => $on('aktif'),
+            // Resimler
+            'ResimOlmayanlaraResimEkle' => $on('resimler'),
+            'OncekiResimleriSil' => false,
+            'Base64Resim' => false,
+            'ResimleriIndirme' => false,
+            // Ticimax-native upsert KAPALI (Ali konvansiyonu)
+            'TedarikciKodunaGoreGuncelle' => false,
+            // Etiket: aktif ise SEO'ya bagla (ayri grup yok)
+            'EtiketGuncelle' => $on('seo'),
+            // SatisBirimi - urun_adi grubuna bagli (manuel listede ayri tutmadik)
+            'SatisBirimiGuncelle' => $on('urun_adi'),
+        ];
+
+        $vAyar = [
+            // Stok
+            'StokAdediGuncelle' => $on('stok_adedi'),
+            // Fiyat
+            'SatisFiyatiGuncelle' => $on('satis_fiyati'),
+            'IndirimliFiyatiGuncelle' => $on('indirimli_fiyat'),
+            'AlisFiyatiGuncelle' => $on('satis_fiyati'),
+            'PiyasaFiyatiGuncelle' => $on('satis_fiyati'),
+            // KDV
+            'KdvDahilGuncelle' => $on('kdv_dahil'),
+            'KdvOraniGuncelle' => $on('kdv_orani'),
+            // Para birimi - fiyat grubuna baglı
+            'ParaBirimiGuncelle' => $on('satis_fiyati'),
+            // Uye tipi fiyatları (20 adet, hepsi tek bayrak)
+            'FiyatTipleriGuncelle' => $on('uye_tipi_fiyat'),
+            // Aktiflik
+            'AktifGuncelle' => $on('aktif'),
+            'UrunKartiAktifGuncelle' => $on('aktif'),
+            // Barkod ve StokKodu — manuel akista yeni barkod yazmiyoruz, ama eslesik
+            // urunlerde kullanici StokKodu degisikligi yapmak istiyor olabilir; varsayilan
+            // kapali tutuyoruz (riskli).
+            'BarkodGuncelle' => false,
+            'StokKoduGuncelle' => false,
+            'OncekiResimleriSil' => false,
+            'TedarikciKodunaGoreGuncelle' => false,
+        ];
+
+        return ['ukAyar' => $ukAyar, 'vAyar' => $vAyar];
+    }
+
+    /**
+     * Picker UI'dan secilen alan grubu ile mevcut bir urunu UPDATE et.
+     * Bayide mevcut UrunKartiID + (varsa) bayi VaryasyonID payload'a yazilir,
+     * sadece secili alan grubuna karsilik gelen Guncelle flag'leri true gonderilir.
+     *
+     * @param  array  $urunKarti  Mapper'in urettigi tam payload (ana'dan)
+     * @param  int    $bayiProductId  Bayi'deki mevcut UrunKarti.ID
+     * @param  array<string,int>  $bayiVariantIdByStokKodu  StokKodu → bayi Varyasyon.ID
+     * @param  array  $selectedFields  Acik alan listesi (orn. ['urun_adi','satis_fiyati'])
+     */
+    public function updateProductSelective(array $urunKarti, int $bayiProductId, array $bayiVariantIdByStokKodu, array $selectedFields): array
+    {
+        $urunKarti['ID'] = $bayiProductId;
+        // Varyasyonlara bayi ID'lerini yaz (lokal-oncelikli eslesme)
+        if (! empty($urunKarti['Varyasyonlar']) && is_array($urunKarti['Varyasyonlar'])) {
+            foreach ($urunKarti['Varyasyonlar'] as &$v) {
+                $sk = (string) ($v['StokKodu'] ?? '');
+                if ($sk !== '' && isset($bayiVariantIdByStokKodu[$sk])) {
+                    $v['ID'] = (int) $bayiVariantIdByStokKodu[$sk];
+                    $v['UrunKartiID'] = $bayiProductId;
+                }
+            }
+            unset($v);
+        }
+        $ayarlar = $this->buildSelectiveAyarlari($selectedFields);
+        return $this->saveBatch([$urunKarti], $ayarlar)[0] ?? [];
     }
 
     protected function method(string $key): string

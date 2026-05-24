@@ -6,6 +6,8 @@ use App\Livewire\Dashboard;
 use App\Livewire\OrderTransferPicker;
 use App\Livewire\OrderTransfers;
 use App\Livewire\ProductManualSync;
+use App\Livewire\ProductPicker;
+use App\Livewire\ProductPickerTransfer;
 use App\Livewire\SyncLogs;
 use App\Livewire\SyncSettings;
 use Illuminate\Support\Facades\Route;
@@ -20,6 +22,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/ayarlar/api', ApiSettings::class)->name('ayarlar.api');
     Route::get('/ayarlar/sync', SyncSettings::class)->name('ayarlar.sync');
     Route::get('/urunler', ProductManualSync::class)->name('urunler');
+    Route::get('/urunler/listele', ProductPicker::class)->name('urunler.listele');
+    Route::get('/urunler/aktar', ProductPickerTransfer::class)->name('urunler.aktar');
     Route::get('/siparisler', OrderTransfers::class)->name('siparisler');
     Route::get('/siparisler/aktar', OrderTransferPicker::class)->name('siparisler.aktar');
     Route::get('/loglar', SyncLogs::class)->name('loglar');
