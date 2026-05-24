@@ -28,6 +28,9 @@ class OrderTransferPicker extends Component
     public string $aliciMail = '';   // istemci-taraflı arama
     public string $telefon = '';     // Ticimax UyeTelefon filtresi var, SOAP tarafında uygulanır
     public int $odemeTipi = -1;     // -1 = hepsi
+    public int $odemeDurumu = -1;   // -1 = hepsi, 1 = ödendi, 2 = bekliyor, 3 = iptal/iade
+    public int $siparisDurumu = 0;  // 0 = hepsi, 1 = onaylandı, 2 = hazırlanıyor, 3 = kargolandı, 4 = teslim, 5 = iptal
+    public int $paketlemeDurumu = 0; // 0 = hepsi, 1 = beklemede, 2 = paketlendi, 3 = kargolandı
     public int $aktarildi = -1;     // -1 = hepsi, 0 = aktarılmamış, 1 = aktarılmış
     public int $page = 1;
     public int $perPage = 25;
@@ -46,6 +49,33 @@ class OrderTransferPicker extends Component
         3 => 'Hediye Çeki',
         4 => 'Pazaryeri',
         10 => 'Diğer',
+    ];
+
+    // Ticimax ödeme durumu kodları
+    public array $odemeDurumlari = [
+        -1 => 'Hepsi',
+        1 => 'Ödendi',
+        2 => 'Bekliyor',
+        3 => 'İptal / İade',
+    ];
+
+    // Ticimax sipariş durumu kodları (genel — sürüme göre değişebilir)
+    public array $siparisDurumlari = [
+        0 => 'Hepsi',
+        1 => 'Sipariş Alındı',
+        2 => 'Hazırlanıyor',
+        3 => 'Kargolandı',
+        4 => 'Teslim Edildi',
+        5 => 'İptal',
+        6 => 'İade',
+    ];
+
+    // Ticimax paketleme durumu kodları
+    public array $paketlemeDurumlari = [
+        0 => 'Hepsi',
+        1 => 'Beklemede',
+        2 => 'Paketlendi',
+        3 => 'Kargolandı',
     ];
 
     public function mount(): void
@@ -68,6 +98,9 @@ class OrderTransferPicker extends Component
                 'date_to' => $this->dateTo,
                 'aktarildi' => $this->aktarildi,
                 'odeme_tipi' => $this->odemeTipi,
+                'odeme_durumu' => $this->odemeDurumu,
+                'siparis_durumu' => $this->siparisDurumu,
+                'paketleme_durumu' => $this->paketlemeDurumu,
             ];
             if (trim($this->siparisNo) !== '') {
                 $filters['siparis_no'] = trim($this->siparisNo);
@@ -122,6 +155,9 @@ class OrderTransferPicker extends Component
                     'telefon' => (string) ($o['Telefon'] ?? $o['UyeCep'] ?? ''),
                     'tutar' => (float) ($o['OdenenTutar'] ?? $o['SiparisToplamTutari'] ?? 0),
                     'odeme_tipi' => (string) ($o['Odeme']['OdemeTipi'] ?? $o['OdemeTipi'] ?? ''),
+                    'odeme_durumu' => (string) ($o['Odeme']['OdemeDurumu'] ?? $o['OdemeDurumu'] ?? ''),
+                    'siparis_durumu' => (string) ($o['SiparisDurumu'] ?? $o['Durum'] ?? ''),
+                    'paketleme_durumu' => (string) ($o['PaketlemeDurumu'] ?? $o['PaketlemeDurumuId'] ?? ''),
                     'entegrasyon_aktarildi' => (bool) ($o['EntegrasyonAktarildi'] ?? false),
                     'local_status' => $local?->status,
                     'local_ana_id' => $local?->ana_order_id,
@@ -172,6 +208,9 @@ class OrderTransferPicker extends Component
         $this->aliciMail = '';
         $this->telefon = '';
         $this->odemeTipi = -1;
+        $this->odemeDurumu = -1;
+        $this->siparisDurumu = 0;
+        $this->paketlemeDurumu = 0;
         $this->aktarildi = -1;
         $this->page = 1;
         $this->orders = [];

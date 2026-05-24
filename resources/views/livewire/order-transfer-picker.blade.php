@@ -73,7 +73,40 @@
                                 </select>
                             </div>
 
-                            {{-- 7) Aktarılma Durumu --}}
+                            {{-- 7) Ödeme Durumu --}}
+                            <div>
+                                <label class="block text-xs text-gray-500 dark:text-gray-400 mb-1">Ödeme Durumu</label>
+                                <select wire:model="odemeDurumu"
+                                        class="w-full text-sm rounded border-gray-300 dark:bg-gray-900 dark:border-gray-700 dark:text-gray-200">
+                                    @foreach ($odemeDurumlari as $key => $label)
+                                        <option value="{{ $key }}">{{ $label }}</option>
+                                    @endforeach
+                                </select>
+                            </div>
+
+                            {{-- 8) Sipariş Durumu --}}
+                            <div>
+                                <label class="block text-xs text-gray-500 dark:text-gray-400 mb-1">Sipariş Durumu</label>
+                                <select wire:model="siparisDurumu"
+                                        class="w-full text-sm rounded border-gray-300 dark:bg-gray-900 dark:border-gray-700 dark:text-gray-200">
+                                    @foreach ($siparisDurumlari as $key => $label)
+                                        <option value="{{ $key }}">{{ $label }}</option>
+                                    @endforeach
+                                </select>
+                            </div>
+
+                            {{-- 9) Paketleme Durumu --}}
+                            <div>
+                                <label class="block text-xs text-gray-500 dark:text-gray-400 mb-1">Paketleme Durumu</label>
+                                <select wire:model="paketlemeDurumu"
+                                        class="w-full text-sm rounded border-gray-300 dark:bg-gray-900 dark:border-gray-700 dark:text-gray-200">
+                                    @foreach ($paketlemeDurumlari as $key => $label)
+                                        <option value="{{ $key }}">{{ $label }}</option>
+                                    @endforeach
+                                </select>
+                            </div>
+
+                            {{-- 10) Aktarılma Durumu --}}
                             <div>
                                 <label class="block text-xs text-gray-500 dark:text-gray-400 mb-1">Aktarılma Durumu</label>
                                 <select wire:model="aktarildi"
@@ -152,8 +185,8 @@
                                     <th class="px-3 py-2 text-left">Alıcı</th>
                                     <th class="px-3 py-2 text-left">İletişim</th>
                                     <th class="px-3 py-2 text-right">Tutar</th>
-                                    <th class="px-3 py-2 text-left">Ödeme</th>
-                                    <th class="px-3 py-2 text-center">Durum</th>
+                                    <th class="px-3 py-2 text-left">Ödeme / Durumlar</th>
+                                    <th class="px-3 py-2 text-center">Aktarım</th>
                                     <th class="px-3 py-2 text-right">İşlem</th>
                                 </tr>
                             </thead>
@@ -176,8 +209,25 @@
                                             @if (! $o['mail'] && ! $o['telefon'])—@endif
                                         </td>
                                         <td class="px-3 py-2 text-right font-mono">₺{{ number_format($o['tutar'], 2, ',', '.') }}</td>
-                                        <td class="px-3 py-2 text-xs">
-                                            {{ $odemeTipleri[(int) $o['odeme_tipi']] ?? $o['odeme_tipi'] }}
+                                        <td class="px-3 py-2 text-xs leading-tight">
+                                            <div class="text-gray-700 dark:text-gray-300">
+                                                💳 {{ $odemeTipleri[(int) $o['odeme_tipi']] ?? $o['odeme_tipi'] }}
+                                            </div>
+                                            @if ($o['odeme_durumu'] !== '')
+                                                <div class="text-gray-500">
+                                                    💰 {{ $odemeDurumlari[(int) $o['odeme_durumu']] ?? $o['odeme_durumu'] }}
+                                                </div>
+                                            @endif
+                                            @if ($o['siparis_durumu'] !== '')
+                                                <div class="text-gray-500">
+                                                    📋 {{ $siparisDurumlari[(int) $o['siparis_durumu']] ?? $o['siparis_durumu'] }}
+                                                </div>
+                                            @endif
+                                            @if ($o['paketleme_durumu'] !== '')
+                                                <div class="text-gray-500">
+                                                    📦 {{ $paketlemeDurumlari[(int) $o['paketleme_durumu']] ?? $o['paketleme_durumu'] }}
+                                                </div>
+                                            @endif
                                         </td>
                                         <td class="px-3 py-2 text-center">
                                             @if ($o['local_status'] === 'transferred')

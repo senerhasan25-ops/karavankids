@@ -100,7 +100,7 @@ class OrderService
                 'OdemeDurumu' => $filters['odeme_durumu'] ?? -1,
                 'OdemeTipi' => $filters['odeme_tipi'] ?? -1,
                 'PaketlemeDurumu' => $filters['paketleme_durumu'] ?? 0,
-                'SiparisDurumu' => 0,
+                'SiparisDurumu' => $filters['siparis_durumu'] ?? 0,
                 'SiparisID' => $filters['siparis_id'] ?? 0,
                 'SiparisKaynagi' => $filters['siparis_kaynagi'] ?? '',
                 'SiparisNo' => $filters['siparis_no'] ?? null,
