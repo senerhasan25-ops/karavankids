@@ -110,6 +110,9 @@ class OrderService
                 'TedarikciID' => -1,
                 'UrunGetir' => true,
                 'UyeID' => -1,
+                // Ticimax SOAP'ta alıcı adı/mail filtresi yok — bunlar Livewire tarafında
+                // istemci taraflı filtreleniyor. Telefon SOAP filtresi var:
+                'UyeTelefon' => $filters['uye_telefon'] ?? null,
             ],
             's' => [
                 'BaslangicIndex' => $startIdx,

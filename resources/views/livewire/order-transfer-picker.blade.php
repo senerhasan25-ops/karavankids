@@ -17,7 +17,9 @@
             {{-- FİLTRE KARTI --}}
             <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-4 mb-4">
                 <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">🔍 Filtrele</h3>
-                <div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-3">
+
+                {{-- Satır 1: tarih + sipariş no + select'ler --}}
+                <div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-3">
                     <div>
                         <label class="block text-xs text-gray-500 dark:text-gray-400 mb-1">Tarih (başlangıç)</label>
                         <input type="date" wire:model="dateFrom"
@@ -61,6 +63,34 @@
                                 class="px-3 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 text-sm rounded hover:bg-gray-300">
                             ↺
                         </button>
+                    </div>
+                </div>
+
+                {{-- Satır 2: alıcı kişisel bilgi arama --}}
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+                    <div>
+                        <label class="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                            Alıcı Adı / Soyadı
+                            <span class="text-gray-400 italic">(kısmî, büyük/küçük harf duyarsız)</span>
+                        </label>
+                        <input type="text" wire:model="aliciAdi" placeholder="örn. ali şener"
+                               class="w-full text-sm rounded border-gray-300 dark:bg-gray-900 dark:border-gray-700 dark:text-gray-200">
+                    </div>
+                    <div>
+                        <label class="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                            E-mail
+                            <span class="text-gray-400 italic">(kısmî)</span>
+                        </label>
+                        <input type="text" wire:model="aliciMail" placeholder="örn. gmail.com"
+                               class="w-full text-sm rounded border-gray-300 dark:bg-gray-900 dark:border-gray-700 dark:text-gray-200">
+                    </div>
+                    <div>
+                        <label class="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                            Telefon
+                            <span class="text-gray-400 italic">(Ticimax filtresi)</span>
+                        </label>
+                        <input type="text" wire:model="telefon" placeholder="örn. 5551112233"
+                               class="w-full text-sm rounded border-gray-300 dark:bg-gray-900 dark:border-gray-700 dark:text-gray-200">
                     </div>
                 </div>
             </div>
@@ -112,6 +142,7 @@
                                     <th class="px-3 py-2 text-left">Sipariş No</th>
                                     <th class="px-3 py-2 text-left">Tarih</th>
                                     <th class="px-3 py-2 text-left">Alıcı</th>
+                                    <th class="px-3 py-2 text-left">İletişim</th>
                                     <th class="px-3 py-2 text-right">Tutar</th>
                                     <th class="px-3 py-2 text-left">Ödeme</th>
                                     <th class="px-3 py-2 text-center">Durum</th>
@@ -127,6 +158,15 @@
                                             {{ $o['tarih'] ? \Illuminate\Support\Str::limit(str_replace('T', ' ', $o['tarih']), 16, '') : '—' }}
                                         </td>
                                         <td class="px-3 py-2">{{ $o['alici'] ?: '—' }}</td>
+                                        <td class="px-3 py-2 text-xs">
+                                            @if ($o['mail'])
+                                                <div class="text-gray-700 dark:text-gray-300">{{ $o['mail'] }}</div>
+                                            @endif
+                                            @if ($o['telefon'])
+                                                <div class="text-gray-500 dark:text-gray-400 font-mono">{{ $o['telefon'] }}</div>
+                                            @endif
+                                            @if (! $o['mail'] && ! $o['telefon'])—@endif
+                                        </td>
                                         <td class="px-3 py-2 text-right font-mono">₺{{ number_format($o['tutar'], 2, ',', '.') }}</td>
                                         <td class="px-3 py-2 text-xs">
                                             {{ $odemeTipleri[(int) $o['odeme_tipi']] ?? $o['odeme_tipi'] }}

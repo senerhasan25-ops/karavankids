@@ -24,6 +24,9 @@ class OrderTransferPicker extends Component
     public string $dateFrom = '';
     public string $dateTo = '';
     public string $siparisNo = '';
+    public string $aliciAdi = '';    // istemci-taraflı arama (Ticimax SOAP filtresi desteklemiyor)
+    public string $aliciMail = '';   // istemci-taraflı arama
+    public string $telefon = '';     // Ticimax UyeTelefon filtresi var, SOAP tarafında uygulanır
     public int $odemeTipi = -1;     // -1 = hepsi
     public int $aktarildi = -1;     // -1 = hepsi, 0 = aktarılmamış, 1 = aktarılmış
     public int $page = 1;
@@ -69,8 +72,34 @@ class OrderTransferPicker extends Component
             if (trim($this->siparisNo) !== '') {
                 $filters['siparis_no'] = trim($this->siparisNo);
             }
+            // Telefon Ticimax tarafında SOAP filtresiyle uygulanır (UyeTelefon)
+            if (trim($this->telefon) !== '') {
+                $filters['uye_telefon'] = trim($this->telefon);
+            }
 
             $raw = $bayi->getOrdersByFilter($filters, $this->page, $this->perPage);
+
+            // İSTEMCİ-TARAFLI FİLTRE (Ticimax SOAP destekleminediği alanlar)
+            // Alıcı adı/mail için case-insensitive partial match — Türkçe karakterler dahil.
+            $needleAdi = trim($this->aliciAdi);
+            $needleMail = trim($this->aliciMail);
+            if ($needleAdi !== '' || $needleMail !== '') {
+                $raw = array_values(array_filter($raw, function ($o) use ($needleAdi, $needleMail) {
+                    if ($needleAdi !== '') {
+                        $alici = (string) ($o['AdiSoyadi'] ?? $o['UyeAdi'] ?? '');
+                        if (mb_stripos($alici, $needleAdi) === false) {
+                            return false;
+                        }
+                    }
+                    if ($needleMail !== '') {
+                        $mail = (string) ($o['Mail'] ?? $o['UyeMail'] ?? '');
+                        if (mb_stripos($mail, $needleMail) === false) {
+                            return false;
+                        }
+                    }
+                    return true;
+                }));
+            }
 
             // Hangi sipariş ID'leri zaten yerel olarak aktarılmış?
             $bayiIds = array_filter(array_map(
@@ -89,6 +118,7 @@ class OrderTransferPicker extends Component
                     'siparis_no' => (string) ($o['SiparisNo'] ?? $o['SiparisKodu'] ?? ''),
                     'tarih' => (string) ($o['SiparisTarihi'] ?? $o['DuzenlemeTarihi'] ?? ''),
                     'alici' => (string) ($o['AdiSoyadi'] ?? $o['UyeAdi'] ?? ''),
+                    'mail' => (string) ($o['Mail'] ?? $o['UyeMail'] ?? ''),
                     'telefon' => (string) ($o['Telefon'] ?? $o['UyeCep'] ?? ''),
                     'tutar' => (float) ($o['OdenenTutar'] ?? $o['SiparisToplamTutari'] ?? 0),
                     'odeme_tipi' => (string) ($o['Odeme']['OdemeTipi'] ?? $o['OdemeTipi'] ?? ''),
@@ -138,6 +168,9 @@ class OrderTransferPicker extends Component
         $this->dateFrom = Carbon::now()->subDays(7)->format('Y-m-d');
         $this->dateTo = Carbon::now()->format('Y-m-d');
         $this->siparisNo = '';
+        $this->aliciAdi = '';
+        $this->aliciMail = '';
+        $this->telefon = '';
         $this->odemeTipi = -1;
         $this->aktarildi = -1;
         $this->page = 1;
