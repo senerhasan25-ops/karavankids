@@ -95,13 +95,29 @@ class QueueControl extends Component
             : '✓ Otomatik sync KAPATILDI — yeni job dispatch edilmez.';
     }
 
-    /** Job'un içinden çağrılır — global VEYA per-job flag varsa true. */
+    /**
+     * Job'un içinden çağrılır — global VEYA per-job flag varsa true.
+     * Stop tespit edildiğinde worker'ın stdout/stderr'ine görünür mesaj yazar
+     * (CMD penceresinde "STOP signal alındı" satırı gözüksün).
+     */
     public static function isStopRequested(?int $syncJobId = null): bool
     {
-        if (Cache::get(self::STOP_FLAG_KEY, false)) {
-            return true;
-        }
-        if ($syncJobId !== null && Cache::get(self::STOP_FLAG_JOB_PREFIX . $syncJobId, false)) {
+        $globalStop = (bool) Cache::get(self::STOP_FLAG_KEY, false);
+        $perJobStop = $syncJobId !== null && Cache::get(self::STOP_FLAG_JOB_PREFIX . $syncJobId, false);
+
+        if ($globalStop || $perJobStop) {
+            // Worker CMD penceresine net görünür feedback — STDERR Laravel queue:work
+            // tarafından satır satır basılır, kullanıcı durduğunu hemen görür.
+            if (defined('STDERR')) {
+                $kind = $globalStop ? 'GLOBAL' : "JOB#{$syncJobId}";
+                $ts = now()->format('H:i:s');
+                @fwrite(STDERR, "\n  🛑 [{$ts}] STOP signal alındı ({$kind}) — job nazikçe çıkıyor...\n");
+            }
+            \Illuminate\Support\Facades\Log::warning('Sync stop signal detected', [
+                'sync_job_id' => $syncJobId,
+                'global' => $globalStop,
+                'per_job' => $perJobStop,
+            ]);
             return true;
         }
         return false;
