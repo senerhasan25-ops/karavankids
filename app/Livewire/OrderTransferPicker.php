@@ -40,42 +40,44 @@ class OrderTransferPicker extends Component
     public ?string $lastError = null;
     public bool $hasSearched = false;
 
-    // Ticimax ödeme tipleri (siparis_aktar referansı)
+    // Ticimax panel terminolojisi ile birebir aynı etiketler.
+    // Numeric kodlar Ticimax SelectSiparis filtresine SOAP üzerinden geçer; sürüme göre
+    // değişebilir — etiketler değişirse buradan güncelle.
+
     public array $odemeTipleri = [
         -1 => 'Hepsi',
         0 => 'Kredi Kartı',
-        1 => 'Havale',
-        2 => 'Kapıda Ödeme',
+        1 => 'Havale / EFT',
+        2 => 'Kapıda Nakit Ödeme',
         3 => 'Hediye Çeki',
         4 => 'Pazaryeri',
         10 => 'Diğer',
     ];
 
-    // Ticimax ödeme durumu kodları
     public array $odemeDurumlari = [
         -1 => 'Hepsi',
         1 => 'Ödendi',
-        2 => 'Bekliyor',
-        3 => 'İptal / İade',
+        2 => 'Ödeme Bekliyor',
+        3 => 'İptal Edildi',
     ];
 
-    // Ticimax sipariş durumu kodları (genel — sürüme göre değişebilir)
     public array $siparisDurumlari = [
         0 => 'Hepsi',
         1 => 'Sipariş Alındı',
-        2 => 'Hazırlanıyor',
-        3 => 'Kargolandı',
-        4 => 'Teslim Edildi',
-        5 => 'İptal',
-        6 => 'İade',
+        2 => 'Onaylandı',
+        3 => 'Hazırlanıyor',
+        4 => 'Kargoya Verildi',
+        5 => 'Teslim Edildi',
+        6 => 'İptal Edildi',
+        7 => 'İade Edildi',
     ];
 
-    // Ticimax paketleme durumu kodları
     public array $paketlemeDurumlari = [
         0 => 'Hepsi',
         1 => 'Beklemede',
-        2 => 'Paketlendi',
-        3 => 'Kargolandı',
+        2 => 'Paketleniyor',
+        3 => 'Paketlendi',
+        4 => 'Kargoya Verildi',
     ];
 
     public function mount(): void
