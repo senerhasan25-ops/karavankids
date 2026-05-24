@@ -8,20 +8,23 @@
 
     {{-- ARAMA / LISTELE --}}
     <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-4 mb-4">
-        <div class="flex gap-2 items-end">
-            <div class="flex-1">
-                <label class="block text-sm font-medium mb-1">Stok Kodu (opsiyonel)</label>
-                <input type="text" wire:model="query"
-                       wire:keydown.enter="listele"
-                       placeholder="Boş bırak → tümünü listele. Örn: 168814  veya  168814, 168805"
-                       class="w-full px-3 py-2 border rounded-md dark:bg-gray-900 dark:border-gray-700">
-            </div>
-            <button wire:click="listele" wire:loading.attr="disabled" wire:target="listele"
-                    class="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-md disabled:opacity-50">
-                <span wire:loading.remove wire:target="listele">Listele</span>
-                <span wire:loading wire:target="listele">Yükleniyor…</span>
-            </button>
-        </div>
+        <label class="block text-sm font-medium mb-1">Stok Kodu (opsiyonel)</label>
+        <input type="text" wire:model="query"
+               wire:keydown.enter="listele"
+               placeholder="Boş bırak → tümünü listele. Örn: 168814  veya  168814, 168805"
+               class="w-full px-3 py-2 border rounded-md dark:bg-gray-900 dark:border-gray-700 mb-3"
+               style="display:block; width:100%;">
+
+        {{-- Listele butonu — inline style ile Tailwind compile edilmemis ortamda da gorunur olsun --}}
+        <button type="button"
+                wire:click="listele"
+                wire:loading.attr="disabled"
+                wire:target="listele"
+                class="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-md disabled:opacity-50"
+                style="display:inline-block; padding:0.5rem 1.5rem; background:#2563eb; color:#fff; font-weight:600; border:none; border-radius:0.375rem; cursor:pointer;">
+            <span wire:loading.remove wire:target="listele">Listele</span>
+            <span wire:loading wire:target="listele">Yükleniyor…</span>
+        </button>
 
         @if($error)
             <div class="mt-3 px-4 py-2 bg-red-100 dark:bg-red-900/30 border border-red-300 dark:border-red-700 rounded text-sm text-red-800 dark:text-red-200">
