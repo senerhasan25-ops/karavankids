@@ -345,21 +345,31 @@ class ProductService
         ];
         $resp = $this->client->call('product', $this->method('save'), $params);
 
-        // SaveUrunResult: 1+ = başarılı (kayıt sayısı), 0 = sessiz başarısız (Ticimax error message vermez)
+        // SaveUrunResult anlamı:
+        //   N > 0  → N yeni ürün oluşturuldu
+        //   0      → YENİ ürün oluşturulmadı (mevcut güncellendi VEYA gerçekten patladı)
+        //
+        // Result=0 hem update-success hem de fail demek olabiliyor. Bu yüzden:
+        // response'ta `urunKartlari` echo geliyorsa (yani Ticimax payload'ı işledi
+        // ve ürün verisini geri döndü) → başarılı say.
+        // Eğer urunKartlari boş/yoksa → gerçek hata.
         $saveResult = is_object($resp) ? ($resp->SaveUrunResult ?? null) : null;
-        if ($saveResult !== null && (int) $saveResult <= 0) {
+        $echoedKartlar = $this->normalizeList($resp, $this->method('save'), 'UrunKarti');
+
+        if ($saveResult !== null && (int) $saveResult <= 0 && empty($echoedKartlar)) {
+            // Ne yeni oluştu ne update echo geldi → gerçek hata
             $barcodes = array_filter(array_map(
                 fn ($u) => $u['Varyasyonlar'][0]['Barkod'] ?? ($u['Varyasyonlar']['Varyasyon']['Barkod'] ?? '?'),
                 $urunKartlari
             ));
             throw new \RuntimeException(
-                'Ticimax SaveUrun başarısız (SaveUrunResult=' . (int) $saveResult . '). ' .
+                'Ticimax SaveUrun başarısız (SaveUrunResult=0, urunKartlari boş). ' .
                 'Barkodlar: ' . implode(', ', $barcodes) . '. ' .
                 'Olası sebepler: zorunlu alan eksik, ücretsiz hesap limiti, varyasyon barkod çakışması, kategori bayi\'de yok.'
             );
         }
 
-        return $this->normalizeList($resp, $this->method('save'), 'UrunKarti');
+        return $echoedKartlar;
     }
 
     /**
