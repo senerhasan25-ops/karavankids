@@ -221,18 +221,61 @@ class ProductMapper
             $kdvToplam += $kdvTutari;
         }
 
-        $kargoBrut = (float) ($bayiOrder['KargoTutari'] ?? 0);
-        $genelToplam = (float) ($bayiOrder['OdenenTutar'] ?? $bayiOrder['SiparisToplamTutari'] ?? ($araToplam + $kargoBrut));
+        // === FİYAT HESABI — Hasan'ın çalışan Python kodundan birebir port ===
+        // siparis_aktar.py::save_to_target() referans.
+        //
+        // KRİTİK: Ticimax `UrunTutari` alanında "KDV DAHİL ürün toplamı"nı bekler
+        // (KDV hariç değil!). Yanlış göndersek 333.33 fiyat ana'da 266.66 görünür
+        // (Ticimax "KDV dahil bu" sanıp tekrar KDV ayırır).
+        //
+        // Doğru formül (Python'dan):
+        //   ToplamTutar  = bayi'deki ürün+kargo KDV DAHİL toplam
+        //   ToplamKdv    = bayi'deki toplam KDV
+        //   UrunTutari   = ToplamTutar − KargoTutari   (KDV DAHİL ürün toplamı)
+        //   UrunTutariKdv= ToplamKdv − KargoKdv        (sadece ürün KDV'si)
+        $bayiToplamTutar = (float) ($bayiOrder['ToplamTutar'] ?? 0);
+        $bayiToplamKdv   = (float) ($bayiOrder['ToplamKdv'] ?? 0);
 
-        $alici = (string) ($bayiOrder['AdiSoyadi'] ?? $bayiOrder['UyeAdi'] ?? '');
-        $mail = trim((string) ($bayiOrder['Mail'] ?? $bayiOrder['UyeMail'] ?? ''));
+        $kargoBrut = (float) ($bayiOrder['KargoTutari'] ?? 0);
+        if ($kargoBrut <= 0) {
+            $kargoBrut = 5.0; // kullanıcı isteği: minimum kargo
+        }
+
+        // Kargo KDV: bayi'den gelirse onu kullan, yoksa %20 varsayımıyla brüt'ten ayır
+        $kargoKdvSrc = (float) ($bayiOrder['KargoKdvTutari'] ?? 0);
+        $kargoKdv = $kargoKdvSrc > 0
+            ? $kargoKdvSrc
+            : ($kargoBrut > 0 ? round($kargoBrut - ($kargoBrut / 1.20), 4) : 0.0);
+
+        // Bayi ToplamTutar / ToplamKdv gelmezse satır hesabından üret (fallback).
+        // araToplam = Σ(birimFiyat × adet) → birimFiyat KDV DAHİL geliyorsa bu KDV dahil toplamdır
+        if ($bayiToplamTutar <= 0) {
+            $bayiToplamTutar = $araToplam + $kargoBrut;
+        }
+        if ($bayiToplamKdv <= 0) {
+            $bayiToplamKdv = $kdvToplam + $kargoKdv;
+        }
+
+        // Hedef için ürün tutarları (kargo hariç) — Python ile birebir
+        $urunTutariKdvDahil = round($bayiToplamTutar - $kargoBrut, 4);
+        $urunKdv            = round($bayiToplamKdv - $kargoKdv, 4);
+
+        // Genel toplam = OdenenTutar (Python öncelik sırası)
+        $genelToplam = (float) ($bayiOrder['OdenenTutar'] ?? $bayiOrder['SiparisToplamTutari'] ?? ($araToplam + $kargoBrut));
+        if ($genelToplam <= 0) {
+            $genelToplam = $bayiToplamTutar;
+        }
+
+        // NOT: Bu alanlar SOAP'tan boş gelirse [] olur — s() helper'ı array/null/object güvenli.
+        $alici = $this->s($bayiOrder['AdiSoyadi'] ?? $bayiOrder['UyeAdi'] ?? null);
+        $mail = trim($this->s($bayiOrder['Mail'] ?? $bayiOrder['UyeMail'] ?? null));
         if (strlen($mail) <= 5) {
             $mail = 'destek@karavankids.com';
         }
-        $telefon = (string) ($bayiOrder['Telefon']
+        $telefon = $this->s($bayiOrder['Telefon']
             ?? $bayiOrder['UyeCep']
-            ?? $bayiOrder['TeslimatAdresi']['AliciTelefon']
-            ?? '5555555555');
+            ?? ($bayiOrder['TeslimatAdresi']['AliciTelefon'] ?? null)
+            ?? null, '5555555555');
 
         $faturaSrc = $bayiOrder['FaturaAdresi'] ?? [];
         $teslimatSrc = $bayiOrder['TeslimatAdresi'] ?? [];
@@ -250,8 +293,12 @@ class ProductMapper
             'KargoFirmaId' => (int) ($bayiOrder['KargoFirmaID'] ?? $bayiOrder['KargoFirmaId'] ?? 1),
             'KargoKatkiPayi' => 0,
             'KargoTutari' => $kargoBrut,
+            // Python'da 0 → Ticimax kargo KDV'sini UrunTutariKdv hesabından zaten almıyor,
+            // tekrar yapay KDV ayırmaması için 0 bırak (kargo brütü olduğu gibi kayıt edilir).
             'KargoKdvOrani' => 0,
             'KargoyaSonVerilmeTarihiGuncelle' => false,
+            // Python kodunda false → çalışıyordu. Asıl sorun UrunTutari'nın KDV dahil mi hariç mi
+            // olduğuydu (yukarıdaki blokta düzeltildi). Bu flag false kalsın.
             'KdvOraniniSiparisUrundenAl' => false,
             'MarketPlaceOdemeAlindi' => true,
             'MarketplaceKampanyaKodu' => '',
@@ -259,10 +306,10 @@ class ProductMapper
                 'BankaKomisyonu' => 0,
                 'HavaleHesapID' => 0,
                 'KapidaOdemeTutari' => 0,
-                'OdemeDurumu' => (string) ($bayiOrder['Odeme']['OdemeDurumu'] ?? $bayiOrder['OdemeDurumu'] ?? '1'),
+                'OdemeDurumu' => $this->s($bayiOrder['Odeme']['OdemeDurumu'] ?? $bayiOrder['OdemeDurumu'] ?? null, '1'),
                 'OdemeIndirimi' => 0,
                 'OdemeSecenekID' => 0,
-                'OdemeTipi' => (string) ($bayiOrder['Odeme']['OdemeTipi'] ?? $bayiOrder['OdemeTipi'] ?? '10'),
+                'OdemeTipi' => $this->s($bayiOrder['Odeme']['OdemeTipi'] ?? $bayiOrder['OdemeTipi'] ?? null, '10'),
                 'TaksitSayisi' => 0,
                 'Tarih' => $tarih,
                 'Tutar' => $genelToplam,
@@ -272,13 +319,15 @@ class ProductMapper
             'PazaryeriButikId' => 0,
             'PazaryeriIhracat' => 0,
             'SiparisKaynagi' => 'KaravanKids',
-            'SiparisNo' => (string) ($bayiOrder['SiparisNo'] ?? $bayiOrder['SiparisKodu'] ?? ''),
+            'SiparisNo' => $this->s($bayiOrder['SiparisNo'] ?? $bayiOrder['SiparisKodu'] ?? null),
             'SiparisNotu' => '',
             'SmsGonder' => false,
             'TeslimatAdres' => $this->buildTeslimatAdres($teslimatSrc, $alici, $telefon),
             'TeslimatTarihi' => $tarih,
-            'UrunTutari' => round($araToplam - $kdvToplam, 4),
-            'UrunTutariKdv' => round($kdvToplam, 4),
+            // Python'dan: UrunTutari = ToplamTutar − KargoTutari (KDV DAHİL ürün tutarı)
+            //             UrunTutariKdv = ToplamKdv − KargoKdv  (sadece ürün KDV'si)
+            'UrunTutari' => $urunTutariKdvDahil,
+            'UrunTutariKdv' => $urunKdv,
             'Urunler' => ['WebSiparisSaveUrun' => $satirlar],
             'UyeAdi' => $alici,
             'UyeCep' => $telefon,
@@ -288,20 +337,33 @@ class ProductMapper
         ];
     }
 
+    /**
+     * Ticimax SOAP boş XML elementlerini ('<Ulke/>') null yerine boş array [] olarak
+     * deserialize eder → (string) [] "Array to string conversion" fırlatır.
+     * Tüm string cast'leri bu helper'dan geçir: array/null/object → fallback.
+     */
+    protected function s(mixed $v, string $default = ''): string
+    {
+        if ($v === null || is_array($v) || is_object($v)) {
+            return $default;
+        }
+        return (string) $v;
+    }
+
     protected function buildFaturaAdres(array $src): array
     {
         return [
-            'Adres' => (string) ($src['Adres'] ?? ''),
+            'Adres' => $this->s($src['Adres'] ?? null),
             'AdresTarifi' => '',
-            'FirmaAdi' => (string) ($src['FirmaAdi'] ?? ''),
-            'Il' => (string) ($src['Il'] ?? ''),
-            'Ilce' => (string) ($src['Ilce'] ?? ''),
-            'Mahalle' => (string) ($src['Mahalle'] ?? ''),
-            'PostaKodu' => (string) ($src['PostaKodu'] ?? ''),
-            'Semt' => (string) ($src['Semt'] ?? ''),
-            'Ulke' => (string) ($src['Ulke'] ?? 'Türkiye'),
-            'VergiDairesi' => (string) ($src['VergiDairesi'] ?? ''),
-            'VergiNo' => (string) ($src['VergiNo'] ?? ''),
+            'FirmaAdi' => $this->s($src['FirmaAdi'] ?? null),
+            'Il' => $this->s($src['Il'] ?? null),
+            'Ilce' => $this->s($src['Ilce'] ?? null),
+            'Mahalle' => $this->s($src['Mahalle'] ?? null),
+            'PostaKodu' => $this->s($src['PostaKodu'] ?? null),
+            'Semt' => $this->s($src['Semt'] ?? null),
+            'Ulke' => $this->s($src['Ulke'] ?? null, 'Türkiye'),
+            'VergiDairesi' => $this->s($src['VergiDairesi'] ?? null),
+            'VergiNo' => $this->s($src['VergiNo'] ?? null),
             'isKurumsal' => (bool) ($src['isKurumsal'] ?? false),
         ];
     }
@@ -309,15 +371,15 @@ class ProductMapper
     protected function buildTeslimatAdres(array $src, string $alici, string $telefon): array
     {
         return [
-            'Adres' => (string) ($src['Adres'] ?? ''),
+            'Adres' => $this->s($src['Adres'] ?? null),
             'AdresTarifi' => '',
-            'AliciAdi' => (string) ($src['AliciAdi'] ?? $alici),
-            'AliciTelefon' => (string) ($src['AliciTelefon'] ?? $telefon),
-            'Il' => (string) ($src['Il'] ?? ''),
-            'Ilce' => (string) ($src['Ilce'] ?? ''),
-            'Mahalle' => (string) ($src['Mahalle'] ?? ''),
-            'Semt' => (string) ($src['Semt'] ?? ''),
-            'Ulke' => (string) ($src['Ulke'] ?? 'Türkiye'),
+            'AliciAdi' => $this->s($src['AliciAdi'] ?? null, $alici),
+            'AliciTelefon' => $this->s($src['AliciTelefon'] ?? null, $telefon),
+            'Il' => $this->s($src['Il'] ?? null),
+            'Ilce' => $this->s($src['Ilce'] ?? null),
+            'Mahalle' => $this->s($src['Mahalle'] ?? null),
+            'Semt' => $this->s($src['Semt'] ?? null),
+            'Ulke' => $this->s($src['Ulke'] ?? null, 'Türkiye'),
         ];
     }
 

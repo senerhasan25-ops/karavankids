@@ -147,6 +147,7 @@ class PullBayiOrdersJob implements ShouldQueue
                         'bayi_id' => $bayiOrderId,
                     ];
 
+                    $anaPayload = null;
                     try {
                         $anaPayload = $mapper->bayiOrderToAnaCreatePayload($o, $resolver);
                         $created = $ana->createOrder($anaPayload);
@@ -182,10 +183,30 @@ class PullBayiOrdersJob implements ShouldQueue
                             'retry_count' => ($transfer->retry_count ?? 0) + 1,
                             'last_error' => $e->getMessage(),
                         ])->save();
-                        // Hangi servis patladıysa raw XML'i oradan al
+
+                        // Detaylı tanı — Array-to-string gibi PHP hataları için kritik:
+                        //  • Mesaj artık file:line + ilk 3 trace satırını içeriyor
+                        //  • raw_request: Bayi'den dönen HAM sipariş JSON'u + (varsa) mapper çıktısı
+                        //  • raw_response: SOAP gerçekten gönderildiyse ana'nın last XML'leri
                         $client = $ana->getClient();
-                        $this->log($job, $context, 'error', $e->getMessage(),
-                            $client->getLastRequestXml(),
+                        $traceLines = array_slice(explode("\n", $e->getTraceAsString()), 0, 5);
+                        $fullMsg = $e->getMessage()
+                            . "\n  ↳ " . $e->getFile() . ':' . $e->getLine()
+                            . "\n  trace:\n    " . implode("\n    ", $traceLines);
+
+                        $diagRequest = "=== BAYI ORDER (ham) ===\n"
+                            . json_encode($o, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+                        if ($anaPayload !== null) {
+                            $diagRequest .= "\n\n=== ANA PAYLOAD (mapper çıktısı) ===\n"
+                                . json_encode($anaPayload, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+                        }
+                        $lastReq = $client->getLastRequestXml();
+                        if ($lastReq) {
+                            $diagRequest .= "\n\n=== SOAP REQUEST XML ===\n" . $lastReq;
+                        }
+
+                        $this->log($job, $context, 'error', $fullMsg,
+                            $diagRequest,
                             $client->getLastResponseXml());
                     }
                 }

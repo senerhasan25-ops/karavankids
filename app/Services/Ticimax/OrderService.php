@@ -77,7 +77,62 @@ class OrderService
             'siparis' => $payload,
         ];
         $resp = $this->client->call('order', $this->method('save'), $params);
-        return $this->normalizeOne($resp) ?? [];
+
+        // Ticimax SaveSiparis "başarı sayma" mantığı:
+        //  • Asıl gösterge SiparisDetayi'nin DOLU olmasıdır (yeni sipariş ID dönüyor)
+        //  • IsError=true bazen yumuşak uyarı olarak gelir (örn. "stok hesabı geç güncellendi")
+        //    ama sipariş yine de oluşmuş olur. O yüzden SiparisDetayi varsa başarı sayalım.
+        //  • Sadece SiparisDetayi NIL ise gerçekten reddetmiş demektir → exception fırlat.
+        $result = $resp;
+        if (is_object($result) && isset($result->SaveSiparisResult)) {
+            $result = $result->SaveSiparisResult;
+        }
+        $resultArr = is_object($result) ? json_decode(json_encode($result), true) : (array) $result;
+
+        $siparisDetayi = $resultArr['SiparisDetayi'] ?? null;
+        // SOAP nil → ['@attributes' => ['nil' => 'true']] veya boş array gelir
+        $detayiBos = $siparisDetayi === null
+            || (is_array($siparisDetayi) && (
+                empty($siparisDetayi)
+                || (isset($siparisDetayi['@attributes']['nil']) && filter_var($siparisDetayi['@attributes']['nil'], FILTER_VALIDATE_BOOLEAN))
+                || (isset($siparisDetayi['nil']) && filter_var($siparisDetayi['nil'], FILTER_VALIDATE_BOOLEAN))
+            ));
+
+        if ($detayiBos) {
+            // Gerçek reddedilme → Ticimax hata mesajını topla ve fırlat
+            $msg = trim((string) ($resultArr['ErrorMessage'] ?? 'Bilinmeyen Ticimax hatası'));
+            $details = $resultArr['Messages']['WebServisResponse'] ?? [];
+            if (is_array($details) && ! array_is_list($details)) {
+                $details = [$details];
+            }
+            $subMsgs = [];
+            foreach ((array) $details as $d) {
+                $code = $d['ErrorCode'] ?? '';
+                $emsg = trim((string) ($d['ErrorMessage'] ?? ''));
+                if ($emsg !== '') {
+                    $subMsgs[] = "  • [{$code}] {$emsg}";
+                }
+            }
+            $full = "Ticimax SaveSiparis reddetti: {$msg}"
+                . ($subMsgs ? "\n" . implode("\n", $subMsgs) : '');
+            throw new \RuntimeException($full);
+        }
+
+        // BAŞARI — SiparisDetayi dolu. PullBayiOrdersJob ana_order_id'yi okuyabilsin diye
+        // SiparisDetayi'ndeki ID'yi üst seviyeye taşıyalım.
+        $anaOrderId = null;
+        if (is_array($siparisDetayi)) {
+            $anaOrderId = $siparisDetayi['ID']
+                ?? $siparisDetayi['SiparisID']
+                ?? $siparisDetayi['SiparisId']
+                ?? null;
+        }
+
+        $normalized = $this->normalizeOne($resp) ?? [];
+        if ($anaOrderId !== null && ! isset($normalized['SiparisID'])) {
+            $normalized['SiparisID'] = (string) $anaOrderId;
+        }
+        return $normalized;
     }
 
     /**
