@@ -18,6 +18,9 @@
                     <x-nav-link :href="route('urunler')" :active="request()->routeIs('urunler')">
                         Ürünler
                     </x-nav-link>
+                    <x-nav-link :href="route('urunler.listele')" :active="request()->routeIs('urunler.listele') || request()->routeIs('urunler.aktar')">
+                        Manuel Aktarım
+                    </x-nav-link>
                     <x-nav-link :href="route('siparisler')" :active="request()->routeIs('siparisler')">
                         Siparişler
                     </x-nav-link>
