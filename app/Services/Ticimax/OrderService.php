@@ -67,6 +67,76 @@ class OrderService
     }
 
     /**
+     * Esnek filtreli sipariş listeleme — manuel aktarım panelinde kullanılır.
+     * Kullanıcının seçtiği tarih aralığı / sipariş no / ödeme tipi / aktarılma durumuna göre
+     * Ticimax'tan sipariş çeker. getNewOrders'tan farkı:
+     *  - EntegrasyonAktarildi default -1 (hepsi) ama overrride edilebilir
+     *  - PaketlemeDurumu default 0 (hepsi)
+     *  - SiparisNo ile spesifik arama yapılabilir
+     */
+    public function getOrdersByFilter(array $filters = [], int $page = 1, int $perPage = 50): array
+    {
+        $startIdx = max(0, ($page - 1) * $perPage);
+        $bas = $filters['date_from'] ?? Carbon::now()->subDays(30)->format('Y-m-d\T00:00:00');
+        $son = $filters['date_to'] ?? Carbon::now()->format('Y-m-d\T23:59:59');
+
+        // Carbon objesi veya date-only string gelirse Ticimax formatına çevir
+        $bas = $bas instanceof Carbon ? $bas->format('Y-m-d\T00:00:00')
+            : (strlen((string) $bas) === 10 ? $bas . 'T00:00:00' : $bas);
+        $son = $son instanceof Carbon ? $son->format('Y-m-d\T23:59:59')
+            : (strlen((string) $son) === 10 ? $son . 'T23:59:59' : $son);
+
+        $params = [
+            'UyeKodu' => $this->client->getUyeKodu(),
+            'f' => [
+                'DuzenlemeTarihiBas' => null,
+                'DuzenlemeTarihiSon' => null,
+                // -1 = filtreleme yapma (hem aktarılmış hem aktarılmamış)
+                'EntegrasyonAktarildi' => $filters['aktarildi'] ?? -1,
+                'EntegrasyonParams' => ['EntegrasyonParamsAktif' => false],
+                'IptalEdilmisUrunler' => false,
+                'KampanyaGetir' => false,
+                'KargoFirmaID' => 0,
+                'OdemeDurumu' => $filters['odeme_durumu'] ?? -1,
+                'OdemeTipi' => $filters['odeme_tipi'] ?? -1,
+                'PaketlemeDurumu' => $filters['paketleme_durumu'] ?? 0,
+                'SiparisDurumu' => 0,
+                'SiparisID' => $filters['siparis_id'] ?? 0,
+                'SiparisKaynagi' => $filters['siparis_kaynagi'] ?? '',
+                'SiparisNo' => $filters['siparis_no'] ?? null,
+                'SiparisTarihiBas' => $bas,
+                'SiparisTarihiSon' => $son,
+                'StrSiparisDurumu' => '',
+                'TedarikciID' => -1,
+                'UrunGetir' => true,
+                'UyeID' => -1,
+            ],
+            's' => [
+                'BaslangicIndex' => $startIdx,
+                'KayitSayisi' => $perPage,
+                'SiralamaYonu' => 'DESC',
+            ],
+        ];
+
+        $resp = $this->client->call('order', $this->method('select'), $params);
+        return $this->normalizeList($resp, $this->method('select'));
+    }
+
+    /**
+     * Tek bir siparişi ID üzerinden çek (manuel aktarım butonunun arkasındaki çağrı).
+     * Bulamazsa null döner.
+     */
+    public function getOrderById(int $siparisId): ?array
+    {
+        $orders = $this->getOrdersByFilter([
+            'siparis_id' => $siparisId,
+            'date_from' => Carbon::now()->subYear()->format('Y-m-d\T00:00:00'),
+            'date_to' => Carbon::now()->format('Y-m-d\T23:59:59'),
+        ], 1, 1);
+        return $orders[0] ?? null;
+    }
+
+    /**
      * Ana mağazada sipariş oluştur. Payload ProductMapper::bayiOrderToAnaCreatePayload
      * tarafından gerçek WebSiparis envelope şemasında hazırlanır.
      */

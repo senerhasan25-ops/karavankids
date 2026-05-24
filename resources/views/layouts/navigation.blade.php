@@ -21,6 +21,9 @@
                     <x-nav-link :href="route('siparisler')" :active="request()->routeIs('siparisler')">
                         Siparişler
                     </x-nav-link>
+                    <x-nav-link :href="route('siparisler.aktar')" :active="request()->routeIs('siparisler.aktar')">
+                        Sipariş Aktarımı
+                    </x-nav-link>
                     <x-nav-link :href="route('loglar')" :active="request()->routeIs('loglar')">
                         Loglar
                     </x-nav-link>
