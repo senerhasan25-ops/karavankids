@@ -109,7 +109,10 @@ class ProductPicker extends Component
             $ana = ProductService::for('ana');
             if ($q === '') {
                 $batch = $ana->getNewProducts(null, $this->page, $this->perPage, 'DESC');
-                $this->hasMore = count($batch) === $this->perPage;
+                // Sonraki sayfa MUMKUN — Ticimax bir sayfada her zaman tam perPage
+                // dondurmeyebilir (filtre, gizli urun, vs.). Kullanıcıya ileri/geri
+                // serbest dolasim sun; bos sayfa gelirse mesajla uyariniz.
+                $this->hasMore = count($batch) > 0;
             } else {
                 // Arama tek seferde tüm sonuçları döner (sayfalama gereksiz)
                 $batch = $ana->searchProductsByStokKodu($q);
@@ -119,7 +122,13 @@ class ProductPicker extends Component
             $this->products = $this->flatten($batch);
             $this->resultCount = count($this->products);
             if ($this->resultCount === 0) {
-                $this->error = $q === '' ? 'Ana mağazada ürün yok.' : 'Aramaya uyan ürün bulunamadı.';
+                if ($q === '') {
+                    $this->error = $this->page > 1
+                        ? "Sayfa {$this->page}'de ürün yok — son sayfayı geçtin. Geri dön."
+                        : 'Ana mağazada ürün yok.';
+                } else {
+                    $this->error = 'Aramaya uyan ürün bulunamadı.';
+                }
             }
         } catch (\Throwable $e) {
             $this->error = 'Listeleme hatası: ' . $e->getMessage();

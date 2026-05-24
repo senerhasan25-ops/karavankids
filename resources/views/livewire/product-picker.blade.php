@@ -35,7 +35,7 @@
         @endif
         @if($hasSearched && $resultCount > 0)
             <div class="mt-3 flex items-center justify-between text-sm text-gray-600 dark:text-gray-400">
-                <span>{{ $resultCount }} satır gösteriliyor (Sayfa {{ $page }}).</span>
+                <span>Sayfa <strong>{{ $page }}</strong> — bu sayfada {{ $resultCount }} satır (100 ürün/sayfa).</span>
                 @if($query === '')
                     <div class="flex gap-2">
                         <button wire:click="oncekiSayfa" @disabled($page <= 1) class="px-3 py-1 rounded bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 disabled:opacity-50">← Önceki</button>
@@ -148,7 +148,7 @@
                 <button wire:click="aktar" wire:loading.attr="disabled" wire:target="aktar"
                         @disabled(count($selected) === 0)
                         class="px-6 py-2 bg-green-600 hover:bg-green-700 text-white font-medium rounded-md disabled:opacity-50">
-                    <span wire:loading.remove wire:target="aktar">Aktar ({{ count($selected) }} ürün)</span>
+                    <span wire:loading.remove wire:target="aktar">Seçilenleri Aktar ({{ count($selected) }} ürün)</span>
                     <span wire:loading wire:target="aktar">Aktarılıyor…</span>
                 </button>
             </div>
