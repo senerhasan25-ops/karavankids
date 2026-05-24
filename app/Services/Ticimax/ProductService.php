@@ -265,6 +265,39 @@ class ProductService
     }
 
     /**
+     * StokKodu ile TÜM eşleşen ürünler — dedupe komutu için.
+     * Aynı StokKodu'na sahip birden fazla ürün varsa hepsini döner.
+     */
+    public function findAllProductsByStokKodu(string $stokKodu, int $limit = 10): array
+    {
+        $stokKodu = trim($stokKodu);
+        if ($stokKodu === '') {
+            return [];
+        }
+        $filter = $this->baseFilter() + ['StokKodu' => $stokKodu];
+        $params = [
+            'UyeKodu' => $this->client->getUyeKodu(),
+            'f' => $filter,
+            's' => [
+                'BaslangicIndex' => 0,
+                'KayitSayisi' => $limit,
+                'KayitSayisinaGoreGetir' => true,
+                'SiralamaDegeri' => 'ID',
+                'SiralamaYonu' => 'ASC',
+            ],
+        ];
+        try {
+            $resp = $this->client->call('product', $this->method('select'), $params);
+        } catch (\Throwable $e) {
+            if (str_contains($e->getMessage(), 'Value cannot be null') && str_contains($e->getMessage(), 'source')) {
+                return [];
+            }
+            throw $e;
+        }
+        return $this->normalizeList($resp, $this->method('select'), 'UrunKarti');
+    }
+
+    /**
      * StokKodu ile tek ürün — SelectUrun'a StokKodu filtresi verir, full UrunKarti döner.
      * Lokal mapping doldururken kullanılır: tek SOAP çağrısı ile hem UrunKartiID hem
      * tüm Varyasyon.ID'leri tek seferde alınır.
