@@ -28,7 +28,7 @@
                         API Ayarları
                     </x-nav-link>
                     <x-nav-link :href="route('ayarlar.sync')" :active="request()->routeIs('ayarlar.sync')">
-                        Sync Ayarları
+                        Otomatik Güncelleme
                     </x-nav-link>
                 </div>
             </div>
