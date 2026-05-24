@@ -795,60 +795,84 @@ class ProductService
         $on = fn(string $k) => isset($f[$k]);
 
         $ukAyar = [
-            // Icerik
+            // ===== ICERIK =====
+            'UrunAdiGuncelle' => $on('urun_adi'),
+            'SatisBirimiGuncelle' => $on('urun_adi'),       // urun_adi grubuna bagli
             'AciklamaGuncelle' => $on('aciklama'),
             'OnYaziGuncelle' => $on('on_yazi'),
             'AramaAnahtarKelimeGuncelle' => $on('seo'),
-            // Kategori (sadece resolver/mirror yoksa kapali tutmak isteyebiliriz —
-            // manuel akista kullanici 'kategori' isaretlediyse acalim)
+
+            // ===== KATEGORI =====
             'KategoriGuncelle' => $on('kategori'),
             'AnaKategoriGuncelle' => $on('kategori'),
-            // Marka / tedarikci
+            'OncekiKategoriEslestirmeleriniTemizle' => $on('kategori'),
+
+            // ===== MARKA / TEDARIKCI =====
             'MarkaGuncelle' => $on('marka'),
             'TedarikciGuncelle' => $on('tedarikci'),
-            // SEO
+            'TedarikciKomisyonGuncelle' => $on('tedarikci'),
+
+            // ===== SEO =====
             'SeoSayfaBaslikGuncelle' => $on('seo'),
             'SeoSayfaAciklamaGuncelle' => $on('seo'),
             'SeoAnahtarKelimeGuncelle' => $on('seo'),
-            // Aktiflik (UrunKarti seviyesinde)
+            'SeoNoFollowGuncelle' => $on('seo'),
+            'SeoNoIndexGuncelle' => $on('seo'),
+
+            // ===== AKTIFLIK / GORUNUM =====
             'AktifGuncelle' => $on('aktif'),
             'ListedeGosterGuncelle' => $on('aktif'),
-            // Resimler
+            'VitrinGuncelle' => $on('aktif'),
+            'YeniUrunGuncelle' => $on('aktif'),
+
+            // ===== RESIMLER =====
+            'UrunResimGuncelle' => $on('resimler'),
+            'IlgiliUrunResimGuncelle' => $on('resimler'),
             'ResimOlmayanlaraResimEkle' => $on('resimler'),
             'OncekiResimleriSil' => false,
             'Base64Resim' => false,
             'ResimleriIndirme' => false,
-            // Ticimax-native upsert KAPALI (Ali konvansiyonu)
-            'TedarikciKodunaGoreGuncelle' => false,
-            // Etiket: aktif ise SEO'ya bagla (ayri grup yok)
+
+            // ===== ETIKETLER (SEO grubuna bagli) =====
             'EtiketGuncelle' => $on('seo'),
-            // SatisBirimi - urun_adi grubuna bagli (manuel listede ayri tutmadik)
-            'SatisBirimiGuncelle' => $on('urun_adi'),
+
+            // ===== UPSERT KAPALI (Ali konvansiyonu) =====
+            'TedarikciKodunaGoreGuncelle' => false,
         ];
 
         $vAyar = [
-            // Stok
+            // ===== STOK =====
             'StokAdediGuncelle' => $on('stok_adedi'),
-            // Fiyat
+            'EksiStokAdediGuncelle' => $on('stok_adedi'),
+
+            // ===== FIYAT =====
             'SatisFiyatiGuncelle' => $on('satis_fiyati'),
             'IndirimliFiyatiGuncelle' => $on('indirimli_fiyat'),
             'AlisFiyatiGuncelle' => $on('satis_fiyati'),
             'PiyasaFiyatiGuncelle' => $on('satis_fiyati'),
-            // KDV
+
+            // ===== KDV =====
             'KdvDahilGuncelle' => $on('kdv_dahil'),
             'KdvOraniGuncelle' => $on('kdv_orani'),
-            // Para birimi - fiyat grubuna baglı
+
+            // ===== PARA BIRIMI (fiyat grubuna bagli) =====
             'ParaBirimiGuncelle' => $on('satis_fiyati'),
-            // Uye tipi fiyatları (20 adet, hepsi tek bayrak)
+
+            // ===== UYE TIPI FIYATLARI (1..20, tek bayrak) =====
             'FiyatTipleriGuncelle' => $on('uye_tipi_fiyat'),
-            // Aktiflik
+
+            // ===== AKTIFLIK =====
             'AktifGuncelle' => $on('aktif'),
             'UrunKartiAktifGuncelle' => $on('aktif'),
-            // Barkod ve StokKodu — manuel akista yeni barkod yazmiyoruz, ama eslesik
-            // urunlerde kullanici StokKodu degisikligi yapmak istiyor olabilir; varsayilan
-            // kapali tutuyoruz (riskli).
+
+            // ===== RESIMLER (varyasyon seviyesinde) =====
+            'UrunResimGuncelle' => $on('resimler'),
+
+            // ===== BARKOD / STOK KODU (riskli — varsayilan kapali) =====
             'BarkodGuncelle' => false,
             'StokKoduGuncelle' => false,
+
+            // ===== UPSERT KAPALI =====
             'OncekiResimleriSil' => false,
             'TedarikciKodunaGoreGuncelle' => false,
         ];
