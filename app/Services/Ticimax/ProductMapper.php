@@ -21,7 +21,7 @@ namespace App\Services\Ticimax;
 class ProductMapper
 {
     /** TedarikciKodu prefix'i — gelecekte ayrı versiyonlar için tek noktadan değiştirilebilsin. */
-    public const TED_KODU_PREFIX = 'SUP3005';
+    public const TED_KODU_PREFIX = 'SUP2026';
 
     /** @var callable|null  Marka adı → bayi marka ID'si çözümleyici (opsiyonel) */
     protected $brandResolver = null;
@@ -106,7 +106,7 @@ class ProductMapper
     }
 
     /**
-     * "SUP3005|{stokKodu}|{anaId}" — kullanıcının halihazırda sitede kullandığı
+     * "SUP2026|{stokKodu}|{anaId}" — kullanıcının halihazırda sitede kullandığı
      * format. Eski "SUP|...|stokKodu" pozisyonu swap edildi.
      */
     public function buildTedarikciKodu(int $anaId, string $stokKodu): string

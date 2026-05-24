@@ -130,11 +130,11 @@ class DedupeBayiProductsCommand extends Command
         bool $apply,
         int &$mappedCount
     ): void {
-        // Canonical seç: TedarikciKodu SUP3005 ile başlamayan = eski format, korunur.
+        // Canonical seç: TedarikciKodu SUP2026 ile başlamayan = eski format, korunur.
         // Hiçbiri eski değilse en küçük ID'li olanı koru.
         $keep = null;
         foreach ($bayiMatches as $bm) {
-            if (! str_starts_with((string) ($bm['TedarikciKodu'] ?? ''), 'SUP3005')) {
+            if (! str_starts_with((string) ($bm['TedarikciKodu'] ?? ''), 'SUP2026')) {
                 $keep = $bm;
                 break;
             }
@@ -183,7 +183,7 @@ class DedupeBayiProductsCommand extends Command
                     'ana_variant_id' => isset($anaVariant['ID']) ? (string) $anaVariant['ID'] : null,
                     'bayi_product_id' => $keepId > 0 ? (string) $keepId : null,
                     'bayi_variant_id' => $keepVariantId > 0 ? (string) $keepVariantId : null,
-                    'tedarikci_kodu' => "SUP3005|{$stokKodu}|{$anaUrunId}",
+                    'tedarikci_kodu' => "SUP2026|{$stokKodu}|{$anaUrunId}",
                     'status' => 'synced',
                     'last_synced_at' => now(),
                     'last_error' => null,
