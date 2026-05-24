@@ -14,6 +14,7 @@ class SyncTick
 {
     public static function run(): void
     {
+        // Master toggle KAPALI → hiç çalıştırma
         if (! (bool) SyncSetting::get('otomatik_aktif', false)) {
             return;
         }
@@ -32,10 +33,26 @@ class SyncTick
             return;
         }
 
-        SyncNewProductsJob::dispatch();
-        SyncStockPriceJob::dispatch();
-        PullBayiOrdersJob::dispatch();
+        // Alt-toggle'lar — sadece açık olanları dispatch et
+        $dispatched = false;
+        if ((bool) SyncSetting::get('otomatik_urunler', true)) {
+            SyncNewProductsJob::dispatch();
+            $dispatched = true;
+        }
+        if ((bool) SyncSetting::get('otomatik_stok_fiyat', true)) {
+            SyncStockPriceJob::dispatch();
+            $dispatched = true;
+        }
+        if ((bool) SyncSetting::get('otomatik_siparis', true)) {
+            PullBayiOrdersJob::dispatch();
+            $dispatched = true;
+        }
 
-        SyncSetting::put('last_run_at', now()->toDateTimeString());
+        // En az bir job atıldıysa "son çalışma" zamanını güncelle.
+        // Hiçbir alt-toggle açık değilse last_run_at'ı bozmayalım — yoksa
+        // kullanıcı sonra bir tanesini açtığında interval-kilidi yanlış yere düşer.
+        if ($dispatched) {
+            SyncSetting::put('last_run_at', now()->toDateTimeString());
+        }
     }
 }

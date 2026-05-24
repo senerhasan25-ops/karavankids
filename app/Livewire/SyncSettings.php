@@ -18,12 +18,18 @@ class SyncSettings extends Component
 {
     public int $interval_minutes = 15;
     public bool $otomatik_aktif = false;
+    public bool $otomatik_urunler = true;
+    public bool $otomatik_stok_fiyat = true;
+    public bool $otomatik_siparis = true;
     public ?string $last_run_at = null;
 
     public function mount(): void
     {
         $this->interval_minutes = (int) SyncSetting::get('interval_minutes', 15);
         $this->otomatik_aktif = (bool) SyncSetting::get('otomatik_aktif', false);
+        $this->otomatik_urunler = (bool) SyncSetting::get('otomatik_urunler', true);
+        $this->otomatik_stok_fiyat = (bool) SyncSetting::get('otomatik_stok_fiyat', true);
+        $this->otomatik_siparis = (bool) SyncSetting::get('otomatik_siparis', true);
         $this->last_run_at = SyncSetting::get('last_run_at') ?: null;
     }
 
@@ -32,6 +38,9 @@ class SyncSettings extends Component
         return [
             'interval_minutes' => ['required', 'integer', 'min:1', 'max:1440'],
             'otomatik_aktif' => ['boolean'],
+            'otomatik_urunler' => ['boolean'],
+            'otomatik_stok_fiyat' => ['boolean'],
+            'otomatik_siparis' => ['boolean'],
         ];
     }
 
@@ -40,6 +49,9 @@ class SyncSettings extends Component
         $this->validate();
         SyncSetting::put('interval_minutes', $this->interval_minutes);
         SyncSetting::put('otomatik_aktif', $this->otomatik_aktif ? '1' : '0');
+        SyncSetting::put('otomatik_urunler', $this->otomatik_urunler ? '1' : '0');
+        SyncSetting::put('otomatik_stok_fiyat', $this->otomatik_stok_fiyat ? '1' : '0');
+        SyncSetting::put('otomatik_siparis', $this->otomatik_siparis ? '1' : '0');
         session()->flash('status', 'Sync ayarları kaydedildi.');
     }
 

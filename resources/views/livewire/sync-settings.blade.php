@@ -21,9 +21,38 @@
 
                 <div>
                     <label class="inline-flex items-center">
-                        <input type="checkbox" wire:model="otomatik_aktif" class="rounded">
-                        <span class="ms-2 text-sm text-gray-700 dark:text-gray-300">Otomatik senkronizasyonu aktif et</span>
+                        <input type="checkbox" wire:model.live="otomatik_aktif" class="rounded">
+                        <span class="ms-2 text-sm font-medium text-gray-700 dark:text-gray-300">Otomatik senkronizasyonu aktif et</span>
                     </label>
+
+                    {{-- Alt-toggle'lar: master aktifken hangi sync türlerinin çalışacağı --}}
+                    <div class="mt-3 ml-6 pl-4 border-l-2 border-gray-200 dark:border-gray-700 space-y-2"
+                         :class="{ 'opacity-50': !{{ $otomatik_aktif ? 'true' : 'false' }} }">
+                        <p class="text-xs text-gray-500 dark:text-gray-400 mb-2">
+                            Otomatik tetiklenecek senkronizasyon türleri:
+                        </p>
+                        <label class="inline-flex items-center w-full">
+                            <input type="checkbox" wire:model="otomatik_urunler" class="rounded"
+                                   {{ $otomatik_aktif ? '' : 'disabled' }}>
+                            <span class="ms-2 text-sm text-gray-700 dark:text-gray-300">
+                                📦 Ürünler (yeni ürün açma + güncelleme)
+                            </span>
+                        </label>
+                        <label class="inline-flex items-center w-full">
+                            <input type="checkbox" wire:model="otomatik_stok_fiyat" class="rounded"
+                                   {{ $otomatik_aktif ? '' : 'disabled' }}>
+                            <span class="ms-2 text-sm text-gray-700 dark:text-gray-300">
+                                💰 Stok / Fiyat (sadece varolan ürünlerin güncellenmesi)
+                            </span>
+                        </label>
+                        <label class="inline-flex items-center w-full">
+                            <input type="checkbox" wire:model="otomatik_siparis" class="rounded"
+                                   {{ $otomatik_aktif ? '' : 'disabled' }}>
+                            <span class="ms-2 text-sm text-gray-700 dark:text-gray-300">
+                                🛒 Siparişler (hedef → kaynak aktarımı)
+                            </span>
+                        </label>
+                    </div>
                 </div>
 
                 <div class="text-sm text-gray-600 dark:text-gray-400">
