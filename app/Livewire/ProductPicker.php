@@ -155,6 +155,77 @@ class ProductPicker extends Component
     }
 
     /**
+     * Hızlı yol: seçili ürünlerin sadece STOK ve FİYAT bilgilerini bayide günceller.
+     * Bayide olmayan ürünler atlanır (oluşturma yapmaz — sadece update).
+     */
+    public function stokFiyatGuncelle(): void
+    {
+        $this->results = [];
+        $this->status = null;
+
+        if (empty($this->selected)) {
+            $this->error = 'Güncellemek için ürün seçin.';
+            return;
+        }
+        $this->error = null;
+
+        // Sadece stok + satış + indirimli fiyat alanları
+        $fields = ['stok_adedi', 'satis_fiyati', 'indirimli_fiyat'];
+
+        $rows = array_values(array_filter($this->products, fn($r) => in_array((string) $r['variant_id'], $this->selected, true)));
+
+        $ana = ProductService::for('ana');
+        $bayi = ProductService::for('bayi');
+        $mapper = $this->buildMapper($ana, $bayi);
+
+        $ok = 0; $atlandi = 0; $fail = 0;
+        foreach ($rows as $row) {
+            $stokKodu = $row['stok_kodu'] ?? '';
+            $urunAdi  = $row['urun_adi'] ?? '';
+            $raw      = $row['_raw'] ?? null;
+
+            if (! is_array($raw) || $stokKodu === '') {
+                $this->results[] = ['stok_kodu' => $stokKodu, 'urun_adi' => $urunAdi, 'durum' => 'atlandi', 'mesaj' => 'Ham payload yok'];
+                $atlandi++;
+                continue;
+            }
+
+            try {
+                $bayiMevcut = $bayi->getProductByStokKodu($stokKodu);
+                if (! $bayiMevcut || (int) ($bayiMevcut['ID'] ?? 0) === 0) {
+                    $this->results[] = ['stok_kodu' => $stokKodu, 'urun_adi' => $urunAdi, 'durum' => 'atlandi', 'mesaj' => 'Bayide bulunamadı (önce aktar)'];
+                    $atlandi++;
+                    continue;
+                }
+
+                $payload = $mapper->anaToBayiCreatePayload($raw);
+                $bayiId = (int) $bayiMevcut['ID'];
+                $varMap = $this->mapBayiVariantIds($bayiMevcut);
+                $bayi->updateProductSelective($payload, $bayiId, $varMap, $fields);
+
+                $stok = $row['stok_adedi'] ?? 0;
+                $fiyat = number_format((float) ($row['satis_fiyati'] ?? 0), 2, ',', '.');
+                $this->results[] = [
+                    'stok_kodu' => $stokKodu, 'urun_adi' => $urunAdi,
+                    'durum' => 'guncellendi',
+                    'mesaj' => "bayi ID={$bayiId} | stok={$stok} fiyat={$fiyat}",
+                ];
+                $this->upsertMapping($row, $bayiId, $varMap);
+                $ok++;
+            } catch (\Throwable $e) {
+                $this->results[] = ['stok_kodu' => $stokKodu, 'urun_adi' => $urunAdi, 'durum' => 'hata', 'mesaj' => substr($e->getMessage(), 0, 200)];
+                $fail++;
+            }
+        }
+
+        $this->status = "Stok/Fiyat güncelleme tamamlandı: {$ok} başarılı"
+            . ($atlandi ? ", {$atlandi} atlandı (bayide yok)" : '')
+            . ($fail ? ", {$fail} hata" : '') . '.';
+        $this->selected = [];
+        $this->selectAll = false;
+    }
+
+    /**
      * Seçili ürünleri belirlenen parametrelere göre bayi'ye aktar.
      */
     public function aktar(): void
