@@ -54,9 +54,8 @@
                     "Şimdi Durdur" hem bekleyen işleri siler hem de çalışan worker'a durdurma flag'i yollar.
                     Worker mevcut işin <strong>bir sonraki ürün/sipariş arasında</strong> bu flag'i görür ve nazikçe çıkar.
                 </p>
-                <button wire:click="stopAll"
-                        wire:confirm="Tüm kuyruğu durduracaksın, devam edilsin mi?"
-                        @click="open = false"
+                <button type="button"
+                        x-on:click="if (confirm('Tüm kuyruğu durduracaksın, devam edilsin mi?')) { $wire.stopAll() }"
                         class="w-full px-3 py-2 bg-red-600 text-white text-sm rounded hover:bg-red-700">
                     ⛔ Şimdi Durdur
                 </button>

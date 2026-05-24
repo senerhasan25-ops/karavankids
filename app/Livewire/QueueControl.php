@@ -52,46 +52,57 @@ class QueueControl extends Component
      */
     public function stopAll(): void
     {
-        // 1) IN-JOB STOP FLAG — uzun süren job'lar (SyncNewProductsJob 2469 ürün dönerken)
-        //    her ürün arasında bu flag'i kontrol eder, true ise nazikçe çıkar.
-        Cache::put(self::STOP_FLAG_KEY, true, now()->addHour());
+        $log = []; // Her adımın sonucunu topla, hangisinin başarısız olduğunu kullanıcıya göster
 
-        // 2) Bekleyen job'ları sil (henüz alınmamış olanlar)
+        // 1) IN-JOB STOP FLAG
+        try {
+            Cache::put(self::STOP_FLAG_KEY, true, now()->addHour());
+            $log[] = '✓ Stop flag yollandı';
+        } catch (\Throwable $e) {
+            $log[] = '✗ Cache flag: ' . $e->getMessage();
+        }
+
+        // 2) Bekleyen job'ları sil
         $cleared = 0;
         try {
             $cleared = (int) DB::table('jobs')->count();
             DB::table('jobs')->delete();
-        } catch (\Throwable) {
+            $log[] = "✓ {$cleared} bekleyen iş silindi";
+        } catch (\Throwable $e) {
+            $log[] = '✗ Jobs sil: ' . $e->getMessage();
         }
 
-        // 3) Worker'a graceful restart sinyali (job arası kontrol noktasında çıkar)
-        Artisan::call('queue:restart');
-
-        // 4) DB'deki "running" SyncJob satırlarını ZORLA failed işaretle.
-        //    Worker process'i hâlâ çalışıyorsa stop flag'i ile nazikçe çıkar; ama
-        //    UI ve sayaçlar anında doğru görünmeli (çoğu durumda bu satırlar zaten
-        //    ölü worker'lardan kalma orphan kayıtlar).
-        $cancelled = SyncJob::where('status', 'running')->update([
-            'status' => 'failed',
-            'finished_at' => now(),
-            'last_error' => 'Kullanıcı tarafından zorla durduruldu',
-        ]);
-
-        // 5) Eski / takılmış stop flag'leri için de jobs tablosunda kalan deferred job'ları sil
+        // 3) DB'deki "running" SyncJob satırlarını ZORLA failed işaretle
+        $cancelled = 0;
         try {
-            DB::table('failed_jobs')->where('failed_at', '<', now()->subDay())->delete();
-        } catch (\Throwable) {
+            $cancelled = SyncJob::where('status', 'running')->update([
+                'status' => 'failed',
+                'finished_at' => now(),
+                'last_error' => 'Kullanıcı tarafından zorla durduruldu',
+            ]);
+            $log[] = "✓ {$cancelled} çalışan SyncJob → failed";
+        } catch (\Throwable $e) {
+            $log[] = '✗ SyncJob update: ' . $e->getMessage();
         }
 
-        // 6) ZORLA KAPATMA — çalışan queue:work PHP process'lerini Windows tasklist ile bul ve öldür
-        //    Graceful stop sinyali yetmiyor (worker mevcut job ortasında flag'i göremiyor)
-        $killed = $this->killQueueWorkerProcesses();
+        // 4) queue:restart sinyali
+        try {
+            Artisan::call('queue:restart');
+            $log[] = '✓ queue:restart sinyali';
+        } catch (\Throwable $e) {
+            $log[] = '✗ queue:restart: ' . $e->getMessage();
+        }
+
+        // 5) Worker process'lerini öldür (opsiyonel — hata olsa bile diğer adımlar tamamlanmış olmalı)
+        try {
+            $killed = $this->killQueueWorkerProcesses();
+            $log[] = $killed > 0 ? "✓ {$killed} worker process öldürüldü" : '· Worker process bulunamadı';
+        } catch (\Throwable $e) {
+            $log[] = '✗ Worker kill: ' . $e->getMessage();
+        }
 
         $this->refreshCounts();
-        $this->statusMsg = "Durduruldu: {$cleared} bekleyen + {$cancelled} çalışan iş kapatıldı. "
-                         . ($killed > 0
-                             ? "{$killed} queue worker process'i zorla sonlandırıldı."
-                             : "Worker process bulunamadı (zaten kapalı veya farklı kullanıcı).");
+        $this->statusMsg = implode(' | ', $log);
     }
 
     /**
