@@ -57,9 +57,9 @@ class ProductMapper
      */
     public function anaToBayiCreatePayload(array $ana): array
     {
-        $anaId = (int) ($ana['ID'] ?? 0);
         $stokKodu = $this->resolveStokKodu($ana);
-        $kartTedKodu = $this->buildTedarikciKodu($anaId, $stokKodu);
+        $primaryVariantId = $this->resolvePrimaryVariantId($ana);
+        $kartTedKodu = $this->buildTedarikciKodu($primaryVariantId, $stokKodu);
 
         $kart = [
             'ID' => 0, // upsert için 0 — TedarikciKodu eşleşirse Ticimax günceller, yoksa yeni oluşturur
@@ -106,12 +106,30 @@ class ProductMapper
     }
 
     /**
-     * "SUP2026|{stokKodu}|{anaId}" — kullanıcının halihazırda sitede kullandığı
-     * format. Eski "SUP|...|stokKodu" pozisyonu swap edildi.
+     * "SUP2026|{stokKodu}|{anaVariantId}" — kaynak mağazadaki VARYASYON ID'sini
+     * gömer (UrunKartiID değil). Aynı StokKodu farklı varyasyonlarda olamayacağı için
+     * tek başına eşsiz; varyasyon ID eklenmesi sadece izleme/audit içindir.
      */
-    public function buildTedarikciKodu(int $anaId, string $stokKodu): string
+    public function buildTedarikciKodu(int $anaVariantId, string $stokKodu): string
     {
-        return self::TED_KODU_PREFIX . '|' . trim($stokKodu) . '|' . $anaId;
+        return self::TED_KODU_PREFIX . '|' . trim($stokKodu) . '|' . $anaVariantId;
+    }
+
+    /**
+     * Üründen birincil VaryasyonID'yi çıkarır — en küçük ID'li varyasyon.
+     * resolveStokKodu ile aynı varyasyonu seçer (deterministik).
+     */
+    public function resolvePrimaryVariantId(array $ana): int
+    {
+        $variants = $this->flattenVariants($ana['Varyasyonlar'] ?? []);
+        usort($variants, fn ($a, $b) => ((int) ($a['ID'] ?? 0)) <=> ((int) ($b['ID'] ?? 0)));
+        foreach ($variants as $v) {
+            $id = (int) ($v['ID'] ?? 0);
+            if ($id > 0) {
+                return $id;
+            }
+        }
+        return 0;
     }
 
     /**
@@ -418,24 +436,14 @@ class ProductMapper
 
         return array_map(function ($v) use ($baseTedKodu) {
             $ozellikler = $this->mapVariantProps($v['Ozellikler'] ?? []);
-            $renk = '';
-            $beden = '';
-            foreach ($ozellikler as $oz) {
-                $tanim = mb_strtolower(trim((string) ($oz['Tanim'] ?? '')));
-                $deger = trim((string) ($oz['Deger'] ?? ''));
-                if ($tanim === 'renk') {
-                    $renk = $deger;
-                } elseif ($tanim === 'beden') {
-                    $beden = $deger;
-                }
-            }
-            $tedKodu = $baseTedKodu;
-            if ($renk !== '') {
-                $tedKodu .= '|' . $renk;
-            }
-            if ($beden !== '') {
-                $tedKodu .= '|' . $beden;
-            }
+            // Her varyasyonun KENDİ TedarikciKodu'su = "SUP2026|varyasyonStokKodu|varyasyonId"
+            // Üst seviye baseTedKodu birincil varyasyondan üretildi; ikincil varyasyonlar
+            // için kendi ID/StokKodu'larıyla üretmek zorundayız (eşsiz olsun diye).
+            $vId = (int) ($v['ID'] ?? 0);
+            $vStokKodu = trim((string) ($v['StokKodu'] ?? ''));
+            $tedKodu = ($vId > 0 && $vStokKodu !== '')
+                ? $this->buildTedarikciKodu($vId, $vStokKodu)
+                : $baseTedKodu;
 
             return [
                 'ID' => 0,

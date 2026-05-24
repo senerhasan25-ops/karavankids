@@ -122,7 +122,7 @@ class ProductMapperTest extends TestCase
     public function test_builds_tedarikci_kodu_with_correct_format(): void
     {
         $mapper = new ProductMapper();
-        // Yeni format: SUP2026|{stokKodu}|{anaId}
+        // Yeni format: SUP2026|{stokKodu}|{anaVariantId}
         $this->assertSame('SUP2026|MG26A|123', $mapper->buildTedarikciKodu(123, 'MG26A'));
         $this->assertSame('SUP2026||99', $mapper->buildTedarikciKodu(99, ''));
     }
@@ -176,22 +176,24 @@ class ProductMapperTest extends TestCase
     {
         $mapper = new ProductMapper();
         $ana = [
-            'ID' => 555,
+            'ID' => 555, // UrunKartiID — TedarikciKodu'da KULLANILMAZ artık
             'UrunAdi' => 'Test',
             'Aktif' => true,
             'StokKodu' => 'ABC',
             'Varyasyonlar' => [
-                ['ID' => 1, 'Barkod' => 'B1', 'StokKodu' => 'ABC',
+                ['ID' => 11, 'Barkod' => 'B1', 'StokKodu' => 'ABC',
                  'Ozellikler' => ['VaryasyonOzellik' => [['Tanim' => 'Renk', 'Deger' => 'Kırmızı']]]],
-                ['ID' => 2, 'Barkod' => 'B2', 'StokKodu' => 'ABC',
+                ['ID' => 22, 'Barkod' => 'B2', 'StokKodu' => 'ABC-2',
                  'Ozellikler' => ['VaryasyonOzellik' => [['Tanim' => 'Renk', 'Deger' => 'Mavi'], ['Tanim' => 'Beden', 'Deger' => 'L']]]],
             ],
         ];
 
         $payload = $mapper->anaToBayiCreatePayload($ana);
 
-        $this->assertSame('SUP2026|ABC|555', $payload['TedarikciKodu']);
-        $this->assertSame('SUP2026|ABC|555|Kırmızı', $payload['Varyasyonlar'][0]['TedarikciKodu']);
-        $this->assertSame('SUP2026|ABC|555|Mavi|L', $payload['Varyasyonlar'][1]['TedarikciKodu']);
+        // Kart seviyesi: birincil varyasyon (ID=11, en küçük) + birincil stok kodu (ABC üst seviyeden)
+        $this->assertSame('SUP2026|ABC|11', $payload['TedarikciKodu']);
+        // Her varyasyon kendi ID + kendi StokKodu'su ile eşsiz TedarikciKodu üretir
+        $this->assertSame('SUP2026|ABC|11', $payload['Varyasyonlar'][0]['TedarikciKodu']);
+        $this->assertSame('SUP2026|ABC-2|22', $payload['Varyasyonlar'][1]['TedarikciKodu']);
     }
 }

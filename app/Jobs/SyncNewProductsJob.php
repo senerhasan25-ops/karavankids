@@ -129,7 +129,9 @@ class SyncNewProductsJob implements ShouldQueue
         $primaryStokKodu = $mapper->resolveStokKodu($urunKarti);
         $primaryBarkod = (string) ($primaryVariant['Barkod'] ?? '');
         $urunAdi = (string) ($urunKarti['UrunAdi'] ?? '');
-        $tedKodu = $mapper->buildTedarikciKodu($anaUrunId, $primaryStokKodu);
+        // TedarikciKodu birincil VaryasyonID kullanır (UrunKartiID değil)
+        $primaryVariantId = $mapper->resolvePrimaryVariantId($urunKarti);
+        $tedKodu = $mapper->buildTedarikciKodu($primaryVariantId, $primaryStokKodu);
 
         $context = [
             'barcode' => $primaryBarkod ?: null,

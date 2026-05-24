@@ -183,7 +183,8 @@ class DedupeBayiProductsCommand extends Command
                     'ana_variant_id' => isset($anaVariant['ID']) ? (string) $anaVariant['ID'] : null,
                     'bayi_product_id' => $keepId > 0 ? (string) $keepId : null,
                     'bayi_variant_id' => $keepVariantId > 0 ? (string) $keepVariantId : null,
-                    'tedarikci_kodu' => "SUP2026|{$stokKodu}|{$anaUrunId}",
+                    // TedarikciKodu kaynak VaryasyonID'sini gömer (UrunKartiID değil)
+                    'tedarikci_kodu' => "SUP2026|{$stokKodu}|" . (isset($anaVariant['ID']) ? (int) $anaVariant['ID'] : 0),
                     'status' => 'synced',
                     'last_synced_at' => now(),
                     'last_error' => null,
