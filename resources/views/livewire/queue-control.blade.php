@@ -98,6 +98,30 @@
                 @endif
             </div>
 
+            {{-- AUTO-SYNC TOGGLE --}}
+            <div class="border-t border-gray-200 dark:border-gray-700 pt-3 mb-3">
+                <button wire:click="toggleAutoSync"
+                        class="w-full flex items-center justify-between gap-2 px-3 py-2 rounded text-xs
+                            @if ($autoSyncEnabled) bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-200 hover:bg-green-200
+                            @else bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600
+                            @endif">
+                    <span class="font-medium">Otomatik Sync</span>
+                    <span>
+                        @if ($autoSyncEnabled)
+                            🟢 AÇIK (scheduler aktif)
+                        @else
+                            ⚫ KAPALI
+                        @endif
+                    </span>
+                </button>
+                @if ($autoSyncEnabled)
+                    <p class="text-[10px] text-gray-500 dark:text-gray-400 mt-1 leading-snug">
+                        Tek tek "Durdur" yetmez — scheduler 1 dk sonra yenisini dispatch eder.
+                        Kalıcı durdurmak için bunu KAPATMAYI unutma.
+                    </p>
+                @endif
+            </div>
+
             {{-- TOPLU AKSİYONLAR --}}
             <div class="border-t border-gray-200 dark:border-gray-700 pt-3 space-y-2">
                 @if ($stopRequested)

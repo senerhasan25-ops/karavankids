@@ -3,6 +3,7 @@
 namespace App\Livewire;
 
 use App\Models\SyncJob;
+use App\Models\SyncSetting;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\On;
@@ -29,6 +30,7 @@ class QueueControl extends Component
     public array $pendingJobs = [];     // [{id, label, queue, attempts, created_at}]
     public array $runningJobs = [];     // [{id, type, started_at, success, error, total}]
     public bool $stopRequested = false;
+    public bool $autoSyncEnabled = false;
     public ?string $statusMsg = null;
 
     public function mount(): void
@@ -79,6 +81,18 @@ class QueueControl extends Component
             ->toArray();
 
         $this->stopRequested = (bool) Cache::get(self::STOP_FLAG_KEY, false);
+        $this->autoSyncEnabled = (bool) SyncSetting::get('otomatik_aktif', false);
+    }
+
+    /** Scheduler tarafından otomatik tetiklenen sync'i tek tıkla kapat/aç. */
+    public function toggleAutoSync(): void
+    {
+        $new = ! $this->autoSyncEnabled;
+        SyncSetting::put('otomatik_aktif', $new);
+        $this->autoSyncEnabled = $new;
+        $this->statusMsg = $new
+            ? '✓ Otomatik sync AÇILDI — scheduler her dakika kontrol eder.'
+            : '✓ Otomatik sync KAPATILDI — yeni job dispatch edilmez.';
     }
 
     /** Job'un içinden çağrılır — global VEYA per-job flag varsa true. */
