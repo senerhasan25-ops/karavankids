@@ -54,30 +54,51 @@ class OrderTransferPicker extends Component
         10 => 'Diğer',
     ];
 
+    // Ödeme Durumu — Ticimax bayi panelindeki sıraya göre (Ali'nin gönderdiği screenshot)
     public array $odemeDurumlari = [
         -1 => 'Hepsi',
-        1 => 'Ödendi',
-        2 => 'Ödeme Bekliyor',
-        3 => 'İptal Edildi',
+        1 => 'Onay Bekliyor',
+        2 => 'Onaylandı',
+        3 => 'Hatalı',
+        4 => 'İade Edilmiş',
+        5 => 'İptal Edilmiş',
+        6 => 'Ödeme Bekliyor',
+        7 => 'Ödeme Talep Edildi',
     ];
 
+    // Sipariş Durumu — Ticimax panelindeki TAM liste (20 durum)
     public array $siparisDurumlari = [
         0 => 'Hepsi',
         1 => 'Sipariş Alındı',
-        2 => 'Onaylandı',
-        3 => 'Hazırlanıyor',
-        4 => 'Kargoya Verildi',
-        5 => 'Teslim Edildi',
-        6 => 'İptal Edildi',
-        7 => 'İade Edildi',
+        2 => 'Onay Bekliyor',
+        3 => 'Onaylandı',
+        4 => 'Ödeme Bekliyor',
+        5 => 'Paketleniyor',
+        6 => 'Tedarik Ediliyor',
+        7 => 'Kargoya Verildi',
+        8 => 'Teslim Edildi',
+        9 => 'İptal Edildi',
+        10 => 'İade Edildi',
+        11 => 'Silinmiş',
+        12 => 'İade Talebi Alındı',
+        13 => 'İade Ulaştı Ödeme Yapılacak',
+        14 => 'İade Ödemesi Yapıldı',
+        15 => 'Teslimat Öncesi İptal Talebi',
+        16 => 'İptal Talebi',
+        17 => 'Kısmı İade Talebi',
+        18 => 'Kısmı İade Yapıldı',
+        19 => 'Teslim Edilemedi',
     ];
 
+    // Paketleme Durumu — Ticimax panelindeki TAM liste
     public array $paketlemeDurumlari = [
         0 => 'Hepsi',
         1 => 'Beklemede',
         2 => 'Paketleniyor',
-        3 => 'Paketlendi',
-        4 => 'Kargoya Verildi',
+        3 => 'Eksik Ürün',
+        4 => 'Fatura Bekliyor',
+        5 => 'Fatura Kesildi',
+        6 => 'Eksik Gönderildi',
     ];
 
     public function mount(): void
