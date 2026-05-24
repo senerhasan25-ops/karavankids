@@ -1,23 +1,25 @@
 <div class="p-6 max-w-7xl mx-auto">
-    <h1 class="text-2xl font-bold mb-4">Manuel Ürün Listele</h1>
+    <h1 class="text-2xl font-bold mb-4">Manuel Ürün Aktarımı</h1>
     <p class="text-sm text-gray-500 dark:text-gray-400 mb-4">
-        Ana mağazadan stok koduna göre ürün ara. Tek değer girersen "içerir" (LIKE) araması,
-        virgülle ayırırsan birden çok birebir arama yapar.
+        Ana mağazadan ürün listele, seç, parametre belirle, bayiye aktar — hepsi tek sayfada.
+        Stok kodunu boş bırakırsan tüm ürünleri sayfa sayfa listeler. Tek değer "içerir" (LIKE),
+        virgüllü çoklu birebir arama yapar.
     </p>
 
+    {{-- ARAMA / LISTELE --}}
     <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-4 mb-4">
         <div class="flex gap-2 items-end">
             <div class="flex-1">
-                <label class="block text-sm font-medium mb-1">Stok Kodu</label>
-                <input type="text" wire:model.live="query"
+                <label class="block text-sm font-medium mb-1">Stok Kodu (opsiyonel)</label>
+                <input type="text" wire:model="query"
                        wire:keydown.enter="listele"
-                       placeholder="örn: 302703  veya  302703, 302704, 302705"
+                       placeholder="Boş bırak → tümünü listele. Örn: 168814  veya  168814, 168805"
                        class="w-full px-3 py-2 border rounded-md dark:bg-gray-900 dark:border-gray-700">
             </div>
-            <button wire:click="listele" wire:loading.attr="disabled"
+            <button wire:click="listele" wire:loading.attr="disabled" wire:target="listele"
                     class="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-md disabled:opacity-50">
                 <span wire:loading.remove wire:target="listele">Listele</span>
-                <span wire:loading wire:target="listele">Aranıyor…</span>
+                <span wire:loading wire:target="listele">Yükleniyor…</span>
             </button>
         </div>
 
@@ -26,35 +28,38 @@
                 {{ $error }}
             </div>
         @endif
-
+        @if($status)
+            <div class="mt-3 px-4 py-2 bg-green-100 dark:bg-green-900/30 border border-green-300 dark:border-green-700 rounded text-sm text-green-800 dark:text-green-200">
+                {{ $status }}
+            </div>
+        @endif
         @if($hasSearched && $resultCount > 0)
-            <div class="mt-3 text-sm text-gray-600 dark:text-gray-400">
-                {{ $resultCount }} ürün/varyasyon bulundu.
+            <div class="mt-3 flex items-center justify-between text-sm text-gray-600 dark:text-gray-400">
+                <span>{{ $resultCount }} satır gösteriliyor (Sayfa {{ $page }}).</span>
+                @if($query === '')
+                    <div class="flex gap-2">
+                        <button wire:click="oncekiSayfa" @disabled($page <= 1) class="px-3 py-1 rounded bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 disabled:opacity-50">← Önceki</button>
+                        <button wire:click="sonrakiSayfa" @disabled(! $hasMore) class="px-3 py-1 rounded bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 disabled:opacity-50">Sonraki →</button>
+                    </div>
+                @endif
             </div>
         @endif
     </div>
 
+    {{-- URUN LISTESI --}}
     @if(! empty($products))
-        <div class="bg-white dark:bg-gray-800 shadow rounded-lg overflow-hidden">
-            <div class="px-4 py-3 border-b dark:border-gray-700 flex items-center justify-between">
-                <div class="flex items-center gap-2">
-                    <input type="checkbox" wire:model.live="selectAll" id="selAll"
-                           class="rounded">
-                    <label for="selAll" class="text-sm cursor-pointer">Hepsini Seç</label>
-                    @if(count($selected) > 0)
-                        <span class="ml-3 text-sm text-blue-600 dark:text-blue-400">{{ count($selected) }} satır seçili</span>
-                    @endif
-                </div>
-                <button wire:click="aktarimaGec" wire:loading.attr="disabled"
-                        @disabled(count($selected) === 0)
-                        class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-md disabled:opacity-50">
-                    Aktarıma Geç →
-                </button>
+        <div class="bg-white dark:bg-gray-800 shadow rounded-lg overflow-hidden mb-4">
+            <div class="px-4 py-3 border-b dark:border-gray-700 flex items-center gap-3">
+                <input type="checkbox" wire:model.live="selectAll" id="selAll" class="rounded">
+                <label for="selAll" class="text-sm cursor-pointer">Hepsini Seç</label>
+                @if(count($selected) > 0)
+                    <span class="ml-auto text-sm text-blue-600 dark:text-blue-400 font-medium">{{ count($selected) }} satır seçili</span>
+                @endif
             </div>
 
-            <div class="overflow-x-auto">
+            <div class="overflow-x-auto max-h-[60vh]">
                 <table class="w-full text-sm">
-                    <thead class="bg-gray-50 dark:bg-gray-900 text-left">
+                    <thead class="bg-gray-50 dark:bg-gray-900 text-left sticky top-0">
                         <tr>
                             <th class="px-3 py-2 w-10"></th>
                             <th class="px-3 py-2">Ürün Kart ID</th>
@@ -70,8 +75,12 @@
                     </thead>
                     <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
                         @foreach($products as $row)
-                            <tr class="hover:bg-gray-50 dark:hover:bg-gray-700/50">
-                                <td class="px-3 py-2">
+                            @php
+                                $isSel = in_array((string) $row['variant_id'], $selected, true);
+                            @endphp
+                            <tr class="cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-900/20 {{ $isSel ? 'bg-blue-100 dark:bg-blue-900/30' : '' }}"
+                                wire:click="$toggle('selected.{{ $row['variant_id'] }}')">
+                                <td class="px-3 py-2" wire:click.stop>
                                     <input type="checkbox" wire:model.live="selected" value="{{ $row['variant_id'] }}" class="rounded">
                                 </td>
                                 <td class="px-3 py-2 font-mono text-xs">{{ $row['urun_karti_id'] }}</td>
@@ -100,6 +109,90 @@
                     </tbody>
                 </table>
             </div>
+        </div>
+
+        {{-- PARAMETRELER + AKTAR --}}
+        <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-4 mb-4">
+            <div class="flex items-center justify-between mb-3">
+                <h2 class="font-semibold">Güncellenecek Parametreler</h2>
+                <div class="flex gap-2 text-xs">
+                    <button wire:click="tumunuSec" class="px-2 py-1 rounded bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600">Tümü</button>
+                    <button wire:click="hicbirini" class="px-2 py-1 rounded bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600">Hiçbiri</button>
+                </div>
+            </div>
+            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 text-sm">
+                @foreach([
+                    'urun_adi'        => 'Ürün Adı',
+                    'aciklama'        => 'Açıklama',
+                    'on_yazi'         => 'Ön Yazı',
+                    'kategori'        => 'Kategori',
+                    'marka'           => 'Marka',
+                    'tedarikci'       => 'Tedarikçi',
+                    'satis_fiyati'    => 'Satış Fiyatı',
+                    'indirimli_fiyat' => 'İndirimli Fiyat',
+                    'stok_adedi'      => 'Stok Adedi',
+                    'kdv_dahil'       => 'KDV Dahil',
+                    'kdv_orani'       => 'KDV Oranı',
+                    'seo'             => 'SEO',
+                    'uye_tipi_fiyat'  => 'Üye Tipi Fiyatları',
+                    'resimler'        => 'Resimler',
+                    'aktif'           => 'Aktiflik',
+                ] as $key => $label)
+                    <label class="flex items-center gap-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 px-2 py-1 rounded">
+                        <input type="checkbox" wire:model.live="fields.{{ $key }}" class="rounded">
+                        <span>{{ $label }}</span>
+                    </label>
+                @endforeach
+            </div>
+            <div class="mt-4 pt-3 border-t dark:border-gray-700 flex justify-end">
+                <button wire:click="aktar" wire:loading.attr="disabled" wire:target="aktar"
+                        @disabled(count($selected) === 0)
+                        class="px-6 py-2 bg-green-600 hover:bg-green-700 text-white font-medium rounded-md disabled:opacity-50">
+                    <span wire:loading.remove wire:target="aktar">Aktar ({{ count($selected) }} ürün)</span>
+                    <span wire:loading wire:target="aktar">Aktarılıyor…</span>
+                </button>
+            </div>
+        </div>
+    @endif
+
+    {{-- SONUC TABLOSU --}}
+    @if(! empty($results))
+        <div class="bg-white dark:bg-gray-800 shadow rounded-lg overflow-hidden">
+            <div class="px-4 py-3 border-b dark:border-gray-700 font-semibold">Aktarım Sonuçları</div>
+            <table class="w-full text-sm">
+                <thead class="bg-gray-50 dark:bg-gray-900 text-left">
+                    <tr>
+                        <th class="px-3 py-2">Stok Kodu</th>
+                        <th class="px-3 py-2">Ürün Adı</th>
+                        <th class="px-3 py-2">Durum</th>
+                        <th class="px-3 py-2">Mesaj</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y dark:divide-gray-700">
+                    @foreach($results as $r)
+                        <tr>
+                            <td class="px-3 py-2 font-mono text-xs">{{ $r['stok_kodu'] }}</td>
+                            <td class="px-3 py-2 max-w-md truncate" title="{{ $r['urun_adi'] }}">{{ $r['urun_adi'] }}</td>
+                            <td class="px-3 py-2">
+                                @switch($r['durum'])
+                                    @case('olusturuldu')
+                                        <span class="px-2 py-0.5 text-xs rounded bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300">Oluşturuldu</span>
+                                        @break
+                                    @case('guncellendi')
+                                        <span class="px-2 py-0.5 text-xs rounded bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">Güncellendi</span>
+                                        @break
+                                    @case('hata')
+                                        <span class="px-2 py-0.5 text-xs rounded bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300">Hata</span>
+                                        @break
+                                    @default
+                                        <span class="px-2 py-0.5 text-xs rounded bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300">{{ $r['durum'] }}</span>
+                                @endswitch
+                            </td>
+                            <td class="px-3 py-2 text-xs text-gray-600 dark:text-gray-400 max-w-xl truncate" title="{{ $r['mesaj'] }}">{{ $r['mesaj'] }}</td>
+                        </tr>
+                    @endforeach
+                </tbody>
+            </table>
         </div>
     @endif
 </div>
