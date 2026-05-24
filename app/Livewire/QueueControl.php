@@ -66,14 +66,25 @@ class QueueControl extends Component
         // 3) Worker'a graceful restart sinyali (job arası kontrol noktasında çıkar)
         Artisan::call('queue:restart');
 
-        // 4) DB'deki "running" SyncJob satırlarını işaretle — UI'da tutarlı görünsün
-        //    (Job kendisi cancelled status yazacak ama bu görsel için anında değişiklik)
-        SyncJob::where('status', 'running')->update([
-            'last_error' => 'Kullanıcı tarafından durdurma sinyali yollandı...',
+        // 4) DB'deki "running" SyncJob satırlarını ZORLA failed işaretle.
+        //    Worker process'i hâlâ çalışıyorsa stop flag'i ile nazikçe çıkar; ama
+        //    UI ve sayaçlar anında doğru görünmeli (çoğu durumda bu satırlar zaten
+        //    ölü worker'lardan kalma orphan kayıtlar).
+        $cancelled = SyncJob::where('status', 'running')->update([
+            'status' => 'failed',
+            'finished_at' => now(),
+            'last_error' => 'Kullanıcı tarafından zorla durduruldu',
         ]);
 
+        // 5) Eski / takılmış stop flag'leri için de jobs tablosunda kalan deferred job'ları sil
+        try {
+            DB::table('failed_jobs')->where('failed_at', '<', now()->subDay())->delete();
+        } catch (\Throwable) {
+        }
+
         $this->refreshCounts();
-        $this->statusMsg = "Sinyal yollandı. {$cleared} bekleyen iş silindi. Çalışan job(lar) bir sonraki kontrol noktasında (her ürün/sipariş arasında) nazikçe çıkacak.";
+        $this->statusMsg = "Durduruldu: {$cleared} bekleyen iş + {$cancelled} çalışan iş kapatıldı. "
+                         . "Eğer cmd penceresinde worker hâlâ çalışıyorsa, bir sonraki ürün/sipariş arasında nazikçe çıkar.";
     }
 
     /**
