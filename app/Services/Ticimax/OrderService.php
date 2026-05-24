@@ -24,11 +24,12 @@ class OrderService
      * Henüz aktarılmamış (EntegrasyonAktarildi=0), ödemesi alınmış, paketlenmemiş siparişleri çek.
      * siparis_aktar.py:get_source_orders ile aynı filtre.
      */
-    public function getNewOrders(?Carbon $since = null, int $page = 1, int $perPage = 50): array
+    public function getNewOrders(?Carbon $since = null, int $page = 1, int $perPage = 50, int $siparisDurumu = 0): array
     {
         $startIdx = max(0, ($page - 1) * $perPage);
-        $bas = ($since ?? Carbon::now()->subDays(3))->format('Y-m-d\T00:00:00');
-        $son = Carbon::now()->format('Y-m-d\T23:59:59');
+        // Saat bazlı filtreleme için tam tarih-saat formatını kullan (gün başı değil)
+        $bas = ($since ?? Carbon::now()->subDays(3))->format('Y-m-d\TH:i:s');
+        $son = Carbon::now()->format('Y-m-d\TH:i:s');
 
         $params = [
             'UyeKodu' => $this->client->getUyeKodu(),
@@ -45,7 +46,7 @@ class OrderService
                 'OdemeDurumu' => 1,
                 'OdemeTipi' => -1,
                 'PaketlemeDurumu' => 1, // 1 = henüz paketlenmemiş (aktarım için uygun)
-                'SiparisDurumu' => 0,
+                'SiparisDurumu' => $siparisDurumu,
                 'SiparisID' => 0,
                 'SiparisKaynagi' => '',
                 'SiparisTarihiBas' => $bas,

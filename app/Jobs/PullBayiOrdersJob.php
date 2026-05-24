@@ -97,8 +97,9 @@ class PullBayiOrdersJob implements ShouldQueue
                 return $variantCache[$stokKodu] = $foundVarId ?: null;
             };
 
-            $sinceRaw = SyncSetting::get('last_order_pull_at');
-            $since = $sinceRaw ? Carbon::parse($sinceRaw) : Carbon::now()->subDay();
+            $saatAralik = (int) SyncSetting::get('siparis_saat_aralik', 24);
+            $since = Carbon::now()->subHours($saatAralik);
+            $siparisDurumu = (int) SyncSetting::get('siparis_durumu', 0);
 
             $page = 1;
             $perPage = (int) config('ticimax.batch_size', 50);
@@ -109,7 +110,7 @@ class PullBayiOrdersJob implements ShouldQueue
                     $stoppedEarly = true;
                     break;
                 }
-                $orders = $bayi->getNewOrders($since, $page, $perPage);
+                $orders = $bayi->getNewOrders($since, $page, $perPage, $siparisDurumu);
                 if (empty($orders)) {
                     break;
                 }

@@ -62,6 +62,63 @@
                     </div>
                 </div>
 
+                <!-- Sipariş Aktarım Ayarları -->
+                <div class="border-t border-gray-200 dark:border-gray-700 pt-4 space-y-4">
+                    <p class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                        🛒 Otomatik Sipariş Aktarım Ayarları
+                    </p>
+
+                    <!-- Saat Aralığı -->
+                    <div>
+                        <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">
+                            Son kaç saatteki siparişler sorgulanacak?
+                            <span class="ms-1 font-bold text-blue-600 dark:text-blue-400">{{ $siparis_saat_aralik }} saat</span>
+                        </label>
+                        <div class="flex flex-wrap gap-2">
+                            @foreach ([1, 3, 6, 12, 24, 48, 72] as $saat)
+                                <button type="button"
+                                    wire:click="setSaatAralik({{ $saat }})"
+                                    @class([
+                                        'px-3 py-1.5 rounded text-sm font-medium border transition',
+                                        'bg-blue-600 text-white border-blue-600' => $siparis_saat_aralik === $saat,
+                                        'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:border-blue-400' => $siparis_saat_aralik !== $saat,
+                                    ])>
+                                    {{ $saat }} saat
+                                </button>
+                            @endforeach
+                            <div class="flex items-center gap-1">
+                                <input type="number" wire:model.live="siparis_saat_aralik"
+                                    min="1" max="720"
+                                    placeholder="özel"
+                                    class="w-20 text-sm rounded border-gray-300 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-200 py-1.5 px-2">
+                                <span class="text-xs text-gray-500 dark:text-gray-400">saat (özel)</span>
+                            </div>
+                        </div>
+                        @error('siparis_saat_aralik')<span class="text-red-600 text-xs">{{ $message }}</span>@enderror
+                    </div>
+
+                    <!-- Sipariş Durumu Filtresi -->
+                    <div>
+                        <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                            Sipariş Durumu Filtresi
+                        </label>
+                        <select wire:model="siparis_durumu"
+                            class="block w-full text-sm rounded border-gray-300 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-200">
+                            <option value="0">Tümü (0)</option>
+                            <option value="1">Yeni Sipariş (1)</option>
+                            <option value="2">İşlemde / Onaylandı (2)</option>
+                            <option value="3">Kargoya Verildi (3)</option>
+                            <option value="4">Teslim Edildi (4)</option>
+                            <option value="5">İptal Edildi (5)</option>
+                            <option value="6">İade (6)</option>
+                        </select>
+                        <p class="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                            "Tümü" seçilirse Ticimax tüm durumları döner. Sipariş durum numaraları mağazadan mağazaya farklılık gösterebilir.
+                        </p>
+                        @error('siparis_durumu')<span class="text-red-600 text-xs">{{ $message }}</span>@enderror
+                    </div>
+                </div>
+
                 <div class="text-sm text-gray-600 dark:text-gray-400 border-t border-gray-200 dark:border-gray-700 pt-4">
                     Son çalışma: <strong>{{ $last_run_at ?: 'Henüz çalışmadı' }}</strong>
                 </div>

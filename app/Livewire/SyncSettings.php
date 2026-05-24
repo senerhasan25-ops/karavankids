@@ -23,6 +23,9 @@ class SyncSettings extends Component
     public bool $otomatik_siparis = true;
     public ?string $last_run_at = null;
 
+    public int $siparis_saat_aralik = 24;
+    public int $siparis_durumu = 0;
+
     public function mount(): void
     {
         $this->interval_minutes = (int) SyncSetting::get('interval_minutes', 15);
@@ -31,6 +34,8 @@ class SyncSettings extends Component
         $this->otomatik_stok_fiyat = (bool) SyncSetting::get('otomatik_stok_fiyat', true);
         $this->otomatik_siparis = (bool) SyncSetting::get('otomatik_siparis', true);
         $this->last_run_at = SyncSetting::get('last_run_at') ?: null;
+        $this->siparis_saat_aralik = (int) SyncSetting::get('siparis_saat_aralik', 24);
+        $this->siparis_durumu = (int) SyncSetting::get('siparis_durumu', 0);
     }
 
     protected function rules(): array
@@ -41,7 +46,14 @@ class SyncSettings extends Component
             'otomatik_urunler' => ['boolean'],
             'otomatik_stok_fiyat' => ['boolean'],
             'otomatik_siparis' => ['boolean'],
+            'siparis_saat_aralik' => ['required', 'integer', 'min:1', 'max:720'],
+            'siparis_durumu' => ['required', 'integer', 'min:-1'],
         ];
+    }
+
+    public function setSaatAralik(int $saat): void
+    {
+        $this->siparis_saat_aralik = $saat;
     }
 
     /**
@@ -58,6 +70,8 @@ class SyncSettings extends Component
         SyncSetting::put('otomatik_urunler', $this->otomatik_urunler ? '1' : '0');
         SyncSetting::put('otomatik_stok_fiyat', $this->otomatik_stok_fiyat ? '1' : '0');
         SyncSetting::put('otomatik_siparis', $this->otomatik_siparis ? '1' : '0');
+        SyncSetting::put('siparis_saat_aralik', $this->siparis_saat_aralik);
+        SyncSetting::put('siparis_durumu', $this->siparis_durumu);
 
         if ($this->otomatik_aktif) {
             session()->flash('status', 'Ayarlar kaydedildi. Scheduler her ' . $this->interval_minutes . ' dk seçilenleri çalıştıracak.');
