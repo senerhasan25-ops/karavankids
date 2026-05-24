@@ -65,7 +65,7 @@ class PullBayiOrdersJob implements ShouldQueue
 
             $stoppedEarly = false;
             while (true) {
-                if (Cache::get(QueueControl::STOP_FLAG_KEY, false)) {
+                if (QueueControl::isStopRequested($job->id)) {
                     $stoppedEarly = true;
                     break;
                 }
@@ -75,7 +75,7 @@ class PullBayiOrdersJob implements ShouldQueue
                 }
 
                 foreach ($orders as $o) {
-                    if (Cache::get(QueueControl::STOP_FLAG_KEY, false)) {
+                    if (QueueControl::isStopRequested($job->id)) {
                         $stoppedEarly = true;
                         break 2;
                     }

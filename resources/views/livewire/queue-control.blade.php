@@ -1,9 +1,15 @@
 <div x-data="{ open: false }" class="relative" wire:poll.5s="refreshCounts">
-    {{-- Tetik butonu (chip) — 3 durum: idle (gri) / aktif (amber) / stop sinyali yollandı (kırmızı) --}}
+    @php
+        $pendingCount = count($pendingJobs);
+        $runningCount = count($runningJobs);
+        $total = $pendingCount + $runningCount;
+    @endphp
+
+    {{-- Tetik butonu (chip) — 3 durum: idle (gri) / aktif (amber) / global stop (kırmızı) --}}
     <button type="button" @click="open = !open"
             class="inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium hover:opacity-90 transition
                 @if ($stopRequested) bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200 ring-1 ring-red-400/50
-                @elseif (($pendingJobs + $runningSyncJobs) > 0) bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 ring-1 ring-amber-400/50
+                @elseif ($total > 0) bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 ring-1 ring-amber-400/50
                 @else bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300
                 @endif">
         @if ($stopRequested)
@@ -11,13 +17,13 @@
                 <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
                 <span class="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
             </span>
-            <span>⛔ Durduruluyor...</span>
-        @elseif (($pendingJobs + $runningSyncJobs) > 0)
+            <span>⛔ Global durdur aktif</span>
+        @elseif ($total > 0)
             <span class="relative flex h-2 w-2">
                 <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
                 <span class="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
             </span>
-            <span>Kuyruk: {{ $pendingJobs }} bekleyen · {{ $runningSyncJobs }} çalışan</span>
+            <span>Kuyruk: {{ $pendingCount }} bekleyen · {{ $runningCount }} çalışan</span>
         @else
             <span class="inline-flex rounded-full h-2 w-2 bg-gray-400"></span>
             <span>Kuyruk: boş</span>
@@ -27,46 +33,100 @@
     {{-- Dropdown --}}
     <div x-show="open" @click.outside="open = false" x-cloak
          x-transition.opacity
-         class="absolute right-0 mt-2 w-96 bg-white dark:bg-gray-800 shadow-lg rounded-md ring-1 ring-black/5 dark:ring-white/10 p-4 z-50">
+         class="absolute right-0 mt-2 w-[28rem] max-h-[80vh] overflow-y-auto bg-white dark:bg-gray-800 shadow-lg rounded-md ring-1 ring-black/5 dark:ring-white/10 p-4 z-50">
         <div class="text-sm text-gray-700 dark:text-gray-200">
-            <p class="font-medium mb-2">Kuyruk Denetimi</p>
-            <ul class="text-xs text-gray-600 dark:text-gray-400 space-y-1 mb-3">
-                <li>• <strong>{{ $pendingJobs }}</strong> bekleyen iş (jobs tablosunda)</li>
-                <li>• <strong>{{ $runningSyncJobs }}</strong> çalışan sync işi</li>
-                @if ($stopRequested)
-                    <li class="text-red-600 dark:text-red-400 font-medium">• ⛔ Durdurma sinyali aktif — job kontrol noktasında çıkacak</li>
-                @endif
-            </ul>
+            <p class="font-medium mb-3">Kuyruk Denetimi</p>
 
-            @if ($stopRequested)
-                <div class="mb-3 p-2 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded text-xs text-red-800 dark:text-red-200">
-                    <strong>Durdurma sinyali aktif.</strong>
-                    Çalışan job her ürün/sipariş arasında bu flag'i kontrol eder ve nazikçe çıkar.
-                    Loglar sekmesinden "Manuel durduruldu" mesajını gördüğünde duruş tamamlanmış olur.
-                </div>
-                <button wire:click="clearStopFlag"
-                        @click="open = false"
-                        class="w-full px-3 py-2 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 text-sm rounded hover:bg-gray-300 dark:hover:bg-gray-600">
-                    🔓 Stop Flag'i Temizle (yeni sync başlatmadan önce)
-                </button>
-            @else
-                <p class="text-xs text-gray-500 dark:text-gray-400 mb-3 leading-relaxed">
-                    "Şimdi Durdur" bekleyen işleri siler ve çalışan job'a durdur sinyali yollar.
-                    Worker süreci kapanmaz — mevcut SOAP çağrısı biter bitmez bir sonraki ürün/sipariş
-                    işlenmeden çıkar (genelde 5–30 sn).
+            {{-- ÇALIŞAN İŞLER --}}
+            <div class="mb-4">
+                <p class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">
+                    Çalışan ({{ $runningCount }})
                 </p>
-                <button type="button"
-                        x-on:click="if (confirm('Tüm kuyruğu durduracaksın, devam edilsin mi?')) { $wire.stopAll() }"
-                        class="w-full px-3 py-2 bg-red-600 text-white text-sm rounded hover:bg-red-700">
-                    ⛔ Şimdi Durdur
-                </button>
-            @endif
+                @if ($runningCount === 0)
+                    <p class="text-xs text-gray-400 italic">Şu an çalışan sync yok.</p>
+                @else
+                    <ul class="space-y-1">
+                        @foreach ($runningJobs as $r)
+                            <li class="flex items-center justify-between gap-2 text-xs bg-amber-50 dark:bg-amber-900/20 px-2 py-1.5 rounded">
+                                <div class="flex-1 min-w-0">
+                                    <div class="font-medium truncate">
+                                        #{{ $r['id'] }} · {{ $r['type'] }}
+                                        @if ($r['stop_pending'])
+                                            <span class="text-red-600 dark:text-red-400">(durduruluyor…)</span>
+                                        @endif
+                                    </div>
+                                    <div class="text-gray-500 dark:text-gray-400">
+                                        {{ $r['started_at'] }} · {{ $r['success'] }}✓ / {{ $r['error'] }}✗ / {{ $r['total'] }} toplam
+                                    </div>
+                                </div>
+                                <button wire:click="cancelRunning({{ $r['id'] }})"
+                                        wire:loading.attr="disabled"
+                                        class="shrink-0 px-2 py-1 bg-red-600 hover:bg-red-700 text-white text-xs rounded">
+                                    ⛔ Durdur
+                                </button>
+                            </li>
+                        @endforeach
+                    </ul>
+                @endif
+            </div>
 
-            @if ($statusMsg)
-                <div class="mt-3 text-xs text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/30 p-2 rounded">
-                    {{ $statusMsg }}
-                </div>
-            @endif
+            {{-- BEKLEYEN İŞLER --}}
+            <div class="mb-4">
+                <p class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">
+                    Bekleyen ({{ $pendingCount }})
+                </p>
+                @if ($pendingCount === 0)
+                    <p class="text-xs text-gray-400 italic">Bekleyen iş yok.</p>
+                @else
+                    <ul class="space-y-1">
+                        @foreach ($pendingJobs as $p)
+                            <li class="flex items-center justify-between gap-2 text-xs bg-gray-50 dark:bg-gray-700/50 px-2 py-1.5 rounded">
+                                <div class="flex-1 min-w-0">
+                                    <div class="font-medium truncate">#{{ $p['id'] }} · {{ $p['label'] }}</div>
+                                    <div class="text-gray-500 dark:text-gray-400">
+                                        kuyruk: {{ $p['queue'] }} · {{ $p['attempts'] }} deneme
+                                    </div>
+                                </div>
+                                <button wire:click="cancelPending({{ $p['id'] }})"
+                                        wire:loading.attr="disabled"
+                                        class="shrink-0 px-2 py-1 bg-gray-300 hover:bg-gray-400 dark:bg-gray-600 dark:hover:bg-gray-500 text-gray-800 dark:text-gray-100 text-xs rounded">
+                                    ✕ Sil
+                                </button>
+                            </li>
+                        @endforeach
+                    </ul>
+                @endif
+            </div>
+
+            {{-- TOPLU AKSİYONLAR --}}
+            <div class="border-t border-gray-200 dark:border-gray-700 pt-3 space-y-2">
+                @if ($stopRequested)
+                    <div class="p-2 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded text-xs text-red-800 dark:text-red-200">
+                        <strong>Global stop flag aktif.</strong>
+                        Yeni başlatılacak job'lar bile hemen çıkar. Sıfırlamadan yeni sync başlatma!
+                    </div>
+                    <button wire:click="clearStopFlag"
+                            class="w-full px-3 py-2 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 text-sm rounded hover:bg-gray-300 dark:hover:bg-gray-600">
+                        🔓 Global Flag'i Temizle
+                    </button>
+                @elseif ($total > 0)
+                    <p class="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
+                        "Hepsini Durdur" tek seferde tüm bekleyenleri siler + çalışanlara global stop yollar.
+                        Worker süreci kapanmaz; mevcut SOAP biter bitmez çıkar (5-30 sn).
+                    </p>
+                    <button type="button"
+                            x-on:click="if (confirm('Tüm kuyruğu durduracaksın, devam edilsin mi?')) { $wire.stopAll() }"
+                            class="w-full px-3 py-2 bg-red-600 text-white text-sm rounded hover:bg-red-700">
+                        ⛔ Hepsini Durdur
+                    </button>
+                @endif
+
+                @if ($statusMsg)
+                    <div class="text-xs text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/30 p-2 rounded">
+                        {{ $statusMsg }}
+                    </div>
+                @endif
+            </div>
         </div>
     </div>
 </div>

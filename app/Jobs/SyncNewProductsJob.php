@@ -73,7 +73,7 @@ class SyncNewProductsJob implements ShouldQueue
 
             $stoppedEarly = false;
             while (true) {
-                if (Cache::get(QueueControl::STOP_FLAG_KEY, false)) {
+                if (QueueControl::isStopRequested($job->id)) {
                     $stoppedEarly = true;
                     break;
                 }
@@ -83,8 +83,7 @@ class SyncNewProductsJob implements ShouldQueue
                 }
 
                 foreach ($products as $urunKarti) {
-                    // Her ürün arasında durdur sinyalini kontrol et — nazikçe çık
-                    if (Cache::get(QueueControl::STOP_FLAG_KEY, false)) {
+                    if (QueueControl::isStopRequested($job->id)) {
                         $stoppedEarly = true;
                         break 2;
                     }
@@ -115,9 +114,7 @@ class SyncNewProductsJob implements ShouldQueue
 
     protected function processOne(SyncJob $job, array $urunKarti, ProductService $bayi, ProductMapper $mapper): void
     {
-        // Her SOAP çağrısından önce ek bir flag kontrolü — kullanıcı tam bu sırada
-        // durdura basabilir, beklemeden çıkalım
-        if (Cache::get(QueueControl::STOP_FLAG_KEY, false)) {
+        if (QueueControl::isStopRequested($job->id)) {
             return;
         }
         $anaUrunId = (string) ($urunKarti['ID'] ?? '');
