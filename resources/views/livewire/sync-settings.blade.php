@@ -1,6 +1,6 @@
 <div>
     <x-slot name="header">
-        <h2 class="font-semibold text-xl text-gray-800 dark:text-gray-200 leading-tight">Sync Ayarları</h2>
+        <h2 class="font-semibold text-xl text-gray-800 dark:text-gray-200 leading-tight">Otomatik Güncelleme</h2>
     </x-slot>
 
     <div class="py-8">
@@ -63,59 +63,83 @@
                 </div>
 
                 <!-- Sipariş Aktarım Ayarları -->
-                <div class="border-t border-gray-200 dark:border-gray-700 pt-4 space-y-4">
+                <div class="border-t border-gray-200 dark:border-gray-700 pt-4 space-y-5">
                     <p class="text-sm font-medium text-gray-700 dark:text-gray-300">
                         🛒 Otomatik Sipariş Aktarım Ayarları
                     </p>
 
-                    <!-- Saat Aralığı -->
+                    <!-- Saat Aralığı — sadece el girişi -->
                     <div>
-                        <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">
+                        <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
                             Son kaç saatteki siparişler sorgulanacak?
-                            <span class="ms-1 font-bold text-blue-600 dark:text-blue-400">{{ $siparis_saat_aralik }} saat</span>
                         </label>
-                        <div class="flex flex-wrap gap-2">
-                            @foreach ([1, 3, 6, 12, 24, 48, 72] as $saat)
-                                <button type="button"
-                                    wire:click="setSaatAralik({{ $saat }})"
-                                    @class([
-                                        'px-3 py-1.5 rounded text-sm font-medium border transition',
-                                        'bg-blue-600 text-white border-blue-600' => $siparis_saat_aralik === $saat,
-                                        'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:border-blue-400' => $siparis_saat_aralik !== $saat,
-                                    ])>
-                                    {{ $saat }} saat
-                                </button>
-                            @endforeach
-                            <div class="flex items-center gap-1">
-                                <input type="number" wire:model.live="siparis_saat_aralik"
-                                    min="1" max="720"
-                                    placeholder="özel"
-                                    class="w-20 text-sm rounded border-gray-300 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-200 py-1.5 px-2">
-                                <span class="text-xs text-gray-500 dark:text-gray-400">saat (özel)</span>
-                            </div>
+                        <div class="flex items-center gap-2">
+                            <input type="number" wire:model="siparis_saat_aralik"
+                                min="1" max="720"
+                                class="w-28 text-sm rounded border-gray-300 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-200 py-1.5 px-2">
+                            <span class="text-sm text-gray-600 dark:text-gray-400">saat</span>
                         </div>
                         @error('siparis_saat_aralik')<span class="text-red-600 text-xs">{{ $message }}</span>@enderror
                     </div>
 
-                    <!-- Sipariş Durumu Filtresi -->
+                    <!-- Sipariş Durumu Filtrelemesi -->
                     <div>
-                        <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                            Sipariş Durumu Filtresi
-                        </label>
-                        <select wire:model="siparis_durumu"
-                            class="block w-full text-sm rounded border-gray-300 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-200">
-                            <option value="0">Tümü (0)</option>
-                            <option value="1">Yeni Sipariş (1)</option>
-                            <option value="2">İşlemde / Onaylandı (2)</option>
-                            <option value="3">Kargoya Verildi (3)</option>
-                            <option value="4">Teslim Edildi (4)</option>
-                            <option value="5">İptal Edildi (5)</option>
-                            <option value="6">İade (6)</option>
-                        </select>
-                        <p class="text-xs text-gray-400 dark:text-gray-500 mt-1">
-                            "Tümü" seçilirse Ticimax tüm durumları döner. Sipariş durum numaraları mağazadan mağazaya farklılık gösterebilir.
-                        </p>
-                        @error('siparis_durumu')<span class="text-red-600 text-xs">{{ $message }}</span>@enderror
+                        <div class="flex items-center justify-between mb-2">
+                            <label class="text-xs font-medium text-gray-600 dark:text-gray-400">
+                                Sipariş Durumu Filtresi
+                            </label>
+                            <div class="flex items-center gap-3">
+                                <button type="button" wire:click="yukleSiparisDurumlari"
+                                    class="text-xs text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1">
+                                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                                    Yenile
+                                </button>
+                                <button type="button" wire:click="tumunuSec"
+                                    @class([
+                                        'text-xs px-2 py-0.5 rounded border transition',
+                                        'bg-indigo-600 text-white border-indigo-600' => empty($seciliDurumlar),
+                                        'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:border-indigo-400' => !empty($seciliDurumlar),
+                                    ])>
+                                    Tümü
+                                </button>
+                            </div>
+                        </div>
+
+                        @if ($durumYuklemHata)
+                            <div class="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded p-2 mb-2">
+                                Sipariş durumları yüklenemedi: {{ $durumYuklemHata }}
+                                <br>Bağlantıyı kontrol edip "Yenile" butonuna tıklayın.
+                            </div>
+                        @endif
+
+                        @if (!empty($siparisDurumlari))
+                            <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                @foreach ($siparisDurumlari as $durum)
+                                    <label class="inline-flex items-center gap-2 cursor-pointer select-none">
+                                        <input type="checkbox"
+                                            wire:click="toggleDurum({{ $durum['id'] }})"
+                                            @checked(in_array($durum['id'], $seciliDurumlar))
+                                            class="rounded text-indigo-600">
+                                        <span class="text-xs text-gray-700 dark:text-gray-300">
+                                            <span class="font-mono text-gray-400 dark:text-gray-500">#{{ $durum['id'] }}</span>
+                                            {{ $durum['ad'] }}
+                                        </span>
+                                    </label>
+                                @endforeach
+                            </div>
+                            <p class="text-xs text-gray-400 dark:text-gray-500 mt-2">
+                                @if (empty($seciliDurumlar))
+                                    Hiçbiri seçili değil = tüm durumlar sorgulanır.
+                                @else
+                                    Seçili: {{ implode(', ', $seciliDurumlar) }} — sadece bu durumdaki siparişler aktarılır.
+                                @endif
+                            </p>
+                        @elseif (!$durumYuklemHata)
+                            <div wire:loading class="text-xs text-gray-400 dark:text-gray-500">Yükleniyor...</div>
+                            <div wire:loading.remove class="text-xs text-gray-400 dark:text-gray-500">
+                                Sipariş durumu bulunamadı. "Yenile" butonuna tıklayın.
+                            </div>
+                        @endif
                     </div>
                 </div>
 

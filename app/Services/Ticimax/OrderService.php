@@ -68,6 +68,52 @@ class OrderService
     }
 
     /**
+     * Ticimax'taki sipariş durumlarını döner: [['id' => 1, 'ad' => 'Yeni Sipariş'], ...]
+     * Ekran yükleme sırasında SyncSettings'te gösterilmek üzere çekilir.
+     */
+    public function getOrderStatuses(): array
+    {
+        $params = ['UyeKodu' => $this->client->getUyeKodu()];
+        $resp = $this->client->call('order', $this->method('select_status_list'), $params);
+
+        // Normalize: stdClass veya array farklı gelir, ID + ad alanlarını normalize et
+        $raw = $resp;
+        if (is_object($raw) && isset($raw->SelectSiparisDurumResult)) {
+            $raw = $raw->SelectSiparisDurumResult;
+        }
+        if (is_object($raw)) {
+            $raw = (array) $raw;
+        }
+        if (! is_array($raw)) {
+            return [];
+        }
+
+        // Wrapper key'leri dene: SiparisDurum, WebSiparisDurum, vb.
+        foreach (['SiparisDurum', 'WebSiparisDurum', 'Durum'] as $key) {
+            if (isset($raw[$key])) {
+                $raw = is_array($raw[$key]) && array_is_list($raw[$key]) ? $raw[$key] : [$raw[$key]];
+                break;
+            }
+        }
+        if (! array_is_list($raw)) {
+            $raw = [$raw];
+        }
+
+        $result = [];
+        foreach ($raw as $item) {
+            $item = is_object($item) ? (array) $item : (array) $item;
+            $id = (int) ($item['ID'] ?? $item['DurumID'] ?? $item['SiparisDurumID'] ?? 0);
+            $ad = (string) ($item['DurumAdi'] ?? $item['Ad'] ?? $item['Adi'] ?? $item['SiparisDurumu'] ?? "Durum #{$id}");
+            if ($id > 0) {
+                $result[] = ['id' => $id, 'ad' => $ad];
+            }
+        }
+
+        usort($result, fn ($a, $b) => $a['id'] <=> $b['id']);
+        return $result;
+    }
+
+    /**
      * Esnek filtreli sipariş listeleme — manuel aktarım panelinde kullanılır.
      * Kullanıcının seçtiği tarih aralığı / sipariş no / ödeme tipi / aktarılma durumuna göre
      * Ticimax'tan sipariş çeker. getNewOrders'tan farkı:

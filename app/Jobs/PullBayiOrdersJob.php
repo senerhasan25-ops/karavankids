@@ -12,7 +12,6 @@ use App\Services\Ticimax\OrderService;
 use App\Services\Ticimax\ProductMapper;
 use App\Services\Ticimax\ProductService;
 use Illuminate\Bus\Queueable;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
@@ -48,22 +47,17 @@ class PullBayiOrdersJob implements ShouldQueue
             $mapper = new ProductMapper();
 
             // StokKodu → ana Varyasyon.ID resolver — LOKAL ÖNCELİKLİ.
-            // 1) ProductMapping tablosunda stok_kodu varsa ana_variant_id direkt döner (SOAP yok)
-            // 2) Yoksa SOAP probe yapar (SelectUrun) ve sonucu ProductMapping'e kaydeder
-            // 3) İn-memory cache aynı job içinde tekrar lookup'ı engeller
             $variantCache = [];
             $resolver = function (string $stokKodu) use ($anaProduct, &$variantCache): ?int {
                 if (array_key_exists($stokKodu, $variantCache)) {
                     return $variantCache[$stokKodu];
                 }
 
-                // 1) LOKAL LOOKUP
                 $m = ProductMapping::where('stok_kodu', $stokKodu)->first();
                 if ($m && $m->ana_variant_id) {
                     return $variantCache[$stokKodu] = (int) $m->ana_variant_id;
                 }
 
-                // 2) SOAP PROBE (fallback) — bulunursa mapping'i de güncelle/oluştur
                 $anaUrunKarti = $anaProduct->getProductByStokKodu($stokKodu);
                 if (! $anaUrunKarti) {
                     return $variantCache[$stokKodu] = null;
@@ -97,140 +91,144 @@ class PullBayiOrdersJob implements ShouldQueue
                 return $variantCache[$stokKodu] = $foundVarId ?: null;
             };
 
+            // Ayarlardan saat aralığı ve seçili sipariş durumlarını oku
             $saatAralik = (int) SyncSetting::get('siparis_saat_aralik', 24);
             $since = Carbon::now()->subHours($saatAralik);
-            $siparisDurumu = (int) SyncSetting::get('siparis_durumu', 0);
 
-            $page = 1;
+            $seciliRaw = SyncSetting::get('secili_siparis_durumlari', '');
+            $seciliDurumlar = ($seciliRaw && $seciliRaw !== '[]')
+                ? json_decode($seciliRaw, true)
+                : [];
+            // Boş = tümü (SiparisDurumu=0), dolu = seçili her durum için ayrı SOAP çağrısı
+            $durumList = empty($seciliDurumlar) ? [0] : $seciliDurumlar;
+
             $perPage = (int) config('ticimax.batch_size', 50);
 
+            // Her durum için sayfalı çekme, bayi_order_id ile dedup
+            $seenOrderIds = [];
+            $allOrders = [];
+            foreach ($durumList as $durum) {
+                $page = 1;
+                while (true) {
+                    $batch = $bayi->getNewOrders($since, $page, $perPage, (int) $durum);
+                    foreach ($batch as $o) {
+                        $oid = (string) ($o['ID'] ?? $o['SiparisID'] ?? '');
+                        if ($oid && ! isset($seenOrderIds[$oid])) {
+                            $seenOrderIds[$oid] = true;
+                            $allOrders[] = $o;
+                        }
+                    }
+                    if (count($batch) < $perPage) {
+                        break;
+                    }
+                    $page++;
+                }
+            }
+
             $stoppedEarly = false;
-            while (true) {
+            foreach ($allOrders as $o) {
                 if (QueueControl::isStopRequested($job->id)) {
                     $stoppedEarly = true;
                     break;
                 }
-                $orders = $bayi->getNewOrders($since, $page, $perPage, $siparisDurumu);
-                if (empty($orders)) {
-                    break;
+
+                $job->increment('total');
+                $bayiOrderId = (string) ($o['ID'] ?? $o['SiparisID'] ?? '');
+                if (! $bayiOrderId) {
+                    continue;
                 }
 
-                foreach ($orders as $o) {
-                    if (QueueControl::isStopRequested($job->id)) {
-                        $stoppedEarly = true;
-                        break 2;
-                    }
-                    $job->increment('total');
-                    $bayiOrderId = (string) ($o['ID'] ?? $o['SiparisID'] ?? '');
-                    if (! $bayiOrderId) {
-                        continue;
-                    }
+                $existing = OrderTransfer::where('bayi_order_id', $bayiOrderId)->first();
+                if ($existing && $existing->status === 'transferred') {
+                    continue;
+                }
 
-                    $existing = OrderTransfer::where('bayi_order_id', $bayiOrderId)->first();
-                    if ($existing && $existing->status === 'transferred') {
-                        continue;
-                    }
+                $transfer = $existing ?? new OrderTransfer(['bayi_order_id' => $bayiOrderId]);
+                $transfer->payload_snapshot = $o;
 
-                    $transfer = $existing ?? new OrderTransfer(['bayi_order_id' => $bayiOrderId]);
-                    $transfer->payload_snapshot = $o;
+                $musteri = (string) ($o['AdiSoyadi'] ?? $o['UyeAdi'] ?? '');
+                $ilkUrunStok = (string) ($o['Urunler'][0]['StokKodu']
+                    ?? $o['Urunler']['WebSiparisUrun'][0]['StokKodu']
+                    ?? $o['Urunler']['WebSiparisUrun']['StokKodu']
+                    ?? '');
+                $context = [
+                    'barcode'   => $bayiOrderId,
+                    'stok_kodu' => $ilkUrunStok ?: null,
+                    'urun_adi'  => $musteri ?: null,
+                    'ana_id'    => null,
+                    'bayi_id'   => $bayiOrderId,
+                ];
 
-                    // Sipariş üzerinden context bilgisi
-                    $musteri = (string) ($o['AdiSoyadi'] ?? $o['UyeAdi'] ?? '');
-                    $ilkUrunStok = (string) ($o['Urunler'][0]['StokKodu']
-                        ?? $o['Urunler']['WebSiparisUrun'][0]['StokKodu']
-                        ?? $o['Urunler']['WebSiparisUrun']['StokKodu']
-                        ?? '');
-                    $context = [
-                        'barcode' => $bayiOrderId,
-                        'stok_kodu' => $ilkUrunStok ?: null,
-                        'urun_adi' => $musteri ?: null, // sipariş için müşteri adını burada gösterelim
-                        'ana_id' => null,
-                        'bayi_id' => $bayiOrderId,
-                    ];
+                $anaPayload = null;
+                try {
+                    $anaPayload = $mapper->bayiOrderToAnaCreatePayload($o, $resolver);
+                    $created = $ana->createOrder($anaPayload);
+                    $anaOrderId = (string) ($created['SiparisID'] ?? $created['ID'] ?? $created['SaveSiparisResult'] ?? '');
+                    $context['ana_id'] = $anaOrderId ?: null;
 
-                    $anaPayload = null;
+                    // CRITICAL: aktarılan durumu önce kaydet — markOrderTransferred patlarsa
+                    // yeniden deneme ana'da duplicate oluşturmasın.
+                    $transfer->fill([
+                        'ana_order_id'   => $anaOrderId,
+                        'status'         => 'transferred',
+                        'transferred_at' => now(),
+                        'last_error'     => null,
+                    ])->save();
+
                     try {
-                        $anaPayload = $mapper->bayiOrderToAnaCreatePayload($o, $resolver);
-                        $created = $ana->createOrder($anaPayload);
-                        $anaOrderId = (string) ($created['SiparisID'] ?? $created['ID'] ?? $created['SaveSiparisResult'] ?? '');
-                        $context['ana_id'] = $anaOrderId ?: null;
-
-                        // CRITICAL: aktarılan durumu önce kaydet — markOrderTransferred patlarsa
-                        // yeniden deneme ana'da duplicate oluşturmasın.
-                        $transfer->fill([
-                            'ana_order_id' => $anaOrderId,
-                            'status' => 'transferred',
-                            'transferred_at' => now(),
-                            'last_error' => null,
-                        ])->save();
-
-                        try {
-                            $bayi->markOrderTransferred($bayiOrderId, "Ana #{$anaOrderId} olarak aktarıldı");
-                        } catch (Throwable $markEx) {
-                            SyncLog::create([
-                                'job_id' => $job->id,
-                                'barcode' => $bayiOrderId,
-                                'action' => 'mark_order',
-                                'direction' => 'bayi_to_ana',
-                                'status' => 'error',
-                                'message' => 'markOrderTransferred patladı (ana #' . $anaOrderId . ' zaten oluştu): ' . $markEx->getMessage(),
-                            ]);
-                        }
-
-                        $this->log($job, $context, 'success', "Ana #{$anaOrderId}");
-                    } catch (Throwable $e) {
-                        $transfer->fill([
-                            'status' => 'failed',
-                            'retry_count' => ($transfer->retry_count ?? 0) + 1,
-                            'last_error' => $e->getMessage(),
-                        ])->save();
-
-                        // Detaylı tanı — Array-to-string gibi PHP hataları için kritik:
-                        //  • Mesaj artık file:line + ilk 3 trace satırını içeriyor
-                        //  • raw_request: Bayi'den dönen HAM sipariş JSON'u + (varsa) mapper çıktısı
-                        //  • raw_response: SOAP gerçekten gönderildiyse ana'nın last XML'leri
-                        $client = $ana->getClient();
-                        $traceLines = array_slice(explode("\n", $e->getTraceAsString()), 0, 5);
-                        $fullMsg = $e->getMessage()
-                            . "\n  ↳ " . $e->getFile() . ':' . $e->getLine()
-                            . "\n  trace:\n    " . implode("\n    ", $traceLines);
-
-                        $diagRequest = "=== BAYI ORDER (ham) ===\n"
-                            . json_encode($o, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
-                        if ($anaPayload !== null) {
-                            $diagRequest .= "\n\n=== ANA PAYLOAD (mapper çıktısı) ===\n"
-                                . json_encode($anaPayload, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
-                        }
-                        $lastReq = $client->getLastRequestXml();
-                        if ($lastReq) {
-                            $diagRequest .= "\n\n=== SOAP REQUEST XML ===\n" . $lastReq;
-                        }
-
-                        $this->log($job, $context, 'error', $fullMsg,
-                            $diagRequest,
-                            $client->getLastResponseXml());
+                        $bayi->markOrderTransferred($bayiOrderId, "Ana #{$anaOrderId} olarak aktarıldı");
+                    } catch (Throwable $markEx) {
+                        SyncLog::create([
+                            'job_id'    => $job->id,
+                            'barcode'   => $bayiOrderId,
+                            'action'    => 'mark_order',
+                            'direction' => 'bayi_to_ana',
+                            'status'    => 'error',
+                            'message'   => 'markOrderTransferred patladı (ana #' . $anaOrderId . ' zaten oluştu): ' . $markEx->getMessage(),
+                        ]);
                     }
-                }
 
-                if (count($orders) < $perPage) {
-                    break;
+                    $this->log($job, $context, 'success', "Ana #{$anaOrderId}");
+                } catch (Throwable $e) {
+                    $transfer->fill([
+                        'status'      => 'failed',
+                        'retry_count' => ($transfer->retry_count ?? 0) + 1,
+                        'last_error'  => $e->getMessage(),
+                    ])->save();
+
+                    $client = $ana->getClient();
+                    $traceLines = array_slice(explode("\n", $e->getTraceAsString()), 0, 5);
+                    $fullMsg = $e->getMessage()
+                        . "\n  ↳ " . $e->getFile() . ':' . $e->getLine()
+                        . "\n  trace:\n    " . implode("\n    ", $traceLines);
+
+                    $diagRequest = "=== BAYI ORDER (ham) ===\n"
+                        . json_encode($o, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+                    if ($anaPayload !== null) {
+                        $diagRequest .= "\n\n=== ANA PAYLOAD (mapper çıktısı) ===\n"
+                            . json_encode($anaPayload, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+                    }
+                    $lastReq = $client->getLastRequestXml();
+                    if ($lastReq) {
+                        $diagRequest .= "\n\n=== SOAP REQUEST XML ===\n" . $lastReq;
+                    }
+
+                    $this->log($job, $context, 'error', $fullMsg,
+                        $diagRequest,
+                        $client->getLastResponseXml());
                 }
-                $page++;
             }
 
-            if (! $stoppedEarly) {
-                SyncSetting::put('last_order_pull_at', now()->toDateTimeString());
-            }
             $job->update([
-                'status' => $stoppedEarly ? 'failed' : 'completed',
+                'status'     => $stoppedEarly ? 'failed' : 'completed',
                 'finished_at' => now(),
                 'last_error' => $stoppedEarly ? 'Kullanıcı tarafından manuel durduruldu' : null,
             ]);
         } catch (Throwable $e) {
             $job->update([
-                'status' => 'failed',
+                'status'      => 'failed',
                 'finished_at' => now(),
-                'last_error' => $e->getMessage(),
+                'last_error'  => $e->getMessage(),
             ]);
             throw $e;
         }
@@ -244,12 +242,12 @@ class PullBayiOrdersJob implements ShouldQueue
             $job->increment('error_count');
         }
         SyncLog::create(array_merge($ctx, [
-            'job_id' => $job->id,
-            'action' => 'transfer_order',
-            'direction' => 'bayi_to_ana',
-            'status' => $status,
-            'message' => $msg,
-            'raw_request' => $rawRequest,
+            'job_id'       => $job->id,
+            'action'       => 'transfer_order',
+            'direction'    => 'bayi_to_ana',
+            'status'       => $status,
+            'message'      => $msg,
+            'raw_request'  => $rawRequest,
             'raw_response' => $rawResponse,
         ]));
     }

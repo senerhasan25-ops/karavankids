@@ -7,6 +7,7 @@ use App\Jobs\SyncNewProductsJob;
 use App\Jobs\SyncStockPriceJob;
 use App\Livewire\QueueControl;
 use App\Models\SyncSetting;
+use App\Services\Ticimax\OrderService;
 use Illuminate\Support\Facades\Cache;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
@@ -24,7 +25,12 @@ class SyncSettings extends Component
     public ?string $last_run_at = null;
 
     public int $siparis_saat_aralik = 24;
-    public int $siparis_durumu = 0;
+
+    /** Ticimax'tan çekilen sipariş durumları: [['id' => 1, 'ad' => 'Yeni Sipariş'], ...] */
+    public array $siparisDurumlari = [];
+    /** Seçili durum ID'leri — boş = tümü */
+    public array $seciliDurumlar = [];
+    public ?string $durumYuklemHata = null;
 
     public function mount(): void
     {
@@ -35,32 +41,57 @@ class SyncSettings extends Component
         $this->otomatik_siparis = (bool) SyncSetting::get('otomatik_siparis', true);
         $this->last_run_at = SyncSetting::get('last_run_at') ?: null;
         $this->siparis_saat_aralik = (int) SyncSetting::get('siparis_saat_aralik', 24);
-        $this->siparis_durumu = (int) SyncSetting::get('siparis_durumu', 0);
+
+        $seciliRaw = SyncSetting::get('secili_siparis_durumlari', '');
+        $this->seciliDurumlar = ($seciliRaw && $seciliRaw !== '[]')
+            ? json_decode($seciliRaw, true)
+            : [];
+
+        $this->yukleSiparisDurumlari();
+    }
+
+    public function yukleSiparisDurumlari(): void
+    {
+        try {
+            $this->siparisDurumlari = OrderService::for('bayi')->getOrderStatuses();
+            $this->durumYuklemHata = null;
+        } catch (\Throwable $e) {
+            $this->durumYuklemHata = $e->getMessage();
+        }
+    }
+
+    public function toggleDurum(int $id): void
+    {
+        if (in_array($id, $this->seciliDurumlar, true)) {
+            $this->seciliDurumlar = array_values(
+                array_filter($this->seciliDurumlar, fn ($d) => $d !== $id)
+            );
+        } else {
+            $this->seciliDurumlar[] = $id;
+        }
+    }
+
+    public function tumunuSec(): void
+    {
+        $this->seciliDurumlar = [];
     }
 
     protected function rules(): array
     {
         return [
-            'interval_minutes' => ['required', 'integer', 'min:1', 'max:1440'],
-            'otomatik_aktif' => ['boolean'],
-            'otomatik_urunler' => ['boolean'],
+            'interval_minutes'   => ['required', 'integer', 'min:1', 'max:1440'],
+            'otomatik_aktif'     => ['boolean'],
+            'otomatik_urunler'   => ['boolean'],
             'otomatik_stok_fiyat' => ['boolean'],
-            'otomatik_siparis' => ['boolean'],
+            'otomatik_siparis'   => ['boolean'],
             'siparis_saat_aralik' => ['required', 'integer', 'min:1', 'max:720'],
-            'siparis_durumu' => ['required', 'integer', 'min:-1'],
         ];
-    }
-
-    public function setSaatAralik(int $saat): void
-    {
-        $this->siparis_saat_aralik = $saat;
     }
 
     /**
      * Ayarları kaydeder. İki davranış:
      *  - Master AÇIK → ayarlar saklanır, scheduler periyodik çalıştırır
      *  - Master KAPALI → işaretli sync türleri TEK SEFERLİK hemen kuyruğa alınır
-     *    (eski "Şimdi Çalıştır" butonu bu mantığa gömüldü)
      */
     public function save(): void
     {
@@ -71,7 +102,7 @@ class SyncSettings extends Component
         SyncSetting::put('otomatik_stok_fiyat', $this->otomatik_stok_fiyat ? '1' : '0');
         SyncSetting::put('otomatik_siparis', $this->otomatik_siparis ? '1' : '0');
         SyncSetting::put('siparis_saat_aralik', $this->siparis_saat_aralik);
-        SyncSetting::put('siparis_durumu', $this->siparis_durumu);
+        SyncSetting::put('secili_siparis_durumlari', json_encode(array_values($this->seciliDurumlar)));
 
         if ($this->otomatik_aktif) {
             session()->flash('status', 'Ayarlar kaydedildi. Scheduler her ' . $this->interval_minutes . ' dk seçilenleri çalıştıracak.');
@@ -79,7 +110,7 @@ class SyncSettings extends Component
         }
 
         // Master KAPALI → işaretli sync'leri tek seferlik dispatch
-        Cache::forget(QueueControl::STOP_FLAG_KEY); // önceki stop kalıntısı varsa temizle
+        Cache::forget(QueueControl::STOP_FLAG_KEY);
         $dispatched = [];
         if ($this->otomatik_urunler) {
             SyncNewProductsJob::dispatch();
