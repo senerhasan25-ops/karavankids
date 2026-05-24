@@ -21,7 +21,7 @@
             </div>
 
             <form wire:submit.prevent="save" class="space-y-6">
-                @foreach (['ana' => 'Ana Mağaza (karavankids.com / test: digitalsupport.ticimaxtest.com)', 'bayi' => 'Bayi Mağaza (bayi.karavankids.com / test: karavankids.ticimaxtest.com)'] as $store => $label)
+                @foreach (['ana' => 'Kaynak Mağaza (ürünler buradan okunur, siparişler buraya yazılır)', 'bayi' => 'Hedef Mağaza (ürünler buraya yazılır, siparişler buradan çekilir)'] as $store => $label)
                     <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
                         <h3 class="text-lg font-semibold mb-4 text-gray-800 dark:text-gray-200">{{ $label }}</h3>
 

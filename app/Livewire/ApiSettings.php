@@ -45,13 +45,17 @@ class ApiSettings extends Component
 
     public function loadTestDefaults(): void
     {
-        $this->ana_endpoint = 'https://digitalsupport.ticimaxtest.com';
-        $this->ana_wsdl_product = '/Servis/UrunServis.svc?wsdl';
-        $this->ana_wsdl_order = '/Servis/SiparisServis.svc?wsdl';
+        // YÖN: Ürünler kaynak (karavankids.ticimaxtest.com) → hedef (digitalsupport)
+        //       Siparişler hedef (digitalsupport) → kaynak (karavankids.ticimaxtest.com)
+        // "ana" slot = kaynak (ürünlerin asıl olduğu yer)
+        // "bayi" slot = hedef (sipariş alan ve ürünleri yansıtacağımız yer)
+        $this->ana_endpoint = 'https://karavankids.ticimaxtest.com';
+        $this->ana_wsdl_product = '/servis/UrunServis.svc?wsdl';
+        $this->ana_wsdl_order = '/servis/SiparisServis.svc?wsdl';
 
-        $this->bayi_endpoint = 'https://karavankids.ticimaxtest.com';
-        $this->bayi_wsdl_product = '/servis/UrunServis.svc?wsdl';
-        $this->bayi_wsdl_order = '/servis/SiparisServis.svc?wsdl';
+        $this->bayi_endpoint = 'https://digitalsupport.ticimaxtest.com';
+        $this->bayi_wsdl_product = '/Servis/UrunServis.svc?wsdl';
+        $this->bayi_wsdl_order = '/Servis/SiparisServis.svc?wsdl';
 
         session()->flash('status', 'Test ortamı URL\'leri formda dolduruldu. Kullanıcı kodu ve şifreyi de gir, "Kaydet" tıkla.');
     }

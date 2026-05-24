@@ -122,8 +122,9 @@ class ProductMapperTest extends TestCase
     public function test_builds_tedarikci_kodu_with_correct_format(): void
     {
         $mapper = new ProductMapper();
-        $this->assertSame('SUP|123|MG26A', $mapper->buildTedarikciKodu(123, 'MG26A'));
-        $this->assertSame('SUP|99|', $mapper->buildTedarikciKodu(99, ''));
+        // Yeni format: SUP3005|{stokKodu}|{anaId}
+        $this->assertSame('SUP3005|MG26A|123', $mapper->buildTedarikciKodu(123, 'MG26A'));
+        $this->assertSame('SUP3005||99', $mapper->buildTedarikciKodu(99, ''));
     }
 
     public function test_sanitize_html_strips_script_style_and_event_handlers(): void
@@ -189,8 +190,8 @@ class ProductMapperTest extends TestCase
 
         $payload = $mapper->anaToBayiCreatePayload($ana);
 
-        $this->assertSame('SUP|555|ABC', $payload['TedarikciKodu']);
-        $this->assertSame('SUP|555|ABC|Kırmızı', $payload['Varyasyonlar'][0]['TedarikciKodu']);
-        $this->assertSame('SUP|555|ABC|Mavi|L', $payload['Varyasyonlar'][1]['TedarikciKodu']);
+        $this->assertSame('SUP3005|ABC|555', $payload['TedarikciKodu']);
+        $this->assertSame('SUP3005|ABC|555|Kırmızı', $payload['Varyasyonlar'][0]['TedarikciKodu']);
+        $this->assertSame('SUP3005|ABC|555|Mavi|L', $payload['Varyasyonlar'][1]['TedarikciKodu']);
     }
 }
