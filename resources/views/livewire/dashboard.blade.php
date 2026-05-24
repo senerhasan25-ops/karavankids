@@ -73,7 +73,7 @@
                 <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
                     <div class="flex justify-between items-center mb-3">
                         <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300">Son Başarısız Aktarımlar</h3>
-                        <a href="{{ route('siparisler') }}?statusFilter=failed" class="text-xs text-blue-600 hover:underline">Hepsini Gör →</a>
+                        <a href="{{ route('loglar') }}?status=error" class="text-xs text-blue-600 hover:underline">Hepsini Gör →</a>
                     </div>
                     @if ($recentFailed->isEmpty())
                         <div class="text-sm text-gray-500 italic">Başarısız aktarım yok 🎉</div>
