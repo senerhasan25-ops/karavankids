@@ -3,6 +3,8 @@
 namespace App\Livewire;
 
 use App\Models\ProductMapping;
+use App\Models\SyncJob;
+use App\Models\SyncLog;
 use App\Services\Ticimax\ProductMapper;
 use App\Services\Ticimax\ProductService;
 use Livewire\Attributes\Layout;
@@ -188,6 +190,120 @@ class ProductPicker extends Component
             if ($on) $out[] = 'uye_tipi_fiyat_' . $i;
         }
         return $out;
+    }
+
+    /**
+     * Sadece yeni ürünleri aktar (seçim YOK).
+     * Listedeki tüm ürünleri bayide kontrol eder, bayide olmayanları yeni ürün
+     * olarak ekler. Aktarılan her ürün için SyncLog kaydı oluşturur — log ekranında
+     * stok kodu + barkod ile görünür.
+     */
+    public function yeniUrunleriAktar(): void
+    {
+        $this->results = [];
+        $this->status = null;
+        $this->error = null;
+
+        if (empty($this->products)) {
+            $this->error = 'Listede ürün yok — önce "Listele" tıkla.';
+            return;
+        }
+
+        // Aynı UrunKartı birden fazla varyasyon ile gelmiş olabilir; UrunKartiID
+        // bazında tek seferlik aktarım yapacağız. Her UrunKartı için primary StokKodu
+        // ile bayide var/yok kontrolü.
+        $byUrunKarti = [];
+        foreach ($this->products as $row) {
+            $uid = (int) $row['urun_karti_id'];
+            if (! isset($byUrunKarti[$uid])) {
+                $byUrunKarti[$uid] = $row; // ilk varyasyon temsilci
+            }
+        }
+
+        $ana = ProductService::for('ana');
+        $bayi = ProductService::for('bayi');
+        $mapper = $this->buildMapper($ana, $bayi);
+
+        // SyncJob kaydı — log ekranında "manuel yeni ürün aktarımı" işi olarak gözüksün
+        $job = SyncJob::create([
+            'type' => 'product_create',
+            'status' => 'running',
+            'started_at' => now(),
+        ]);
+
+        $yeni = 0; $atlandi = 0; $hata = 0;
+        foreach ($byUrunKarti as $row) {
+            $stokKodu = $row['stok_kodu'] ?? '';
+            $barkod   = $row['barkod'] ?? '';
+            $urunAdi  = $row['urun_adi'] ?? '';
+            $raw      = $row['_raw'] ?? null;
+
+            if (! is_array($raw) || $stokKodu === '') {
+                $this->results[] = ['stok_kodu' => $stokKodu, 'urun_adi' => $urunAdi, 'durum' => 'atlandi', 'mesaj' => 'StokKodu yok'];
+                $atlandi++;
+                continue;
+            }
+
+            $job->increment('total');
+
+            try {
+                // Bayide var mı?
+                $bayiMevcut = $bayi->getProductByStokKodu($stokKodu);
+                if ($bayiMevcut && (int) ($bayiMevcut['ID'] ?? 0) > 0) {
+                    $this->results[] = ['stok_kodu' => $stokKodu, 'urun_adi' => $urunAdi, 'durum' => 'atlandi', 'mesaj' => 'Zaten bayide var (ID=' . $bayiMevcut['ID'] . ')'];
+                    $atlandi++;
+                    continue;
+                }
+
+                // YENİ ürün — oluştur
+                $payload = $mapper->anaToBayiCreatePayload($raw);
+                $created = $bayi->createProduct($payload);
+                $bayiId = (int) ($created['ID'] ?? 0);
+
+                $msg = "Yeni ürün aktarıldı — stok kodu: {$stokKodu} | barkod: {$barkod} | bayi ID: {$bayiId}";
+                $this->results[] = ['stok_kodu' => $stokKodu, 'urun_adi' => $urunAdi, 'durum' => 'olusturuldu', 'mesaj' => $msg];
+
+                // Log ekranina yaz
+                $job->increment('success_count');
+                SyncLog::create([
+                    'job_id' => $job->id,
+                    'action' => 'create_product',
+                    'direction' => 'ana_to_bayi',
+                    'status' => 'success',
+                    'barcode' => $barkod ?: null,
+                    'stok_kodu' => $stokKodu,
+                    'urun_adi' => $urunAdi,
+                    'ana_id' => $row['urun_karti_id'] ?? null,
+                    'message' => $msg,
+                ]);
+
+                $this->upsertMapping($row, $bayiId, []);
+                $yeni++;
+            } catch (\Throwable $e) {
+                $errMsg = substr($e->getMessage(), 0, 250);
+                $this->results[] = ['stok_kodu' => $stokKodu, 'urun_adi' => $urunAdi, 'durum' => 'hata', 'mesaj' => $errMsg];
+                $job->increment('error_count');
+                SyncLog::create([
+                    'job_id' => $job->id,
+                    'action' => 'create_product',
+                    'direction' => 'ana_to_bayi',
+                    'status' => 'error',
+                    'barcode' => $barkod ?: null,
+                    'stok_kodu' => $stokKodu,
+                    'urun_adi' => $urunAdi,
+                    'ana_id' => $row['urun_karti_id'] ?? null,
+                    'message' => $errMsg,
+                ]);
+                $hata++;
+            }
+        }
+
+        $job->update(['status' => 'completed', 'finished_at' => now()]);
+
+        $this->status = "Yeni ürün aktarımı tamamlandı: {$yeni} eklendi"
+            . ($atlandi ? ", {$atlandi} atlandı (zaten bayide)" : '')
+            . ($hata ? ", {$hata} hata" : '')
+            . ". Detay: Loglar sayfasında görüntülenebilir.";
     }
 
     /**

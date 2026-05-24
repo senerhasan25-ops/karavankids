@@ -171,27 +171,39 @@
                     @endfor
                 </div>
             </div>
-            <div class="mt-4 pt-3 border-t dark:border-gray-700 flex flex-wrap justify-end gap-2">
-                {{-- Hizli yol: sadece stok + fiyat update (parametre secimi gerekmez) --}}
+            <div class="mt-4 pt-3 border-t dark:border-gray-700 flex flex-wrap justify-between gap-2">
+                {{-- Secimden bagimsiz: listedeki tum urunleri tarayip yeni olanlari aktar --}}
                 <button type="button"
-                        wire:click="stokFiyatGuncelle" wire:loading.attr="disabled" wire:target="stokFiyatGuncelle"
-                        @disabled(count($selected) === 0)
-                        class="px-5 py-2 bg-orange-500 hover:bg-orange-600 text-white font-medium rounded-md disabled:opacity-50"
-                        style="display:inline-block; padding:0.5rem 1.25rem; background:#f97316; color:#fff; font-weight:600; border:none; border-radius:0.375rem; cursor:pointer;"
-                        title="Sadece stok ve fiyat alanlarını günceller. Bayide olmayan ürünler atlanır.">
-                    <span wire:loading.remove wire:target="stokFiyatGuncelle">Stok/Fiyat Güncelle ({{ count($selected) }})</span>
-                    <span wire:loading wire:target="stokFiyatGuncelle">Güncelleniyor…</span>
+                        wire:click="yeniUrunleriAktar" wire:loading.attr="disabled" wire:target="yeniUrunleriAktar"
+                        class="px-5 py-2 bg-purple-600 hover:bg-purple-700 text-white font-medium rounded-md"
+                        style="display:inline-block; padding:0.5rem 1.25rem; background:#9333ea; color:#fff; font-weight:600; border:none; border-radius:0.375rem; cursor:pointer;"
+                        title="Listede gözüken ürünleri bayide tara, bayide olmayanları yeni ürün olarak ekle. Seçim gerekmez.">
+                    <span wire:loading.remove wire:target="yeniUrunleriAktar">+ Sadece Yeni Ürünleri Aktar ({{ count($products) }})</span>
+                    <span wire:loading wire:target="yeniUrunleriAktar">Yeniler aktarılıyor…</span>
                 </button>
 
-                {{-- Tam aktarim: yukaridaki parametre paneline gore --}}
-                <button type="button"
-                        wire:click="aktar" wire:loading.attr="disabled" wire:target="aktar"
-                        @disabled(count($selected) === 0)
-                        class="px-6 py-2 bg-green-600 hover:bg-green-700 text-white font-medium rounded-md disabled:opacity-50"
-                        style="display:inline-block; padding:0.5rem 1.5rem; background:#16a34a; color:#fff; font-weight:600; border:none; border-radius:0.375rem; cursor:pointer;">
-                    <span wire:loading.remove wire:target="aktar">Seçilenleri Aktar ({{ count($selected) }})</span>
-                    <span wire:loading wire:target="aktar">Aktarılıyor…</span>
-                </button>
+                <div class="flex flex-wrap gap-2">
+                    {{-- Hizli yol: secili urunlerin sadece stok + fiyat update --}}
+                    <button type="button"
+                            wire:click="stokFiyatGuncelle" wire:loading.attr="disabled" wire:target="stokFiyatGuncelle"
+                            @disabled(count($selected) === 0)
+                            class="px-5 py-2 bg-orange-500 hover:bg-orange-600 text-white font-medium rounded-md disabled:opacity-50"
+                            style="display:inline-block; padding:0.5rem 1.25rem; background:#f97316; color:#fff; font-weight:600; border:none; border-radius:0.375rem; cursor:pointer;"
+                            title="Sadece stok ve fiyat alanlarını günceller. Bayide olmayan ürünler atlanır.">
+                        <span wire:loading.remove wire:target="stokFiyatGuncelle">Stok/Fiyat Güncelle ({{ count($selected) }})</span>
+                        <span wire:loading wire:target="stokFiyatGuncelle">Güncelleniyor…</span>
+                    </button>
+
+                    {{-- Tam aktarim: yukaridaki parametre paneline gore --}}
+                    <button type="button"
+                            wire:click="aktar" wire:loading.attr="disabled" wire:target="aktar"
+                            @disabled(count($selected) === 0)
+                            class="px-6 py-2 bg-green-600 hover:bg-green-700 text-white font-medium rounded-md disabled:opacity-50"
+                            style="display:inline-block; padding:0.5rem 1.5rem; background:#16a34a; color:#fff; font-weight:600; border:none; border-radius:0.375rem; cursor:pointer;">
+                        <span wire:loading.remove wire:target="aktar">Seçilenleri Aktar ({{ count($selected) }})</span>
+                        <span wire:loading wire:target="aktar">Aktarılıyor…</span>
+                    </button>
+                </div>
             </div>
         </div>
     @endif
