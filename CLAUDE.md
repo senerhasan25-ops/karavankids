@@ -20,7 +20,7 @@ Müşterimiz **Karavankids** (oyuncak satan e-ticaret + IT danışmanlığı) ik
   - **Görseller:** ana görsel + galeri (URL referansı, re-upload yok)
   - **Varyasyonlar:** renk, beden vb. alt ürünler tam aktarılır
   - **SEO:** URL, meta title, meta description
-- **Eşleştirme anahtarı:** `TedarikciKodu` (her iki mağazada da Ticimax-native upsert anahtarı; format: `SUP|{anaUrunId}|{stokKodu}` UrunKarti seviyesinde, varyasyonlara `|renk|beden` ekiyle). Barkod artık eşleştirme için kullanılmıyor.
+- **Eşleştirme anahtarı:** Lokal `product_mappings.stok_kodu` (UNIQUE) — primary lookup. **TedarikciKodu** (`SUP2026|{stokKodu}|{anaVaryasyonID}`) sadece audit/iz takibi içindir; Ticimax-native upsert flag'i (`TedarikciKodunaGoreGuncelle`) **kapatıldı**. Eşleştirmeyi biz lokalden bayi_product_id + bayi_variant_id ile garantiliyoruz.
 
 ### 2.2 Stok & Fiyat Güncellemesi (Ana → Bayi)
 - Mevcut eşleşmiş ürünlerde **stok** ve **fiyat** ana mağazadan bayi mağazasına itilir.
@@ -59,12 +59,15 @@ Müşterimiz **Karavankids** (oyuncak satan e-ticaret + IT danışmanlığı) ik
 users                    # Breeze default
 api_credentials          # store_key (ana|bayi), endpoint_url, username, password (encrypted), is_active
 sync_settings            # key, value (interval_minutes, otomatik_aktif, last_run_at vb.)
-product_mappings         # YALNIZCA AUDIT — eşleştirme için artık kullanılmıyor!
-                         # barcode UNIQUE (ya barkod ya da TedarikciKodu fallback),
-                         # ana_product_id, bayi_product_id (null olabilir),
+product_mappings         # LOKAL-ÖNCELİKLİ EŞLEŞTİRME ANAHTAR TABLOSU
+                         # Bir satır = bir VARYASYON (ürün değil)
+                         # stok_kodu UNIQUE — primary lookup
+                         # barcode (index), ana_product_id, ana_variant_id,
+                         # bayi_product_id, bayi_variant_id, tedarikci_kodu,
                          # last_synced_at, last_price, last_stock,
                          # status (synced|pending|error), last_error.
-                         # Sadece Dashboard sayaçları ve sync geçmişi için tutulur.
+                         # SyncNewProductsJob/SyncStockPriceJob/PullBayiOrdersJob
+                         # önce buradan okur, sonra SOAP'a düşer.
 sync_jobs                # type (product_create|stock_price_update|order_pull), status,
                          # started_at, finished_at, total, success_count, error_count
 sync_logs                # job_id FK, barcode, action, direction, status, message, created_at
@@ -73,9 +76,9 @@ order_transfers          # bayi_order_id UNIQUE, ana_order_id, status (pending|t
 ```
 
 **İdempotency anahtarları:**
-- **Ürün aktarımı:** `TedarikciKodu` (Ticimax-native upsert, lokal kayıt gerekmez). `SaveUrun` çağrısında `ukAyar.TedarikciKodunaGoreGuncelle = true` flag'i ile Ticimax mevcudu günceller, yoksa yeni oluşturur.
+- **Ürün aktarımı:** `product_mappings.stok_kodu` (lokal UNIQUE). Job önce burada arar; varsa `bayi_product_id` + `bayi_variant_id` ile direkt SaveUrun (hızlı yol). Yoksa SOAP probe yapıp bulunan veya yeni oluşturulan ürünün ID'lerini mapping'e kaydeder (bir kerelik). `TedarikciKodunaGoreGuncelle: false` — Ticimax-native upsert güvenlik kemeri olarak KULLANILMIYOR (eski formatlı duplikatları yanlış yakalamasın).
 - **Sipariş aktarımı:** `order_transfers.bayi_order_id` UNIQUE → tekrar güvenli (lokal tablo).
-- **Sipariş satırı eşleştirme:** Her satırın `StokKodu`'su sipariş aktarımı sırasında ana mağazada `SelectUrun(f.StokKodu)` ile **runtime** lookup → ilk varyasyonun `ID`'si ana sipariş line'ında `UrunID` olarak yazılır. Lokal mapping tablosu kullanılmaz.
+- **Sipariş satırı eşleştirme:** Her satırın `StokKodu`'su için `PullBayiOrdersJob` resolver'ı önce `product_mappings`'te arar → varsa `ana_variant_id` döner (SOAP yok). Yoksa `SelectUrun(StokKodu)` ile probe, sonucu mapping'e kaydeder. İkinci sync'te lookup tamamen lokaldir.
 
 ## 5. Mimari (Klasör Yapısı)
 
@@ -109,22 +112,30 @@ routes/web.php
 
 ## 6. Kilit Akış Notları (AI'ların ENİYİ bilmesi gereken)
 
-### 6.1 Ürün Aktarımı İdempotency (Ticimax-native upsert)
-Lokal "varsa atla" kontrolü YOK. Bunun yerine:
-1. Ana üründen `TedarikciKodu = SUP|{anaId}|{stokKodu}` üretilir (Mapper).
-2. `SaveUrun` çağrılırken `ukAyar.TedarikciKodunaGoreGuncelle = true` ve `vAyar.TedarikciKodunaGoreGuncelle = true` flag'leri set edilir.
-3. Ticimax aynı TedarikciKodu'lu UrunKarti/Varyasyon varsa **üzerine yazar**, yoksa **yeni oluşturur**.
-4. Tekrar çalıştırma güvenli — aynı kodu her seferinde aynı şekilde üretiyoruz.
+### 6.1 Ürün Aktarımı İdempotency (LOKAL-ÖNCELİKLİ)
 
-Bu yaklaşım `siparis_aktar.py`/`urun_aktar.py` çalışan örneğinin birebir port'u (`C:\ticibot`).
+> **DİKKAT (2026-05-24 değişikliği):** Önceki Ticimax-native upsert (`TedarikciKodunaGoreGuncelle:true`) **kapatıldı**. Eşleştirmeyi biz lokal mapping tablosundan yapıyoruz. Sebep: Hasan'ın eski sync'i farklı prefix (`SUPBIL|...`) kullanmıştı, yeni format (`SUP2026|...`) eşleştiremediğinde **duplikat açıyordu**. Detay: `CHANGES.md` 2026-05-24 (Akşam) notu.
+
+`SyncNewProductsJob::processOne()` 6 aşamalı akış:
+
+1. **LOKAL LOOKUP:** `ProductMapping::where('stok_kodu', X)->first()`
+2. **YOKSA SOAP PROBE:** `bayi->getProductByStokKodu(X)` → bulunursa hedef ID'lerini al
+3. **VARYASYON ID MAP'İ:** lokal mapping'ten veya SOAP'tan toplanan `Barkod → bayi.Varyasyon.ID` tablosu
+4. **PAYLOAD'A ID YAZ:** `$payload['ID'] = $bayiProductId` + her varyasyona `bayi_variant_id`
+5. **SAVE:** `bayi->createProduct($payload)` — Ticimax kesin ID match ile günceller (yeni duplikat açmaz)
+6. **MAPPING UPSERT:** SaveUrun cevabındaki ID'lerle veya elimizdeki ID'lerle her varyasyon için `product_mappings` upsert
+
+**TedarikciKodu** artık sadece audit/iz takibi içindir, format: `SUP2026|{stokKodu}|{anaVaryasyonID}`. Her varyasyonun kendi ID'si gömülür (UrunKartiID değil).
+
+Bir sonraki sync'te SOAP probe (aşama 2) atlanır → 3x hızlanma.
 
 ### 6.2 Görseller
 Ticimax `SaveUrun` çağrısında resimler URL listesi olarak gönderilir. **Ana mağaza CDN URL'leri doğrudan bayi'ye iletilir** — dosya indirme/yeniden yükleme yok. Opsiyonel HEAD kontrolü (URL 200 dönüyor mu) eklenebilir.
 
 ### 6.3 Varyasyonlar
-Ana ürünün `Varyasyonlar` koleksiyonu Mapper'da bayi formatına çevrilir. Her varyasyonun `TedarikciKodu`'su parent ürünün koduna `|renk|beden` eklenerek üretilir (örn. `SUP|555|ABC|Kırmızı|L`). Ticimax bu kodla varyasyon-seviyesinde upsert yapar.
+Ana ürünün `Varyasyonlar` koleksiyonu Mapper'da bayi formatına çevrilir. Her varyasyonun **kendi ID'si + kendi StokKodu'su** ile eşsiz `TedarikciKodu`'su olur (örn. `SUP2026|225981|10780`). Eski `|renk|beden` suffix mekaniği kaldırıldı — variant ID zaten eşsiz olduğu için gereksiz.
 
-`product_mappings` tablosuna varyasyon başına ayrı kayıt yazılmaz — sadece UrunKarti seviyesinde audit kaydı tutulur.
+`product_mappings` tablosuna **her varyasyon için ayrı satır** yazılır (`stok_kodu` UNIQUE). `bayi_variant_id` saklanır → bir sonraki stok/fiyat update'i SOAP'ta SelectUrun yapmadan direkt UpdateStock çağrısı atar.
 
 ### 6.4 Stok Düşmesi
 Ana mağazada sipariş `SaveSiparis` ile oluşturulunca Ticimax stoğu **kendi içinde** düşürür. Bizim ayrıca `updateStockAndPrice` çağırmamıza gerek yok. Bir sonraki sync döngüsünde yeni stok zaten bayi'ye iter.
@@ -133,11 +144,38 @@ Ana mağazada sipariş `SaveSiparis` ile oluşturulunca Ticimax stoğu **kendi i
 `api_credentials.password` Eloquent `encrypted` cast ile saklanır. Panelde gösterilmez (sadece "Değiştir" formu).
 
 ### 6.6 Scheduler
-`app/Console/Kernel.php` her dakika tetiklenir. İçinde:
-1. `sync_settings.otomatik_aktif` false ise çık.
-2. `now() - sync_settings.last_run_at >= interval_minutes` değilse çık.
-3. Sırayla `SyncNewProductsJob`, `SyncStockPriceJob`, `PullBayiOrdersJob` dispatch et.
-4. `last_run_at = now()` yaz.
+
+`bootstrap/app.php`'deki `withSchedule()` her dakika tetiklenir → `App\Console\SyncTick::run()`. İçinde:
+
+1. `sync_settings.otomatik_aktif` false → çık (master kapalı)
+2. Cache'de **global stop flag** (`QueueControl::STOP_FLAG_KEY`) varsa → çık (kullanıcı durdurdu, 1 dk sonra yeniden açma)
+3. `now() - last_run_at >= interval_minutes` değilse → çık (interval kilidi)
+4. **Alt-toggle'lar** kontrol edilir, sadece açık olanlar dispatch:
+   - `otomatik_urunler` → `SyncNewProductsJob`
+   - `otomatik_stok_fiyat` → `SyncStockPriceJob`
+   - `otomatik_siparis` → `PullBayiOrdersJob`
+5. En az bir dispatch olduysa `last_run_at = now()` (hiç dispatch olmazsa last_run_at bozulmaz)
+
+**Manuel tetik** (Sync Ayarları sayfasında): master KAPALIYKEN "Kaydet" tıklanırsa işaretli alt-toggle'lar tek seferlik dispatch edilir (eski "Şimdi Çalıştır" butonu kaldırıldı, bu davranışa entegre).
+
+### 6.7 Kuyruk Denetimi (per-job stop)
+
+Nav bar'daki `QueueControl` dropdown:
+- **Çalışan** listesi → her satırın yanında **⛔ Durdur** (per-job flag + DB failed işaretleme)
+- **Bekleyen** listesi → her satırın yanında **✕ Sil** (jobs tablosundan tek satır)
+- **Hepsini Durdur** → toplu (global flag + jobs delete + tüm running→failed)
+
+Job'lar loop içinde `QueueControl::isStopRequested($syncJobId)` çağırır. True dönerse worker stdout/STDERR'e `🛑 [HH:MM:SS] STOP signal alındı...` yazılır (CMD penceresinde görünür). Worker process'i ÖLDÜRÜLMEZ — sadece in-job flag mekanizması.
+
+Cache driver `database` olduğundan flag web request'leri ile worker process arasında paylaşılır.
+
+### 6.8 Front-end altyapı — DOKUNULMAYACAKLAR ⚠️
+
+**`resources/js/app.js`**: Alpine.js manuel başlatma YOK. Livewire 3 kendi Alpine'ini içerir ve otomatik start eder. İkinci `Alpine.start()` çağırırsan **iki Alpine instance çakışır** → tüm `wire:click` handler'ları sessizce ölür. Backend log'larda hiçbir şey görünmez, butonlar sadece tıklanmaz.
+
+**`resources/views/layouts/app.blade.php`**: `@livewireStyles` head'de, `@livewireScripts` body kapanışından önce. Eksik olursa wire:click hiç çalışmaz (auto-inject mekanizması bu kurulumda devreye girmiyor).
+
+**Asset değişikliği sonrası ZORUNLU:** `npm run build` — vite manifest yenilenmezse tarayıcı eski bundle'ı kullanır.
 
 ## 7. Geliştirme Ortamı
 
