@@ -44,6 +44,12 @@ class SyncSettings extends Component
         ];
     }
 
+    /**
+     * Ayarları kaydeder. İki davranış:
+     *  - Master AÇIK → ayarlar saklanır, scheduler periyodik çalıştırır
+     *  - Master KAPALI → işaretli sync türleri TEK SEFERLİK hemen kuyruğa alınır
+     *    (eski "Şimdi Çalıştır" butonu bu mantığa gömüldü)
+     */
     public function save(): void
     {
         $this->validate();
@@ -52,35 +58,33 @@ class SyncSettings extends Component
         SyncSetting::put('otomatik_urunler', $this->otomatik_urunler ? '1' : '0');
         SyncSetting::put('otomatik_stok_fiyat', $this->otomatik_stok_fiyat ? '1' : '0');
         SyncSetting::put('otomatik_siparis', $this->otomatik_siparis ? '1' : '0');
-        session()->flash('status', 'Sync ayarları kaydedildi.');
-    }
 
-    /**
-     * Tek seferlik manuel tetik — üç sync job'ını queue'ya dispatch eder.
-     * Otomatik scheduler'ı beklemeden anında çalışır.
-     */
-    public function runNow(string $what = 'all'): void
-    {
-        // Önceki "stop" flag'i kalmış olabilir — yeni sync başlatmadan önce temizle,
-        // yoksa job hemen "stop signal var" görüp anında çıkar.
-        Cache::forget(QueueControl::STOP_FLAG_KEY);
+        if ($this->otomatik_aktif) {
+            session()->flash('status', 'Ayarlar kaydedildi. Scheduler her ' . $this->interval_minutes . ' dk seçilenleri çalıştıracak.');
+            return;
+        }
 
+        // Master KAPALI → işaretli sync'leri tek seferlik dispatch
+        Cache::forget(QueueControl::STOP_FLAG_KEY); // önceki stop kalıntısı varsa temizle
         $dispatched = [];
-
-        if ($what === 'all' || $what === 'products') {
+        if ($this->otomatik_urunler) {
             SyncNewProductsJob::dispatch();
-            $dispatched[] = 'Ürün sync';
+            $dispatched[] = '📦 Ürünler';
         }
-        if ($what === 'all' || $what === 'stock') {
+        if ($this->otomatik_stok_fiyat) {
             SyncStockPriceJob::dispatch();
-            $dispatched[] = 'Stok/Fiyat';
+            $dispatched[] = '💰 Stok / Fiyat';
         }
-        if ($what === 'all' || $what === 'orders') {
+        if ($this->otomatik_siparis) {
             PullBayiOrdersJob::dispatch();
-            $dispatched[] = 'Sipariş aktarımı';
+            $dispatched[] = '🛒 Siparişler';
         }
 
-        session()->flash('status', 'Kuyruğa alındı: ' . implode(', ', $dispatched) . '. Loglar sekmesinden ilerlemeyi takip edebilirsin.');
+        if (empty($dispatched)) {
+            session()->flash('status', 'Ayarlar kaydedildi. Hiçbir sync türü seçili olmadığı için kuyruğa iş eklenmedi.');
+        } else {
+            session()->flash('status', 'Ayarlar kaydedildi + kuyruğa alındı: ' . implode(', ', $dispatched) . '. İlerleme için Loglar sekmesine bak.');
+        }
     }
 
     public function render()

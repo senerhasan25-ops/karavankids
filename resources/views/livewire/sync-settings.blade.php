@@ -17,6 +17,9 @@
                     <input type="number" wire:model="interval_minutes" min="1" max="1440"
                            class="mt-1 block w-full rounded-md border-gray-300 dark:bg-gray-900 dark:border-gray-700 dark:text-gray-200">
                     @error('interval_minutes')<span class="text-red-600 text-xs">{{ $message }}</span>@enderror
+                    <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        Sadece "Otomatik aktif" işaretliyken kullanılır.
+                    </p>
                 </div>
 
                 <div>
@@ -24,30 +27,34 @@
                         <input type="checkbox" wire:model.live="otomatik_aktif" class="rounded">
                         <span class="ms-2 text-sm font-medium text-gray-700 dark:text-gray-300">Otomatik senkronizasyonu aktif et</span>
                     </label>
+                </div>
 
-                    {{-- Alt-toggle'lar: master aktifken hangi sync türlerinin çalışacağı --}}
-                    <div class="mt-3 ml-6 pl-4 border-l-2 border-gray-200 dark:border-gray-700 space-y-2"
-                         :class="{ 'opacity-50': !{{ $otomatik_aktif ? 'true' : 'false' }} }">
-                        <p class="text-xs text-gray-500 dark:text-gray-400 mb-2">
-                            Otomatik tetiklenecek senkronizasyon türleri:
-                        </p>
+                <div class="border-t border-gray-200 dark:border-gray-700 pt-4">
+                    <p class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        Çalıştırılacak sync türleri
+                    </p>
+                    <p class="text-xs text-gray-500 dark:text-gray-400 mb-3 leading-relaxed">
+                        @if ($otomatik_aktif)
+                            <strong>Otomatik aktif:</strong> seçilenler her {{ $interval_minutes }} dk scheduler tarafından çalıştırılır.
+                        @else
+                            <strong>Otomatik kapalı:</strong> "Kaydet" tıklandığında seçilenler <u>tek seferlik</u> çalışır.
+                        @endif
+                    </p>
+                    <div class="space-y-2">
                         <label class="inline-flex items-center w-full">
-                            <input type="checkbox" wire:model="otomatik_urunler" class="rounded"
-                                   {{ $otomatik_aktif ? '' : 'disabled' }}>
+                            <input type="checkbox" wire:model="otomatik_urunler" class="rounded">
                             <span class="ms-2 text-sm text-gray-700 dark:text-gray-300">
                                 📦 Ürünler (yeni ürün açma + güncelleme)
                             </span>
                         </label>
                         <label class="inline-flex items-center w-full">
-                            <input type="checkbox" wire:model="otomatik_stok_fiyat" class="rounded"
-                                   {{ $otomatik_aktif ? '' : 'disabled' }}>
+                            <input type="checkbox" wire:model="otomatik_stok_fiyat" class="rounded">
                             <span class="ms-2 text-sm text-gray-700 dark:text-gray-300">
                                 💰 Stok / Fiyat (sadece varolan ürünlerin güncellenmesi)
                             </span>
                         </label>
                         <label class="inline-flex items-center w-full">
-                            <input type="checkbox" wire:model="otomatik_siparis" class="rounded"
-                                   {{ $otomatik_aktif ? '' : 'disabled' }}>
+                            <input type="checkbox" wire:model="otomatik_siparis" class="rounded">
                             <span class="ms-2 text-sm text-gray-700 dark:text-gray-300">
                                 🛒 Siparişler (hedef → kaynak aktarımı)
                             </span>
@@ -55,7 +62,7 @@
                     </div>
                 </div>
 
-                <div class="text-sm text-gray-600 dark:text-gray-400">
+                <div class="text-sm text-gray-600 dark:text-gray-400 border-t border-gray-200 dark:border-gray-700 pt-4">
                     Son çalışma: <strong>{{ $last_run_at ?: 'Henüz çalışmadı' }}</strong>
                 </div>
 
@@ -65,36 +72,6 @@
                     </button>
                 </div>
             </form>
-
-            {{-- Manuel tetik kartı: tek seferlik çalıştırma --}}
-            <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6 mt-6 space-y-4">
-                <div>
-                    <h3 class="text-base font-semibold text-gray-800 dark:text-gray-200">Şimdi Çalıştır</h3>
-                    <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                        Otomatik scheduler'ı beklemeden ilgili sync'i hemen kuyruğa alır.
-                        İşlerin ilerlemesini <strong>Loglar</strong> sekmesinden görebilirsin.
-                    </p>
-                </div>
-
-                <div class="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                    <button type="button" wire:click="runNow('all')"
-                            class="px-3 py-2 bg-blue-600 text-white text-sm rounded hover:bg-blue-700">
-                        Hepsini Çalıştır
-                    </button>
-                    <button type="button" wire:click="runNow('products')"
-                            class="px-3 py-2 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 text-sm rounded hover:bg-gray-300 dark:hover:bg-gray-600">
-                        Sadece Ürünler
-                    </button>
-                    <button type="button" wire:click="runNow('stock')"
-                            class="px-3 py-2 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 text-sm rounded hover:bg-gray-300 dark:hover:bg-gray-600">
-                        Sadece Stok/Fiyat
-                    </button>
-                    <button type="button" wire:click="runNow('orders')"
-                            class="px-3 py-2 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 text-sm rounded hover:bg-gray-300 dark:hover:bg-gray-600">
-                        Sadece Siparişler
-                    </button>
-                </div>
-            </div>
         </div>
     </div>
 </div>
