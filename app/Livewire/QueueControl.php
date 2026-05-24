@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\On;
 use Livewire\Component;
+use Symfony\Component\Process\Process;
 
 /**
  * Navigation bar'da her sayfada görünen "Kuyruk Durdur" denetimi.
@@ -82,9 +83,61 @@ class QueueControl extends Component
         } catch (\Throwable) {
         }
 
+        // 6) ZORLA KAPATMA — çalışan queue:work PHP process'lerini Windows tasklist ile bul ve öldür
+        //    Graceful stop sinyali yetmiyor (worker mevcut job ortasında flag'i göremiyor)
+        $killed = $this->killQueueWorkerProcesses();
+
         $this->refreshCounts();
-        $this->statusMsg = "Durduruldu: {$cleared} bekleyen iş + {$cancelled} çalışan iş kapatıldı. "
-                         . "Eğer cmd penceresinde worker hâlâ çalışıyorsa, bir sonraki ürün/sipariş arasında nazikçe çıkar.";
+        $this->statusMsg = "Durduruldu: {$cleared} bekleyen + {$cancelled} çalışan iş kapatıldı. "
+                         . ($killed > 0
+                             ? "{$killed} queue worker process'i zorla sonlandırıldı."
+                             : "Worker process bulunamadı (zaten kapalı veya farklı kullanıcı).");
+    }
+
+    /**
+     * Çalışan `php artisan queue:work` process'lerini Windows üzerinde bulup öldürür.
+     * Linux/Mac için `pkill -f "queue:work"` fallback'i de denenir.
+     *
+     * @return int Öldürülen process sayısı
+     */
+    protected function killQueueWorkerProcesses(): int
+    {
+        $killed = 0;
+
+        if (PHP_OS_FAMILY === 'Windows') {
+            // wmic ile queue:work içeren php.exe process'lerini bul
+            $process = new Process([
+                'powershell.exe',
+                '-NoProfile',
+                '-Command',
+                "Get-WmiObject Win32_Process -Filter \"name='php.exe'\" | "
+                . "Where-Object { \$_.CommandLine -like '*queue:work*' } | "
+                . "ForEach-Object { Stop-Process -Id \$_.ProcessId -Force; Write-Output \$_.ProcessId }",
+            ]);
+            $process->setTimeout(15);
+            try {
+                $process->run();
+                $output = trim($process->getOutput());
+                if ($output !== '') {
+                    $killed = count(array_filter(explode("\n", $output)));
+                }
+            } catch (\Throwable) {
+                // sessiz geç
+            }
+        } else {
+            // Linux/Mac
+            $process = new Process(['pkill', '-f', 'queue:work']);
+            $process->setTimeout(10);
+            try {
+                $process->run();
+                if ($process->isSuccessful()) {
+                    $killed = 1; // pkill exact count vermiyor, tahmin
+                }
+            } catch (\Throwable) {
+            }
+        }
+
+        return $killed;
     }
 
     /**
