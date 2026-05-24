@@ -12,9 +12,21 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withSchedule(function (Schedule $schedule) {
+        // Sadece "Otomatik senkronizasyonu aktif et" checkbox'i acikken her dakika tetiklenir.
+        // Kapaliyken scheduler hicbir sey yapmaz, ekrana "Running" da yazmaz.
         $schedule->call(function () {
             \App\Console\SyncTick::run();
-        })->name('karavankids_sync_tick')->everyMinute()->withoutOverlapping();
+        })
+            ->name('karavankids_sync_tick')
+            ->everyMinute()
+            ->withoutOverlapping()
+            ->when(function () {
+                try {
+                    return (bool) \App\Models\SyncSetting::get('otomatik_aktif', false);
+                } catch (\Throwable) {
+                    return false; // DB henuz hazir degilse calistirma
+                }
+            });
     })
     ->withMiddleware(function (Middleware $middleware) {
         //
