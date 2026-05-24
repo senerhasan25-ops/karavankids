@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Models\OrderTransfer;
+use App\Models\ProductMapping;
 use App\Models\SyncJob;
 use App\Models\SyncLog;
 use App\Models\SyncSetting;
@@ -46,15 +47,54 @@ class PullBayiOrdersJob implements ShouldQueue
             $anaProduct = ProductService::for('ana');
             $mapper = new ProductMapper();
 
-            // StokKodu → ana Varyasyon.ID cache (tek job içinde, tekrar tekrar SOAP atma)
+            // StokKodu → ana Varyasyon.ID resolver — LOKAL ÖNCELİKLİ.
+            // 1) ProductMapping tablosunda stok_kodu varsa ana_variant_id direkt döner (SOAP yok)
+            // 2) Yoksa SOAP probe yapar (SelectUrun) ve sonucu ProductMapping'e kaydeder
+            // 3) İn-memory cache aynı job içinde tekrar lookup'ı engeller
             $variantCache = [];
             $resolver = function (string $stokKodu) use ($anaProduct, &$variantCache): ?int {
                 if (array_key_exists($stokKodu, $variantCache)) {
                     return $variantCache[$stokKodu];
                 }
-                $id = $anaProduct->getVariantIdByStokKodu($stokKodu);
-                $variantCache[$stokKodu] = $id;
-                return $id;
+
+                // 1) LOKAL LOOKUP
+                $m = ProductMapping::where('stok_kodu', $stokKodu)->first();
+                if ($m && $m->ana_variant_id) {
+                    return $variantCache[$stokKodu] = (int) $m->ana_variant_id;
+                }
+
+                // 2) SOAP PROBE (fallback) — bulunursa mapping'i de güncelle/oluştur
+                $anaUrunKarti = $anaProduct->getProductByStokKodu($stokKodu);
+                if (! $anaUrunKarti) {
+                    return $variantCache[$stokKodu] = null;
+                }
+                $anaUrunId = (int) ($anaUrunKarti['ID'] ?? 0);
+                $vars = $anaUrunKarti['Varyasyonlar']['Varyasyon'] ?? [];
+                if (is_array($vars) && ! array_is_list($vars)) {
+                    $vars = [$vars];
+                }
+                $foundVarId = null;
+                $foundBarkod = null;
+                foreach ((array) $vars as $v) {
+                    if ((string) ($v['StokKodu'] ?? '') === $stokKodu) {
+                        $foundVarId = (int) ($v['ID'] ?? 0);
+                        $foundBarkod = (string) ($v['Barkod'] ?? '');
+                        break;
+                    }
+                }
+                if ($foundVarId) {
+                    ProductMapping::updateOrCreate(
+                        ['stok_kodu' => $stokKodu],
+                        [
+                            'barcode' => $foundBarkod ?: null,
+                            'ana_product_id' => (string) $anaUrunId,
+                            'ana_variant_id' => (string) $foundVarId,
+                            'status' => 'synced',
+                            'last_synced_at' => now(),
+                        ]
+                    );
+                }
+                return $variantCache[$stokKodu] = $foundVarId ?: null;
             };
 
             $sinceRaw = SyncSetting::get('last_order_pull_at');

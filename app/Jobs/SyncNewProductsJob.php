@@ -9,7 +9,6 @@ use App\Livewire\QueueControl;
 use App\Services\Ticimax\ProductMapper;
 use App\Services\Ticimax\ProductService;
 use Illuminate\Bus\Queueable;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
@@ -18,13 +17,19 @@ use Illuminate\Support\Carbon;
 use Throwable;
 
 /**
- * Ana → Bayi ürün sync.
+ * Ana → Bayi ürün sync (LOKAL-ÖNCELİKLİ).
  *
- * UPSERT: ProductMapper TedarikciKodu = "SUP|{anaId}|{stokKodu}" yazar; ProductService
- * SaveUrun çağrısında `TedarikciKodunaGoreGuncelle: true` flag'i ile gönderir →
- * Ticimax mevcutsa günceller, yoksa yeni oluşturur. Lokal eşleşme tablosuna gerek YOK.
+ * Akış (varyasyon başına):
+ *   1. ProductMapping tablosunda stok_kodu ara
+ *   2a. VAR ise → bayi_product_id + bayi_variant_id biliniyor; payload'a yaz, SaveUrun (HIZLI YOL)
+ *   2b. YOK ise → bayi'de SelectUrun(StokKodu) ile tek seferlik probe:
+ *        - Hedefte zaten varsa → ID'leri al, TedarikciKodu'muzu yaz, mapping kaydet
+ *        - Hedefte yoksa → SaveUrun ile yeni oluştur, dönen veriden ID'leri çıkar, mapping kaydet
+ *   3. Bir sonraki sync'te o stok_kodu artık 2a yolundan gider (SOAP probe yok).
  *
- * ProductMapping tablosu sadece audit/dashboard için tutulur (kaç sync, son hata vs.).
+ * NOT: TedarikciKodunaGoreGuncelle bayrağı KALDIRILDI. Ticimax'ın TedarikciKodu
+ * tabanlı match'i artık güvenlik kemeri değil — biz lokal ID match'i ile garanti
+ * altına alıyoruz.
  */
 class SyncNewProductsJob implements ShouldQueue
 {
@@ -117,83 +122,124 @@ class SyncNewProductsJob implements ShouldQueue
         if (QueueControl::isStopRequested($job->id)) {
             return;
         }
-        $anaUrunId = (string) ($urunKarti['ID'] ?? '');
-        $stokKodu = $mapper->resolveStokKodu($urunKarti);
-        $tedKodu = $mapper->buildTedarikciKodu((int) $anaUrunId, $stokKodu);
-        $primaryBarcode = $this->primaryBarcode($urunKarti);
+
+        $anaUrunId = (int) ($urunKarti['ID'] ?? 0);
+        $anaVariants = $this->extractVariants($urunKarti);
+        $primaryVariant = $anaVariants[0] ?? null;
+        $primaryStokKodu = $mapper->resolveStokKodu($urunKarti);
+        $primaryBarkod = (string) ($primaryVariant['Barkod'] ?? '');
         $urunAdi = (string) ($urunKarti['UrunAdi'] ?? '');
+        $tedKodu = $mapper->buildTedarikciKodu($anaUrunId, $primaryStokKodu);
 
         $context = [
-            'barcode' => $primaryBarcode ?: null,
-            'stok_kodu' => $stokKodu ?: null,
+            'barcode' => $primaryBarkod ?: null,
+            'stok_kodu' => $primaryStokKodu ?: null,
             'urun_adi' => $urunAdi ?: null,
             'ana_id' => $anaUrunId ?: null,
         ];
 
-        if ($stokKodu === '' && $primaryBarcode === '') {
+        if ($primaryStokKodu === '' && $primaryBarkod === '') {
             $this->logError($job, $context, "Üründe ne StokKodu ne Barkod var (ID={$anaUrunId})");
             return;
         }
 
         try {
+            // ========== AŞAMA 1: LOKAL LOOKUP ==========
+            $localMapping = $primaryStokKodu
+                ? ProductMapping::where('stok_kodu', $primaryStokKodu)->first()
+                : null;
+
             $payload = $mapper->anaToBayiCreatePayload($urunKarti);
+            $bayiProductId = $localMapping?->bayi_product_id ? (int) $localMapping->bayi_product_id : null;
 
-            // HİBRİT UPSERT: TedarikciKodu eşleşmesi yetmiyor (Hasan'ın eski sync'i
-            // farklı prefix kullanmış). Önce StokKodu/Barkod ile bayi'de var mı bak —
-            // varsa onun UrunKartiID'si payload'a yazılır → Ticimax kesin ID match ile
-            // upsert eder. Yoksa yeni oluşturur. Barkod çakışması bu sayede önlenir.
-            $bayiExisting = null;
-            if ($stokKodu !== '') {
-                $variantId = $bayi->getVariantIdByStokKodu($stokKodu);
-                if ($variantId) {
-                    // Varyasyon var → UrunKarti'yı çek (variantın bağlı olduğu ürün)
-                    $bayiExisting = $bayi->getProductByBarcode($primaryBarcode);
+            // ========== AŞAMA 2: LOKALDE YOKSA SOAP PROBE ==========
+            $bayiProductSoapData = null;
+            if (! $bayiProductId) {
+                // Sadece ilk eşleştirmede SOAP'a düşeriz; sonra hep lokal
+                $bayiProductSoapData = $primaryStokKodu
+                    ? $bayi->getProductByStokKodu($primaryStokKodu)
+                    : null;
+                if (! $bayiProductSoapData && $primaryBarkod) {
+                    $bayiProductSoapData = $bayi->getProductByBarcode($primaryBarkod);
                 }
+                $bayiProductId = $bayiProductSoapData
+                    ? (int) ($bayiProductSoapData['ID'] ?? 0)
+                    : null;
             }
-            if (! $bayiExisting && $primaryBarcode !== '') {
-                $bayiExisting = $bayi->getProductByBarcode($primaryBarcode);
-            }
-            if ($bayiExisting && ! empty($bayiExisting['ID'])) {
-                $payload['ID'] = (int) $bayiExisting['ID']; // existing UrunKartiID
-                // Varyasyon ID'lerini de eşle (varsa) — değişen sıralama bozmasın diye
-                $bayiVariants = $bayiExisting['Varyasyonlar']['Varyasyon'] ?? [];
-                if (is_array($bayiVariants) && ! array_is_list($bayiVariants)) {
-                    $bayiVariants = [$bayiVariants];
-                }
-                $bayiVarsByBarkod = [];
-                foreach ($bayiVariants as $bv) {
+
+            // ========== AŞAMA 3: VARYASYON ID MAP'İ KUR ==========
+            // bayi'deki Varyasyon.ID'leri (Barkod → ID) eşle. Lokal mapping varsa
+            // lokalden, yoksa SOAP'tan gelen veriden topla.
+            $bayiVarIdByBarkod = [];
+            $bayiVarIdByStokKodu = [];
+
+            if ($localMapping && $bayiProductId) {
+                // Lokal mapping tablosundan o bayi_product_id'ye bağlı diğer varyasyonları topla
+                ProductMapping::where('bayi_product_id', $bayiProductId)
+                    ->get()
+                    ->each(function ($m) use (&$bayiVarIdByBarkod, &$bayiVarIdByStokKodu) {
+                        if ($m->bayi_variant_id && $m->barcode) {
+                            $bayiVarIdByBarkod[$m->barcode] = (int) $m->bayi_variant_id;
+                        }
+                        if ($m->bayi_variant_id && $m->stok_kodu) {
+                            $bayiVarIdByStokKodu[$m->stok_kodu] = (int) $m->bayi_variant_id;
+                        }
+                    });
+            } elseif ($bayiProductSoapData) {
+                foreach ($this->extractVariants($bayiProductSoapData) as $bv) {
+                    $bvId = (int) ($bv['ID'] ?? 0);
+                    if ($bvId <= 0) {
+                        continue;
+                    }
                     $bk = (string) ($bv['Barkod'] ?? '');
+                    $sk = (string) ($bv['StokKodu'] ?? '');
                     if ($bk !== '') {
-                        $bayiVarsByBarkod[$bk] = (int) ($bv['ID'] ?? 0);
+                        $bayiVarIdByBarkod[$bk] = $bvId;
                     }
-                }
-                foreach ($payload['Varyasyonlar'] as $i => $v) {
-                    $bk = (string) ($v['Barkod'] ?? '');
-                    if (isset($bayiVarsByBarkod[$bk]) && $bayiVarsByBarkod[$bk] > 0) {
-                        $payload['Varyasyonlar'][$i]['ID'] = $bayiVarsByBarkod[$bk];
-                        $payload['Varyasyonlar'][$i]['UrunKartiID'] = (int) $bayiExisting['ID'];
+                    if ($sk !== '') {
+                        $bayiVarIdByStokKodu[$sk] = $bvId;
                     }
                 }
             }
 
-            $bayi->createProduct($payload);
+            // ========== AŞAMA 4: PAYLOAD'A ID'LERİ YAZ ==========
+            if ($bayiProductId) {
+                $payload['ID'] = $bayiProductId;
+                foreach ($payload['Varyasyonlar'] as $i => $v) {
+                    $vbk = (string) ($v['Barkod'] ?? '');
+                    $vsk = (string) ($v['StokKodu'] ?? '');
+                    $matchId = $bayiVarIdByBarkod[$vbk] ?? $bayiVarIdByStokKodu[$vsk] ?? null;
+                    if ($matchId) {
+                        $payload['Varyasyonlar'][$i]['ID'] = $matchId;
+                        $payload['Varyasyonlar'][$i]['UrunKartiID'] = $bayiProductId;
+                    }
+                }
+            }
 
-            ProductMapping::updateOrCreate(
-                ['barcode' => $primaryBarcode ?: $tedKodu],
-                [
-                    'ana_product_id' => $anaUrunId,
-                    'bayi_product_id' => null,
-                    'last_price' => $this->primaryPrice($urunKarti),
-                    'last_stock' => $this->primaryStock($urunKarti),
-                    'status' => 'synced',
-                    'last_error' => null,
-                    'last_synced_at' => now(),
-                ]
+            // ========== AŞAMA 5: SAVE ==========
+            $savedList = $bayi->createProduct($payload);
+            $savedCard = $savedList[0] ?? null;
+
+            // ========== AŞAMA 6: LOKAL MAPPING KAYDET / GÜNCELLE ==========
+            // SaveUrun cevabında Ticimax atanan ID'leri echo eder (varsa).
+            // Yoksa yukarıda topladığımız ID map'i kullanırız.
+            $this->upsertMappings(
+                $anaUrunId,
+                $anaVariants,
+                $savedCard,
+                $bayiProductId,
+                $bayiVarIdByBarkod,
+                $bayiVarIdByStokKodu,
+                $tedKodu
             );
 
-            $this->logSuccess($job, $context, "TedarikciKodu={$tedKodu}");
+            $msg = $localMapping
+                ? "Lokal eşleşme → güncellendi (bayi #{$bayiProductId})"
+                : ($bayiProductId
+                    ? "SOAP eşleşmesi bulundu → mapping kaydedildi (bayi #{$bayiProductId})"
+                    : "Yeni ürün oluşturuldu");
+            $this->logSuccess($job, $context, $msg);
         } catch (Throwable $e) {
-            // Ham SOAP XML'i client'tan çek (hata anında ne gönderdik, ne döndü)
             $client = $bayi->getClient();
             $this->logError(
                 $job,
@@ -202,29 +248,84 @@ class SyncNewProductsJob implements ShouldQueue
                 $client->getLastRequestXml(),
                 $client->getLastResponseXml()
             );
-            ProductMapping::updateOrCreate(
-                ['barcode' => $primaryBarcode ?: $tedKodu],
-                ['ana_product_id' => $anaUrunId, 'status' => 'error', 'last_error' => $e->getMessage()]
-            );
+            if ($primaryStokKodu) {
+                ProductMapping::updateOrCreate(
+                    ['stok_kodu' => $primaryStokKodu],
+                    [
+                        'barcode' => $primaryBarkod ?: null,
+                        'ana_product_id' => (string) $anaUrunId,
+                        'status' => 'error',
+                        'last_error' => $e->getMessage(),
+                    ]
+                );
+            }
         }
     }
 
-    protected function primaryBarcode(array $urunKarti): string
-    {
-        $variants = $this->extractVariants($urunKarti);
-        return trim((string) ($variants[0]['Barkod'] ?? $urunKarti['Barkod'] ?? ''));
-    }
+    /**
+     * Her varyasyon için mapping satırı upsert et — her iki taraf ID'leriyle birlikte.
+     */
+    protected function upsertMappings(
+        int $anaUrunId,
+        array $anaVariants,
+        ?array $savedCard,
+        ?int $bayiProductId,
+        array $bayiVarIdByBarkod,
+        array $bayiVarIdByStokKodu,
+        string $tedKodu,
+    ): void {
+        // Eğer SaveUrun cevabında yeni ID'ler döndüyse onları da ekleyelim
+        if ($savedCard) {
+            $bayiProductId = $bayiProductId ?: (int) ($savedCard['ID'] ?? 0);
+            foreach ($this->extractVariants($savedCard) as $sv) {
+                $svId = (int) ($sv['ID'] ?? 0);
+                if ($svId <= 0) {
+                    continue;
+                }
+                $bk = (string) ($sv['Barkod'] ?? '');
+                $sk = (string) ($sv['StokKodu'] ?? '');
+                if ($bk !== '') {
+                    $bayiVarIdByBarkod[$bk] = $svId;
+                }
+                if ($sk !== '') {
+                    $bayiVarIdByStokKodu[$sk] = $svId;
+                }
+            }
+        }
 
-    protected function primaryPrice(array $urunKarti): float
-    {
-        $variants = $this->extractVariants($urunKarti);
-        return (float) ($variants[0]['SatisFiyati'] ?? $urunKarti['SatisFiyati'] ?? 0);
-    }
+        foreach ($anaVariants as $av) {
+            $anaVarId = (int) ($av['ID'] ?? 0);
+            $stokKodu = (string) ($av['StokKodu'] ?? '');
+            $barkod = (string) ($av['Barkod'] ?? '');
+            if ($stokKodu === '' && $barkod === '') {
+                continue;
+            }
+            $bayiVarId = $bayiVarIdByBarkod[$barkod]
+                ?? $bayiVarIdByStokKodu[$stokKodu]
+                ?? null;
 
-    protected function primaryStock(array $urunKarti): int
-    {
-        $variants = $this->extractVariants($urunKarti);
-        return (int) ($variants[0]['StokAdedi'] ?? $urunKarti['StokAdedi'] ?? 0);
+            $key = $stokKodu !== ''
+                ? ['stok_kodu' => $stokKodu]
+                : ['barcode' => $barkod];
+
+            ProductMapping::updateOrCreate(
+                $key,
+                [
+                    'stok_kodu' => $stokKodu ?: null,
+                    'barcode' => $barkod ?: null,
+                    'ana_product_id' => (string) $anaUrunId,
+                    'ana_variant_id' => $anaVarId > 0 ? (string) $anaVarId : null,
+                    'bayi_product_id' => $bayiProductId ? (string) $bayiProductId : null,
+                    'bayi_variant_id' => $bayiVarId ? (string) $bayiVarId : null,
+                    'tedarikci_kodu' => $tedKodu,
+                    'last_price' => (float) ($av['SatisFiyati'] ?? 0),
+                    'last_stock' => (int) ($av['StokAdedi'] ?? 0),
+                    'status' => 'synced',
+                    'last_error' => null,
+                    'last_synced_at' => now(),
+                ]
+            );
+        }
     }
 
     protected function extractVariants(array $urunKarti): array

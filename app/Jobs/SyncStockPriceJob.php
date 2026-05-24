@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Livewire\QueueControl;
 use App\Models\ProductMapping;
 use App\Models\SyncJob;
 use App\Models\SyncLog;
@@ -13,6 +14,17 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Throwable;
 
+/**
+ * Ana → Bayi stok/fiyat sync (LOKAL-ÖNCELİKLİ).
+ *
+ * Önceden: her varyasyon için bayi'ye SelectUrun(Barkod) atılıyordu → varyasyon
+ * ID çıkarılıyordu → updateStock/updatePrice çağrılıyordu (2 SOAP / varyasyon).
+ *
+ * Şimdi: bayi_variant_id zaten ProductMapping'te → direkt updateStock/updatePrice
+ * çağrılır. Bayi tarafında SelectUrun YOK (1 SOAP / varyasyon).
+ *
+ * Sadece ana'da ürün okuma için 1 SOAP gerek (güncel stok/fiyatı görmek için).
+ */
 class SyncStockPriceJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
@@ -20,7 +32,7 @@ class SyncStockPriceJob implements ShouldQueue
     public int $tries = 3;
     public int $backoff = 30;
 
-    public function __construct(public ?string $singleBarcode = null)
+    public function __construct(public ?string $singleStokKodu = null)
     {
     }
 
@@ -37,79 +49,30 @@ class SyncStockPriceJob implements ShouldQueue
             $bayi = ProductService::for('bayi');
 
             $query = ProductMapping::query()
-                ->whereNotNull('bayi_product_id')
-                ->where('status', '!=', 'error');
-            if ($this->singleBarcode) {
-                $query->where('barcode', $this->singleBarcode);
+                ->whereNotNull('bayi_variant_id')
+                ->whereNotNull('stok_kodu');
+            if ($this->singleStokKodu) {
+                $query->where('stok_kodu', $this->singleStokKodu);
             }
 
-            $query->chunkById(100, function ($mappings) use ($job, $ana, $bayi) {
+            $stoppedEarly = false;
+            $query->chunkById(100, function ($mappings) use ($job, $ana, $bayi, &$stoppedEarly) {
                 foreach ($mappings as $m) {
-                    $job->increment('total');
-                    try {
-                        $anaProduct = $ana->getProductByBarcode($m->barcode);
-                        if (! $anaProduct) {
-                            throw new \RuntimeException('Ana mağazada ürün bulunamadı');
-                        }
-
-                        // Stok ve fiyat varyasyon seviyesinde — birincil varyasyondan al
-                        $anaVar = $this->primaryVariant($anaProduct);
-                        if (! $anaVar) {
-                            throw new \RuntimeException('Ana ürünün varyasyonu yok');
-                        }
-                        $stock = (int) ($anaVar['StokAdedi'] ?? 0);
-                        $price = (float) ($anaVar['SatisFiyati'] ?? 0);
-                        $kdv = (float) ($anaVar['KdvOrani'] ?? 20);
-                        $kdvDahil = (bool) ($anaVar['KdvDahil'] ?? true);
-
-                        // Bayi tarafının VARYASYON ID'sini bul (UrunKartiID değil!)
-                        $bayiProduct = $bayi->getProductByBarcode($m->barcode);
-                        $bayiVar = $bayiProduct ? $this->primaryVariant($bayiProduct) : null;
-                        if (! $bayiVar) {
-                            throw new \RuntimeException('Bayi ürün/varyasyon bulunamadı');
-                        }
-                        $bayiVarId = (string) ($bayiVar['ID'] ?? 0);
-                        $oldStock = (int) ($bayiVar['StokAdedi'] ?? 0);
-                        $oldPrice = (float) ($bayiVar['SatisFiyati'] ?? 0);
-
-                        // Sadece değişiklik varsa güncelle (gereksiz API call'ı önle)
-                        $stockChanged = $oldStock !== $stock;
-                        $priceChanged = abs($oldPrice - $price) > 0.01;
-
-                        if ($stockChanged) {
-                            $bayi->updateStock($bayiVarId, $stock, $m->barcode);
-                        }
-                        if ($priceChanged) {
-                            $bayi->updatePrice($m->barcode, $price, $kdv, $kdvDahil);
-                        }
-
-                        $m->update([
-                            'last_stock' => $stock,
-                            'last_price' => $price,
-                            'last_synced_at' => now(),
-                            'status' => 'synced',
-                            'last_error' => null,
-                        ]);
-
-                        $msgParts = [];
-                        if ($stockChanged) {
-                            $msgParts[] = "stok {$oldStock}→{$stock}";
-                        }
-                        if ($priceChanged) {
-                            $msgParts[] = sprintf('fiyat %.2f→%.2f', $oldPrice, $price);
-                        }
-                        if (empty($msgParts)) {
-                            $msgParts[] = "değişiklik yok (stok={$stock} fiyat=" . number_format($price, 2) . ')';
-                        }
-                        $this->log($job, $m->barcode, 'success', implode(' | ', $msgParts));
-                    } catch (Throwable $e) {
-                        $m->update(['status' => 'error', 'last_error' => $e->getMessage()]);
-                        $this->log($job, $m->barcode, 'error', $e->getMessage());
+                    if (QueueControl::isStopRequested($job->id)) {
+                        $stoppedEarly = true;
+                        return false; // chunkById'i durdur
                     }
+                    $job->increment('total');
+                    $this->processOne($job, $m, $ana, $bayi);
                 }
+                return null;
             });
 
-            $job->update(['status' => 'completed', 'finished_at' => now()]);
+            $job->update([
+                'status' => $stoppedEarly ? 'failed' : 'completed',
+                'finished_at' => now(),
+                'last_error' => $stoppedEarly ? 'Kullanıcı tarafından manuel durduruldu' : null,
+            ]);
         } catch (Throwable $e) {
             $job->update([
                 'status' => 'failed',
@@ -120,35 +83,92 @@ class SyncStockPriceJob implements ShouldQueue
         }
     }
 
-    /**
-     * UrunKarti içinden birincil varyasyonu çıkar (SOAP wrapper'ı handle ederek).
-     */
-    protected function primaryVariant(array $urunKarti): ?array
+    protected function processOne(SyncJob $job, ProductMapping $m, ProductService $ana, ProductService $bayi): void
+    {
+        $context = [
+            'barcode' => $m->barcode,
+            'stok_kodu' => $m->stok_kodu,
+            'ana_id' => $m->ana_product_id,
+            'bayi_id' => $m->bayi_product_id,
+        ];
+
+        try {
+            // Kaynaktan güncel stok/fiyat çek
+            $anaProduct = $ana->getProductByStokKodu($m->stok_kodu);
+            if (! $anaProduct) {
+                throw new \RuntimeException('Ana mağazada stok_kodu ile ürün bulunamadı');
+            }
+            $anaVar = $this->findVariantByStokKodu($anaProduct, $m->stok_kodu);
+            if (! $anaVar) {
+                throw new \RuntimeException('Ana ürün içinde eşleşen varyasyon yok');
+            }
+
+            $stock = (int) ($anaVar['StokAdedi'] ?? 0);
+            $price = (float) ($anaVar['SatisFiyati'] ?? 0);
+            $kdv = (float) ($anaVar['KdvOrani'] ?? 20);
+            $kdvDahil = (bool) ($anaVar['KdvDahil'] ?? true);
+
+            $stockChanged = $m->last_stock === null || (int) $m->last_stock !== $stock;
+            $priceChanged = $m->last_price === null || abs((float) $m->last_price - $price) > 0.01;
+
+            $msgParts = [];
+            if ($stockChanged) {
+                $bayi->updateStock((string) $m->bayi_variant_id, $stock, $m->barcode);
+                $msgParts[] = 'stok ' . ($m->last_stock ?? '-') . "→{$stock}";
+            }
+            if ($priceChanged && $m->barcode) {
+                $bayi->updatePrice($m->barcode, $price, $kdv, $kdvDahil);
+                $msgParts[] = sprintf('fiyat %s→%.2f', $m->last_price ?? '-', $price);
+            }
+            if (empty($msgParts)) {
+                $msgParts[] = "değişiklik yok (stok={$stock} fiyat=" . number_format($price, 2) . ')';
+            }
+
+            $m->update([
+                'last_stock' => $stock,
+                'last_price' => $price,
+                'last_synced_at' => now(),
+                'status' => 'synced',
+                'last_error' => null,
+            ]);
+
+            $this->log($job, $context, 'success', implode(' | ', $msgParts));
+        } catch (Throwable $e) {
+            $m->update(['status' => 'error', 'last_error' => $e->getMessage()]);
+            $this->log($job, $context, 'error', $e->getMessage());
+        }
+    }
+
+    protected function findVariantByStokKodu(array $urunKarti, string $stokKodu): ?array
     {
         $v = $urunKarti['Varyasyonlar'] ?? [];
         if (isset($v['Varyasyon'])) {
             $v = is_array($v['Varyasyon']) && array_is_list($v['Varyasyon']) ? $v['Varyasyon'] : [$v['Varyasyon']];
         }
-        if (! is_array($v) || empty($v)) {
+        if (! is_array($v)) {
             return null;
         }
-        return is_array($v[0] ?? null) ? $v[0] : null;
+        foreach ($v as $vr) {
+            if ((string) ($vr['StokKodu'] ?? '') === $stokKodu) {
+                return $vr;
+            }
+        }
+        return $v[0] ?? null;
     }
 
-    protected function log(SyncJob $job, string $barcode, string $status, string $msg): void
+    protected function log(SyncJob $job, array $ctx, string $status, string $msg): void
     {
         if ($status === 'success') {
             $job->increment('success_count');
         } else {
             $job->increment('error_count');
         }
-        SyncLog::create([
+        SyncLog::create(array_merge($ctx, [
             'job_id' => $job->id,
-            'barcode' => $barcode,
             'action' => 'update_stock_price',
             'direction' => 'ana_to_bayi',
             'status' => $status,
             'message' => $msg,
-        ]);
+        ]));
     }
 }

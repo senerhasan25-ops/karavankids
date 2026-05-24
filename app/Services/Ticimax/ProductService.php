@@ -265,6 +265,39 @@ class ProductService
     }
 
     /**
+     * StokKodu ile tek ürün — SelectUrun'a StokKodu filtresi verir, full UrunKarti döner.
+     * Lokal mapping doldururken kullanılır: tek SOAP çağrısı ile hem UrunKartiID hem
+     * tüm Varyasyon.ID'leri tek seferde alınır.
+     */
+    public function getProductByStokKodu(string $stokKodu): ?array
+    {
+        $stokKodu = trim($stokKodu);
+        if ($stokKodu === '') {
+            return null;
+        }
+        $filter = $this->baseFilter() + ['StokKodu' => $stokKodu];
+        $params = [
+            'UyeKodu' => $this->client->getUyeKodu(),
+            'f' => $filter,
+            's' => [
+                'BaslangicIndex' => 0,
+                'KayitSayisi' => 1,
+                'KayitSayisinaGoreGetir' => true,
+            ],
+        ];
+        try {
+            $resp = $this->client->call('product', $this->method('select'), $params);
+        } catch (\Throwable $e) {
+            if (str_contains($e->getMessage(), 'Value cannot be null') && str_contains($e->getMessage(), 'source')) {
+                return null;
+            }
+            throw $e;
+        }
+        $list = $this->normalizeList($resp, $this->method('select'), 'UrunKarti');
+        return $list[0] ?? null;
+    }
+
+    /**
      * Barkoda göre tek ürün — SelectUrun'a Barkod filtresi verir.
      */
     public function getProductByBarcode(string $barcode): ?array
@@ -483,9 +516,10 @@ class ProductService
                 'OncekiResimleriSil' => false,
                 'Base64Resim' => false,
                 'ResimleriIndirme' => false,
-                // KRITIK: TedarikciKodu eşleşirse Ticimax mevcudu günceller, yoksa yeni oluşturur.
-                // Bizim lokal product_mappings tablosuna olan bağımlılığı bu flag kaldırıyor.
-                'TedarikciKodunaGoreGuncelle' => true,
+                // Lokal-öncelikli akışa geçtik: eşleşmeyi biz lokal mapping tablosundan
+                // çözüp payload'a ID yazıyoruz. TedarikciKodu match'i artık güvenlik
+                // kemeri olarak gerekmiyor (yanlış prefix'li eski ürünleri yakalamasın).
+                'TedarikciKodunaGoreGuncelle' => false,
             ],
             'vAyar' => [
                 'AktifGuncelle' => true,
@@ -501,8 +535,7 @@ class ProductService
                 'StokKoduGuncelle' => true,
                 'UrunKartiAktifGuncelle' => true,
                 'OncekiResimleriSil' => false,
-                // Varyasyon seviyesinde de TedarikciKodu upsert anahtarı.
-                'TedarikciKodunaGoreGuncelle' => true,
+                'TedarikciKodunaGoreGuncelle' => false,
             ],
         ];
     }
