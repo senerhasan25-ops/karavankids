@@ -797,7 +797,7 @@ class ProductService
         $ukAyar = [
             // ===== ICERIK =====
             'UrunAdiGuncelle' => $on('urun_adi'),
-            'SatisBirimiGuncelle' => $on('urun_adi'),       // urun_adi grubuna bagli
+            'SatisBirimiGuncelle' => $on('urun_adi'),
             'AciklamaGuncelle' => $on('aciklama'),
             'OnYaziGuncelle' => $on('on_yazi'),
             'AramaAnahtarKelimeGuncelle' => $on('seo'),
@@ -819,11 +819,12 @@ class ProductService
             'SeoNoFollowGuncelle' => $on('seo'),
             'SeoNoIndexGuncelle' => $on('seo'),
 
-            // ===== AKTIFLIK / GORUNUM =====
+            // ===== AKTIFLIK / GORUNUM (her biri ayri checkbox) =====
             'AktifGuncelle' => $on('aktif'),
             'ListedeGosterGuncelle' => $on('aktif'),
-            'VitrinGuncelle' => $on('aktif'),
-            'YeniUrunGuncelle' => $on('aktif'),
+            'VitrinGuncelle' => $on('vitrin'),
+            'YeniUrunGuncelle' => $on('yeni_urun'),
+            'FirsatUrunuGuncelle' => $on('firsat_urunu'),
 
             // ===== RESIMLER =====
             'UrunResimGuncelle' => $on('resimler'),
@@ -840,10 +841,20 @@ class ProductService
             'TedarikciKodunaGoreGuncelle' => false,
         ];
 
+        // Uye tipi fiyatlarinin "hepsi" toplu secimini destekle (uye_tipi_fiyat) +
+        // her birini ayri ayri (uye_tipi_fiyat_1 .. uye_tipi_fiyat_20)
+        $uyeBayrak = function (int $i) use ($on) {
+            return $on('uye_tipi_fiyat') || $on('uye_tipi_fiyat_' . $i);
+        };
+        $herhangiUye = false;
+        for ($i = 1; $i <= 20; $i++) {
+            if ($uyeBayrak($i)) { $herhangiUye = true; break; }
+        }
+
         $vAyar = [
             // ===== STOK =====
             'StokAdediGuncelle' => $on('stok_adedi'),
-            'EksiStokAdediGuncelle' => $on('stok_adedi'),
+            'EksiStokAdediGuncelle' => $on('eksi_stok_adedi'),
 
             // ===== FIYAT =====
             'SatisFiyatiGuncelle' => $on('satis_fiyati'),
@@ -855,11 +866,33 @@ class ProductService
             'KdvDahilGuncelle' => $on('kdv_dahil'),
             'KdvOraniGuncelle' => $on('kdv_orani'),
 
-            // ===== PARA BIRIMI (fiyat grubuna bagli) =====
+            // ===== PARA BIRIMI =====
             'ParaBirimiGuncelle' => $on('satis_fiyati'),
 
-            // ===== UYE TIPI FIYATLARI (1..20, tek bayrak) =====
-            'FiyatTipleriGuncelle' => $on('uye_tipi_fiyat'),
+            // ===== UYE TIPI FIYATLARI (1..20) =====
+            // Tek bayrak: herhangi biri secili ise true (Ticimax bu bayragi gormezse
+            // bireysel UyeTipiFiyatNGuncelle'leri de yok sayabilir — emniyet kemeri)
+            'FiyatTipleriGuncelle' => $herhangiUye,
+            'UyeTipiFiyat1Guncelle'  => $uyeBayrak(1),
+            'UyeTipiFiyat2Guncelle'  => $uyeBayrak(2),
+            'UyeTipiFiyat3Guncelle'  => $uyeBayrak(3),
+            'UyeTipiFiyat4Guncelle'  => $uyeBayrak(4),
+            'UyeTipiFiyat5Guncelle'  => $uyeBayrak(5),
+            'UyeTipiFiyat6Guncelle'  => $uyeBayrak(6),
+            'UyeTipiFiyat7Guncelle'  => $uyeBayrak(7),
+            'UyeTipiFiyat8Guncelle'  => $uyeBayrak(8),
+            'UyeTipiFiyat9Guncelle'  => $uyeBayrak(9),
+            'UyeTipiFiyat10Guncelle' => $uyeBayrak(10),
+            'UyeTipiFiyat11Guncelle' => $uyeBayrak(11),
+            'UyeTipiFiyat12Guncelle' => $uyeBayrak(12),
+            'UyeTipiFiyat13Guncelle' => $uyeBayrak(13),
+            'UyeTipiFiyat14Guncelle' => $uyeBayrak(14),
+            'UyeTipiFiyat15Guncelle' => $uyeBayrak(15),
+            'UyeTipiFiyat16Guncelle' => $uyeBayrak(16),
+            'UyeTipiFiyat17Guncelle' => $uyeBayrak(17),
+            'UyeTipiFiyat18Guncelle' => $uyeBayrak(18),
+            'UyeTipiFiyat19Guncelle' => $uyeBayrak(19),
+            'UyeTipiFiyat20Guncelle' => $uyeBayrak(20),
 
             // ===== AKTIFLIK =====
             'AktifGuncelle' => $on('aktif'),
@@ -868,9 +901,9 @@ class ProductService
             // ===== RESIMLER (varyasyon seviyesinde) =====
             'UrunResimGuncelle' => $on('resimler'),
 
-            // ===== BARKOD / STOK KODU (riskli — varsayilan kapali) =====
-            'BarkodGuncelle' => false,
-            'StokKoduGuncelle' => false,
+            // ===== BARKOD / STOK KODU (kullanici acabilir) =====
+            'BarkodGuncelle' => $on('barkod'),
+            'StokKoduGuncelle' => $on('stok_kodu'),
 
             // ===== UPSERT KAPALI =====
             'OncekiResimleriSil' => false,

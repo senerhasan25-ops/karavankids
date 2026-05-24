@@ -125,27 +125,51 @@
             </div>
             <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 text-sm">
                 @foreach([
-                    'urun_adi'        => 'Ürün Adı',
-                    'aciklama'        => 'Açıklama',
-                    'on_yazi'         => 'Ön Yazı',
-                    'kategori'        => 'Kategori',
-                    'marka'           => 'Marka',
-                    'tedarikci'       => 'Tedarikçi',
-                    'satis_fiyati'    => 'Satış Fiyatı',
-                    'indirimli_fiyat' => 'İndirimli Fiyat',
-                    'stok_adedi'      => 'Stok Adedi',
-                    'kdv_dahil'       => 'KDV Dahil',
-                    'kdv_orani'       => 'KDV Oranı',
-                    'seo'             => 'SEO',
-                    'uye_tipi_fiyat'  => 'Üye Tipi Fiyatları',
-                    'resimler'        => 'Resimler',
-                    'aktif'           => 'Aktiflik',
+                    'urun_adi'         => 'Ürün Adı',
+                    'aciklama'         => 'Açıklama',
+                    'on_yazi'          => 'Ön Yazı',
+                    'kategori'         => 'Kategori',
+                    'marka'            => 'Marka',
+                    'tedarikci'        => 'Tedarikçi',
+                    'satis_fiyati'     => 'Satış Fiyatı',
+                    'indirimli_fiyat'  => 'İndirimli Fiyat',
+                    'stok_adedi'       => 'Stok Adedi',
+                    'eksi_stok_adedi'  => 'Eksi Stok Adedi',
+                    'kdv_dahil'        => 'KDV Dahil',
+                    'kdv_orani'        => 'KDV Oranı',
+                    'stok_kodu'        => 'Stok Kodu',
+                    'barkod'           => 'Barkod',
+                    'seo'              => 'SEO',
+                    'resimler'         => 'Resimler',
+                    'aktif'            => 'Aktiflik',
+                    'vitrin'           => 'Vitrin',
+                    'yeni_urun'        => 'Yeni Ürün',
+                    'firsat_urunu'     => 'Fırsat Ürünü',
                 ] as $key => $label)
                     <label class="flex items-center gap-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 px-2 py-1 rounded">
                         <input type="checkbox" wire:model.live="fields.{{ $key }}" class="rounded">
                         <span>{{ $label }}</span>
                     </label>
                 @endforeach
+            </div>
+
+            {{-- Uye Tipi Fiyatlari 1-20 alt panel --}}
+            <div class="mt-4 pt-3 border-t dark:border-gray-700">
+                <div class="flex items-center justify-between mb-2">
+                    <h3 class="text-sm font-semibold">Üye Tipi Fiyatları (1–20)</h3>
+                    <label class="flex items-center gap-2 cursor-pointer text-xs text-gray-600 dark:text-gray-400">
+                        <input type="checkbox" wire:model.live="fields.uye_tipi_fiyat" class="rounded">
+                        <span>Hepsini birden seç</span>
+                    </label>
+                </div>
+                <div class="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-10 gap-1 text-xs">
+                    @for($i = 1; $i <= 20; $i++)
+                        <label class="flex items-center gap-1 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 px-2 py-1 rounded">
+                            <input type="checkbox" wire:model.live="uyeTipi.{{ $i }}" class="rounded">
+                            <span>Fiyat {{ $i }}</span>
+                        </label>
+                    @endfor
+                </div>
             </div>
             <div class="mt-4 pt-3 border-t dark:border-gray-700 flex flex-wrap justify-end gap-2">
                 {{-- Hizli yol: sadece stok + fiyat update (parametre secimi gerekmez) --}}

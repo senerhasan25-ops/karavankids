@@ -42,21 +42,42 @@ class ProductPicker extends Component
      |  Aktarım parametreleri (alan checkbox'ları)
      * --------------------------------------------------------------------- */
     public array $fields = [
-        'urun_adi'        => true,
-        'aciklama'        => true,
-        'on_yazi'         => true,
-        'kategori'        => true,
-        'marka'           => true,
-        'tedarikci'       => true,
-        'satis_fiyati'    => true,
-        'indirimli_fiyat' => true,
-        'stok_adedi'      => true,
-        'kdv_dahil'       => true,
-        'kdv_orani'       => true,
-        'seo'             => true,
-        'uye_tipi_fiyat'  => true,
-        'resimler'        => true,
-        'aktif'           => true,
+        // ----- Icerik -----
+        'urun_adi'         => true,
+        'aciklama'         => true,
+        'on_yazi'          => true,
+        // ----- Kategori / Marka / Tedarikci -----
+        'kategori'         => true,
+        'marka'            => true,
+        'tedarikci'        => true,
+        // ----- Fiyat / Stok -----
+        'satis_fiyati'     => true,
+        'indirimli_fiyat'  => true,
+        'stok_adedi'       => true,
+        'eksi_stok_adedi'  => false,   // yeni — varsayilan kapali (riskli)
+        'kdv_dahil'        => true,
+        'kdv_orani'        => true,
+        // ----- Identifiers (yeni — riskli, varsayilan kapali) -----
+        'stok_kodu'        => false,
+        'barkod'           => false,
+        // ----- SEO / Gorsel -----
+        'seo'              => true,
+        'resimler'         => true,
+        // ----- Aktiflik / Gorunum (her biri ayri) -----
+        'aktif'            => true,
+        'vitrin'           => false,   // yeni — manuel toggle
+        'yeni_urun'        => false,   // yeni
+        'firsat_urunu'     => false,   // yeni
+        // ----- Uye tipi fiyatlari (toplu) -----
+        'uye_tipi_fiyat'   => false,   // toplu — varsayilan kapali; her biri ayri seçilebilir
+    ];
+
+    /** Uye tipi fiyatlari 1..20 ayri ayri (key: uye_tipi_fiyat_N) — Livewire dot notation icin) */
+    public array $uyeTipi = [
+        1=>false, 2=>false, 3=>false, 4=>false, 5=>false,
+        6=>false, 7=>false, 8=>false, 9=>false, 10=>false,
+        11=>false,12=>false,13=>false,14=>false,15=>false,
+        16=>false,17=>false,18=>false,19=>false,20=>false,
     ];
 
     /** Aktarım sonuçları */
@@ -148,10 +169,25 @@ class ProductPicker extends Component
     public function tumunuSec(): void
     {
         foreach (array_keys($this->fields) as $k) $this->fields[$k] = true;
+        foreach (array_keys($this->uyeTipi) as $k) $this->uyeTipi[$k] = true;
     }
     public function hicbirini(): void
     {
         foreach (array_keys($this->fields) as $k) $this->fields[$k] = false;
+        foreach (array_keys($this->uyeTipi) as $k) $this->uyeTipi[$k] = false;
+    }
+
+    /**
+     * fields + uyeTipi'yi tek bir 'selectedFields' listesine birlestir.
+     * buildSelectiveAyarlari uye_tipi_fiyat_N anahtarlarini bekler.
+     */
+    protected function collectSelectedFields(): array
+    {
+        $out = array_keys(array_filter($this->fields));
+        foreach ($this->uyeTipi as $i => $on) {
+            if ($on) $out[] = 'uye_tipi_fiyat_' . $i;
+        }
+        return $out;
     }
 
     /**
@@ -237,7 +273,7 @@ class ProductPicker extends Component
             $this->error = 'Aktarmak için ürün seçin.';
             return;
         }
-        $selectedFields = array_keys(array_filter($this->fields));
+        $selectedFields = $this->collectSelectedFields();
         if (empty($selectedFields)) {
             $this->error = 'En az bir parametre seçin.';
             return;
