@@ -152,6 +152,140 @@ class ProductService
     }
 
     /**
+     * Magazadaki tum kategorileri ID->{ID,PID,Tanim} map'i olarak getir.
+     * Ana magazadan ag aci cikarmak ve bayide ayni agaci kurmak icin kullanilir.
+     */
+    private ?array $categoryTreeCache = null;
+
+    public function getCategoryTree(): array
+    {
+        if ($this->categoryTreeCache !== null) {
+            return $this->categoryTreeCache;
+        }
+        try {
+            $resp = $this->client->call('product', 'SelectKategori', [
+                'UyeKodu' => $this->client->getUyeKodu(),
+            ]);
+            $list = $resp->SelectKategoriResult->Kategori ?? [];
+            if (! is_array($list)) {
+                $list = [$list];
+            }
+            $tree = [];
+            foreach ($list as $kat) {
+                $id = (int) ($kat->ID ?? 0);
+                if ($id > 0) {
+                    $tree[$id] = [
+                        'ID' => $id,
+                        'PID' => (int) ($kat->PID ?? 0),
+                        'Tanim' => trim((string) ($kat->Tanim ?? '')),
+                    ];
+                }
+            }
+            return $this->categoryTreeCache = $tree;
+        } catch (\Throwable) {
+            return $this->categoryTreeCache = [];
+        }
+    }
+
+    /**
+     * Bayide ad+parent eslesmesi yap; yoksa SaveKategori ile o parent altinda olustur.
+     * Index: "${parentId}|${lowercase_name}" → bayi kategori ID. Ag aci derinligi onemli degil,
+     * her caginnda (parent_bayi_id, name) ile cagrilir.
+     */
+    private array $categoryByNameParentCache = [];
+
+    public function findOrCreateCategoryByNameAndParent(string $name, int $bayiParentId): int
+    {
+        $name = trim($name);
+        if ($name === '') {
+            return 0;
+        }
+        $cacheKey = $bayiParentId . '|' . mb_strtolower($name);
+        if (isset($this->categoryByNameParentCache[$cacheKey])) {
+            return $this->categoryByNameParentCache[$cacheKey];
+        }
+
+        // Once mevcut bayi agacindan eslesen kategoriyi bul
+        foreach ($this->getCategoryTree() as $kat) {
+            if ((int) $kat['PID'] === $bayiParentId
+                && mb_strtolower($kat['Tanim']) === mb_strtolower($name)) {
+                return $this->categoryByNameParentCache[$cacheKey] = (int) $kat['ID'];
+            }
+        }
+
+        // Yok — bu parent altinda yeni kategori olustur
+        try {
+            $resp = $this->client->call('product', 'SaveKategori', [
+                'UyeKodu' => $this->client->getUyeKodu(),
+                'kategori' => [
+                    'ID' => 0,
+                    'PID' => $bayiParentId,
+                    'Aktif' => true,
+                    'Tanim' => $name,
+                    'Sira' => 999,
+                    'KategoriMenuGoster' => true,
+                ],
+            ]);
+            $newId = (int) ($resp->SaveKategoriResult ?? 0);
+            if ($newId > 0) {
+                // Cache'i guncelle: hem name+parent indexi hem agac
+                $this->categoryByNameParentCache[$cacheKey] = $newId;
+                if ($this->categoryTreeCache !== null) {
+                    $this->categoryTreeCache[$newId] = ['ID' => $newId, 'PID' => $bayiParentId, 'Tanim' => $name];
+                }
+            }
+            return $newId;
+        } catch (\Throwable) {
+            return 0;
+        }
+    }
+
+    /**
+     * Ana magazadaki bir kategorinin AGAC YOLUNU bayide aynalar.
+     *  - Ana agacta root'tan asagi yola (path) cikar.
+     *  - Her node icin bayide findOrCreateCategoryByNameAndParent ile karsiligi kur.
+     *  - Son node'un (leaf) bayi ID'sini doner.
+     * Performans icin sonuc (ana_cat_id → bayi_cat_id) in-memory cache'lenir.
+     *
+     * @param  int    $anaCategoryId  ana magazadaki kategori ID'si
+     * @param  array  $anaTree        ana magazadan getCategoryTree() ciktisi (cagiri tarafindan verilir)
+     * @return int                    bayi'deki karsilik ID, kurulamazsa 0
+     */
+    private array $anaToBayiCatCache = [];
+
+    public function mirrorCategoryFromAna(int $anaCategoryId, array $anaTree): int
+    {
+        if ($anaCategoryId <= 0 || empty($anaTree[$anaCategoryId])) {
+            return 0;
+        }
+        if (isset($this->anaToBayiCatCache[$anaCategoryId])) {
+            return $this->anaToBayiCatCache[$anaCategoryId];
+        }
+
+        // Ana agacta root'tan asagi yolu cikar
+        $path = [];
+        $cur = $anaTree[$anaCategoryId];
+        $safety = 32; // sonsuz dongu koruma
+        while ($cur && $safety-- > 0) {
+            array_unshift($path, $cur);
+            $pid = (int) ($cur['PID'] ?? 0);
+            $cur = $pid > 0 ? ($anaTree[$pid] ?? null) : null;
+        }
+
+        // Yolu adim adim bayide kur
+        $bayiParent = 0;
+        $bayiId = 0;
+        foreach ($path as $node) {
+            $bayiId = $this->findOrCreateCategoryByNameAndParent($node['Tanim'], $bayiParent);
+            if ($bayiId === 0) {
+                break; // bayide olusturulamadi
+            }
+            $bayiParent = $bayiId;
+        }
+        return $this->anaToBayiCatCache[$anaCategoryId] = $bayiId;
+    }
+
+    /**
      * Marka adına göre ID bul; yoksa SaveMarka ile yeni oluştur ve ID döner.
      */
     public function findOrCreateBrandId(string $name): int

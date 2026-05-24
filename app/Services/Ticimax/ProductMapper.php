@@ -32,6 +32,14 @@ class ProductMapper
     /** Bayi'nin default kategori ID'si — Kategoriler boş kalmasın diye fallback */
     protected int $defaultCategoryId = 0;
 
+    /**
+     * @var callable|null  ana kategori ID → bayi kategori ID cozumleyici.
+     * SyncNewProductsJob job basinda ana getCategoryTree() ile birlikte set eder.
+     * Verilirse anaToBayiCreatePayload AnaKategoriID + Kategoriler[] alanlarini bayinin
+     * gercek ag acindaki karsiliklariyla doldurur (kategori agaci mirror).
+     */
+    protected $categoryIdResolver = null;
+
     public function setBrandResolver(?callable $resolver): void
     {
         $this->brandResolver = $resolver;
@@ -45,6 +53,11 @@ class ProductMapper
     public function setDefaultCategoryId(int $id): void
     {
         $this->defaultCategoryId = $id;
+    }
+
+    public function setCategoryIdResolver(?callable $resolver): void
+    {
+        $this->categoryIdResolver = $resolver;
     }
 
     // ============================================================
@@ -72,8 +85,11 @@ class ProductMapper
             'AramaAnahtarKelime' => $this->sanitizeText((string) ($ana['AramaAnahtarKelime'] ?? '')),
 
             'AnaKategori' => (string) ($ana['AnaKategori'] ?? ''),
-            'AnaKategoriID' => $this->defaultCategoryId, // 0 ise Ticimax 'kategori bayi'de yok' diye sessizce reddediyor
-            'Kategoriler' => $this->defaultCategoryId > 0 ? ['int' => [$this->defaultCategoryId]] : [],
+            // Kategori agaci mirror: resolver varsa ana'nin Kategoriler[] dizisinin tum elemanlarini
+            // bayi karsiliklarina cevir; root → leaf agaci bayide de aynen kurulur.
+            // Resolver yoksa eski davranis (default kategori fallback).
+            'AnaKategoriID' => $this->mapAnaKategoriID($ana),
+            'Kategoriler' => $this->mapKategorilerArray($ana),
 
             'Marka' => (string) ($ana['Marka'] ?? ''),
             'MarkaID' => $this->resolveBrandId((string) ($ana['Marka'] ?? '')),
@@ -103,6 +119,54 @@ class ProductMapper
         }
 
         return $kart;
+    }
+
+    /**
+     * Ana urununden AnaKategoriID'yi bayi karsiligina cevir.
+     * Resolver yoksa: defaultCategoryId fallback (Ali'nin onceki davranisi).
+     */
+    protected function mapAnaKategoriID(array $ana): int
+    {
+        $anaId = (int) ($ana['AnaKategoriID'] ?? 0);
+        if ($this->categoryIdResolver !== null && $anaId > 0) {
+            try {
+                $bayiId = (int) call_user_func($this->categoryIdResolver, $anaId);
+                if ($bayiId > 0) return $bayiId;
+            } catch (\Throwable) { /* fallback */ }
+        }
+        return $this->defaultCategoryId;
+    }
+
+    /**
+     * Ana urununden Kategoriler dizisini bayi karsiliklarina cevir (root + tum dallar).
+     * Resolver yoksa: defaultCategoryId tek elemanli liste.
+     */
+    protected function mapKategorilerArray(array $ana): array
+    {
+        $raw = $ana['Kategoriler'] ?? [];
+        if (is_array($raw) && isset($raw['int'])) {
+            $raw = is_array($raw['int']) && array_is_list($raw['int']) ? $raw['int'] : [$raw['int']];
+        }
+        if (! is_array($raw)) {
+            $raw = [];
+        }
+        $anaIds = array_values(array_filter(array_map(fn($v) => (int) $v, $raw), fn($v) => $v > 0));
+
+        if ($this->categoryIdResolver !== null && ! empty($anaIds)) {
+            $bayiIds = [];
+            foreach ($anaIds as $aid) {
+                try {
+                    $bid = (int) call_user_func($this->categoryIdResolver, $aid);
+                } catch (\Throwable) { $bid = 0; }
+                if ($bid > 0 && ! in_array($bid, $bayiIds, true)) {
+                    $bayiIds[] = $bid;
+                }
+            }
+            if (! empty($bayiIds)) {
+                return ['int' => $bayiIds];
+            }
+        }
+        return $this->defaultCategoryId > 0 ? ['int' => [$this->defaultCategoryId]] : [];
     }
 
     /**
