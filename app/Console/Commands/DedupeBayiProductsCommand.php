@@ -7,43 +7,50 @@ use App\Services\Ticimax\ProductService;
 use Illuminate\Console\Command;
 
 /**
- * Hedef (bayi) mağazada aynı StokKodu'na sahip ÇOKLU ürünleri tespit eder ve isterseniz
- * "yenisini" (TedarikciKodu prefix'i SUP3005|... ile başlayan, kategori boş olan) pasifleştirir.
+ * Hedef (bayi) mağazada aynı StokKodu'na sahip ÇOKLU ürünleri tespit eder.
  *
- * NEDEN: Hasan'ın eski sync'i SUPBIL|... TedarikciKodu prefix'i kullanmış. Bizim yeni sync
- * (SUP3005|...) bunları eşleştiremeyince sıfırdan kopya açtı. Eski ürünler kategorili ve
- * sipariş geçmişli; korumamız gerek. Yenileri pasifleştirip lokal mapping'i eski ürünlere
- * yönlendiriyoruz — bir sonraki sync hızlı yoldan eski ürünü günceller.
+ * SİLME: Ticimax SOAP'ta DeleteUrun method'u YOK. Silinecek ürünleri kullanıcı
+ * Ticimax panelinden manuel siler. Bu komut sadece raporlar ve --apply ile
+ * korunan ürünleri lokal mapping'e yazar — böylece manuel silme sonrası yeni
+ * sync hızlı yoldan eski ürünü günceller, yeni duplikat açılmaz.
  *
  * Kullanım:
- *   php artisan sync:dedupe-bayi-products             # sadece raporla (DRY RUN — varsayılan)
- *   php artisan sync:dedupe-bayi-products --apply     # pasifleştir + mapping yaz
+ *   php artisan sync:dedupe-bayi-products             # sadece raporla (DRY RUN)
+ *   php artisan sync:dedupe-bayi-products --apply     # raporla + lokal mapping yaz
+ *
+ * BELLEK GÜVENLİĞİ: Hiçbir veri biriktirilmez — her ürün için lookup yapar,
+ * sonucu hemen ekrana yazar / mapping'e işler, sonra unset eder. Bin binlerce
+ * ürünle bile 128MB sınırına takılmaz.
  */
 class DedupeBayiProductsCommand extends Command
 {
     protected $signature = 'sync:dedupe-bayi-products
-                            {--apply : Sadece raporlamak yerine yeni duplikatları pasifleştir ve lokal mapping yaz}';
+                            {--apply : Korunan (eski) ürünleri lokal mapping tablosuna yaz}';
 
-    protected $description = 'Hedef mağazadaki StokKodu duplikatlarını tespit eder, isteğe bağlı temizler.';
+    protected $description = 'Hedef mağazadaki StokKodu duplikatlarını raporlar; --apply ile lokal eşleşmeyi günceller.';
 
     public function handle(): int
     {
+        // Güvenlik şemsiyesi — sürpriz bellek kullanımına karşı
+        @ini_set('memory_limit', '512M');
+
         $apply = (bool) $this->option('apply');
 
         $this->info($apply
-            ? '⚠  APPLY modu: yeni duplikatlar pasifleştirilecek ve mapping güncellenecek.'
-            : 'ℹ  DRY-RUN modu: sadece rapor üretilecek. --apply ile çalıştır gerçek temizlik için.');
+            ? '⚠  APPLY modu: korunan ürünler lokal mapping\'e yazılacak. Silme YOK (Ticimax SOAP delete desteklemiyor — panelden manuel sil).'
+            : 'ℹ  DRY-RUN modu: sadece rapor. --apply ile mapping yazılır.');
         $this->newLine();
 
         $ana = ProductService::for('ana');
         $bayi = ProductService::for('bayi');
 
         $page = 1;
-        $perPage = 100;
-        $totalScanned = 0;
-        $duplicateGroups = []; // stok_kodu => [{ana_*, bayi_keep, bayi_remove[]}]
+        $perPage = 50;
 
-        $this->info('Kaynaktaki ürünler taranıyor (sayfa sayfa)...');
+        $scanned = 0;
+        $duplicateCount = 0;
+        $mappedCount = 0;
+
         while (true) {
             $products = $ana->getNewProducts(null, $page, $perPage);
             if (empty($products)) {
@@ -53,149 +60,139 @@ class DedupeBayiProductsCommand extends Command
             foreach ($products as $anaUrunKarti) {
                 $anaUrunId = (int) ($anaUrunKarti['ID'] ?? 0);
                 $variants = $this->extractVariants($anaUrunKarti);
+
                 foreach ($variants as $av) {
                     $stokKodu = trim((string) ($av['StokKodu'] ?? ''));
                     if ($stokKodu === '') {
                         continue;
                     }
-                    $totalScanned++;
+                    $scanned++;
 
-                    // Hedefte aynı StokKodu'lu ürünleri ara
+                    // SOAP probe — sonucu hemen işle, biriktirme
                     $bayiMatches = $bayi->findAllProductsByStokKodu($stokKodu, 10);
-                    if (count($bayiMatches) <= 1) {
-                        continue; // duplikat yok
+
+                    if (count($bayiMatches) > 1) {
+                        $duplicateCount++;
+                        $this->processOneDuplicate(
+                            $stokKodu,
+                            $anaUrunId,
+                            $av,
+                            $bayiMatches,
+                            $apply,
+                            $mappedCount
+                        );
                     }
 
-                    // Canonical = TedarikciKodu SUP3005 ile başlamayan VE/VEYA en küçük ID
-                    $keep = null;
-                    $remove = [];
-                    foreach ($bayiMatches as $bm) {
-                        $isNewFormat = str_starts_with((string) ($bm['TedarikciKodu'] ?? ''), 'SUP3005');
-                        if (! $isNewFormat && $keep === null) {
-                            $keep = $bm; // eski format → koru
-                        }
-                    }
-                    // Hiçbiri eski değilse en küçük ID'li olanı koru
-                    if ($keep === null) {
-                        usort($bayiMatches, fn ($a, $b) => (int) ($a['ID'] ?? 0) <=> (int) ($b['ID'] ?? 0));
-                        $keep = $bayiMatches[0];
-                    }
-                    foreach ($bayiMatches as $bm) {
-                        if ((int) ($bm['ID'] ?? 0) !== (int) ($keep['ID'] ?? 0)) {
-                            $remove[] = $bm;
-                        }
-                    }
-
-                    $duplicateGroups[$stokKodu] = [
-                        'ana_urun_id' => $anaUrunId,
-                        'ana_variant' => $av,
-                        'keep' => $keep,
-                        'remove' => $remove,
-                    ];
-
-                    $keepLabel = '#' . ($keep['ID'] ?? '?') . ' (' . substr((string) ($keep['TedarikciKodu'] ?? '?'), 0, 30) . ')';
-                    $removeLabel = implode(', ', array_map(
-                        fn ($r) => '#' . ($r['ID'] ?? '?') . ' (' . substr((string) ($r['TedarikciKodu'] ?? '?'), 0, 30) . ')',
-                        $remove
-                    ));
-                    $this->line("  StokKodu={$stokKodu}: KEEP {$keepLabel} | REMOVE {$removeLabel}");
+                    // Bellekten boşalt
+                    unset($bayiMatches);
                 }
+
+                unset($variants, $anaUrunKarti);
             }
 
-            if (count($products) < $perPage) {
+            $count = count($products);
+            unset($products); // büyük SOAP response — hemen at
+
+            // İlerleme satırı (her sayfada)
+            $this->line("  [sayfa {$page}] taranan toplam varyasyon: {$scanned}, duplikat: {$duplicateCount}");
+
+            if ($count < $perPage) {
                 break;
             }
             $page++;
+
+            // PHP'nin gc'sini zorla
+            gc_collect_cycles();
         }
 
         $this->newLine();
-        $this->info("Toplam taranan varyasyon: {$totalScanned}");
-        $this->info('Duplikat grup sayısı: ' . count($duplicateGroups));
-
-        if (empty($duplicateGroups)) {
-            $this->info('🎉 Hiç duplikat bulunamadı.');
-            return self::SUCCESS;
+        $this->info("✓ Toplam taranan varyasyon: {$scanned}");
+        $this->info("✓ Duplikat grup sayısı: {$duplicateCount}");
+        if ($apply) {
+            $this->info("✓ Lokal mapping yazılan: {$mappedCount}");
+            $this->info('🎉 Mapping güncel — Ticimax panelinden duplikatları silebilirsin. Bir sonraki sync yeni duplikat açmaz.');
+        } else {
+            $this->warn('DRY-RUN — hiçbir değişiklik yapılmadı. --apply ile mapping yaz.');
         }
-
-        if (! $apply) {
-            $this->warn('DRY-RUN — hiçbir değişiklik yapılmadı. Uygulamak için --apply ekle.');
-            return self::SUCCESS;
-        }
-
-        // ========== APPLY ==========
-        $this->newLine();
-        $this->info('Temizlik başlıyor...');
-
-        $deactivated = 0;
-        $mapped = 0;
-        $failed = 0;
-
-        foreach ($duplicateGroups as $stokKodu => $g) {
-            $keep = $g['keep'];
-            $anaUrunId = (int) $g['ana_urun_id'];
-            $anaVariant = $g['ana_variant'];
-
-            // 1) Yeni duplikatları pasifleştir
-            foreach ($g['remove'] as $rm) {
-                $removeId = (int) ($rm['ID'] ?? 0);
-                if ($removeId <= 0) {
-                    continue;
-                }
-                try {
-                    $bayi->setActive((string) $removeId, false);
-                    $this->line("  ✓ Pasifleştirildi: bayi #{$removeId} (StokKodu={$stokKodu})");
-                    $deactivated++;
-                } catch (\Throwable $e) {
-                    $this->error("  ✗ #{$removeId} pasifleştirme hatası: " . $e->getMessage());
-                    $failed++;
-                }
-            }
-
-            // 2) Korunan ürünü local mapping'e yaz
-            try {
-                $keepProductId = (int) ($keep['ID'] ?? 0);
-                $keepVariants = $this->extractVariants($keep);
-                $matchingKeepVar = null;
-                foreach ($keepVariants as $kv) {
-                    if ((string) ($kv['StokKodu'] ?? '') === $stokKodu) {
-                        $matchingKeepVar = $kv;
-                        break;
-                    }
-                }
-                $matchingKeepVar ??= $keepVariants[0] ?? null;
-                $keepVariantId = $matchingKeepVar ? (int) ($matchingKeepVar['ID'] ?? 0) : 0;
-                $barkod = (string) ($matchingKeepVar['Barkod'] ?? $anaVariant['Barkod'] ?? '');
-
-                ProductMapping::updateOrCreate(
-                    ['stok_kodu' => $stokKodu],
-                    [
-                        'barcode' => $barkod ?: null,
-                        'ana_product_id' => (string) $anaUrunId,
-                        'ana_variant_id' => isset($anaVariant['ID']) ? (string) $anaVariant['ID'] : null,
-                        'bayi_product_id' => $keepProductId > 0 ? (string) $keepProductId : null,
-                        'bayi_variant_id' => $keepVariantId > 0 ? (string) $keepVariantId : null,
-                        'tedarikci_kodu' => "SUP3005|{$stokKodu}|{$anaUrunId}",
-                        'status' => 'synced',
-                        'last_synced_at' => now(),
-                        'last_error' => null,
-                    ]
-                );
-                $mapped++;
-            } catch (\Throwable $e) {
-                $this->error("  ✗ Mapping kaydı hatası (StokKodu={$stokKodu}): " . $e->getMessage());
-                $failed++;
-            }
-        }
-
-        $this->newLine();
-        $this->info("✓ Pasifleştirilen: {$deactivated}");
-        $this->info("✓ Lokal mapping yazılan: {$mapped}");
-        if ($failed > 0) {
-            $this->warn("✗ Hata: {$failed}");
-        }
-        $this->info('🎉 Tamamlandı. Bir sonraki sync hızlı yoldan eski (korunan) ürünleri günceller.');
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Tek bir duplikat grubunu işler: konsola yazar, --apply ise mapping kaydeder.
+     * Bellekte hiçbir şey biriktirmez — fonksiyondan çıkar çıkmaz lokal değişkenler boşalır.
+     */
+    protected function processOneDuplicate(
+        string $stokKodu,
+        int $anaUrunId,
+        array $anaVariant,
+        array $bayiMatches,
+        bool $apply,
+        int &$mappedCount
+    ): void {
+        // Canonical seç: TedarikciKodu SUP3005 ile başlamayan = eski format, korunur.
+        // Hiçbiri eski değilse en küçük ID'li olanı koru.
+        $keep = null;
+        foreach ($bayiMatches as $bm) {
+            if (! str_starts_with((string) ($bm['TedarikciKodu'] ?? ''), 'SUP3005')) {
+                $keep = $bm;
+                break;
+            }
+        }
+        if ($keep === null) {
+            usort($bayiMatches, fn ($a, $b) => (int) ($a['ID'] ?? 0) <=> (int) ($b['ID'] ?? 0));
+            $keep = $bayiMatches[0];
+        }
+
+        $keepId = (int) ($keep['ID'] ?? 0);
+        $keepTk = substr((string) ($keep['TedarikciKodu'] ?? '?'), 0, 30);
+
+        $removeStrs = [];
+        foreach ($bayiMatches as $bm) {
+            $bmId = (int) ($bm['ID'] ?? 0);
+            if ($bmId !== $keepId) {
+                $removeStrs[] = '#' . $bmId . ' (' . substr((string) ($bm['TedarikciKodu'] ?? '?'), 0, 30) . ')';
+            }
+        }
+
+        $this->line("  StokKodu={$stokKodu}: KEEP #{$keepId} ({$keepTk}) | REMOVE " . implode(', ', $removeStrs));
+
+        if (! $apply) {
+            return;
+        }
+
+        // Mapping kaydet — keep'in varyasyonu içinden stok_kodu eşleşenini bul
+        $keepVariants = $this->extractVariants($keep);
+        $matchingKeepVar = null;
+        foreach ($keepVariants as $kv) {
+            if ((string) ($kv['StokKodu'] ?? '') === $stokKodu) {
+                $matchingKeepVar = $kv;
+                break;
+            }
+        }
+        $matchingKeepVar ??= $keepVariants[0] ?? null;
+        $keepVariantId = $matchingKeepVar ? (int) ($matchingKeepVar['ID'] ?? 0) : 0;
+        $barkod = (string) ($matchingKeepVar['Barkod'] ?? $anaVariant['Barkod'] ?? '');
+
+        try {
+            ProductMapping::updateOrCreate(
+                ['stok_kodu' => $stokKodu],
+                [
+                    'barcode' => $barkod ?: null,
+                    'ana_product_id' => (string) $anaUrunId,
+                    'ana_variant_id' => isset($anaVariant['ID']) ? (string) $anaVariant['ID'] : null,
+                    'bayi_product_id' => $keepId > 0 ? (string) $keepId : null,
+                    'bayi_variant_id' => $keepVariantId > 0 ? (string) $keepVariantId : null,
+                    'tedarikci_kodu' => "SUP3005|{$stokKodu}|{$anaUrunId}",
+                    'status' => 'synced',
+                    'last_synced_at' => now(),
+                    'last_error' => null,
+                ]
+            );
+            $mappedCount++;
+        } catch (\Throwable $e) {
+            $this->error("    ✗ Mapping kaydı hatası: " . $e->getMessage());
+        }
     }
 
     protected function extractVariants(array $urunKarti): array
