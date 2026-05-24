@@ -135,6 +135,45 @@ class SyncNewProductsJob implements ShouldQueue
 
         try {
             $payload = $mapper->anaToBayiCreatePayload($urunKarti);
+
+            // HİBRİT UPSERT: TedarikciKodu eşleşmesi yetmiyor (Hasan'ın eski sync'i
+            // farklı prefix kullanmış). Önce StokKodu/Barkod ile bayi'de var mı bak —
+            // varsa onun UrunKartiID'si payload'a yazılır → Ticimax kesin ID match ile
+            // upsert eder. Yoksa yeni oluşturur. Barkod çakışması bu sayede önlenir.
+            $bayiExisting = null;
+            if ($stokKodu !== '') {
+                $variantId = $bayi->getVariantIdByStokKodu($stokKodu);
+                if ($variantId) {
+                    // Varyasyon var → UrunKarti'yı çek (variantın bağlı olduğu ürün)
+                    $bayiExisting = $bayi->getProductByBarcode($primaryBarcode);
+                }
+            }
+            if (! $bayiExisting && $primaryBarcode !== '') {
+                $bayiExisting = $bayi->getProductByBarcode($primaryBarcode);
+            }
+            if ($bayiExisting && ! empty($bayiExisting['ID'])) {
+                $payload['ID'] = (int) $bayiExisting['ID']; // existing UrunKartiID
+                // Varyasyon ID'lerini de eşle (varsa) — değişen sıralama bozmasın diye
+                $bayiVariants = $bayiExisting['Varyasyonlar']['Varyasyon'] ?? [];
+                if (is_array($bayiVariants) && ! array_is_list($bayiVariants)) {
+                    $bayiVariants = [$bayiVariants];
+                }
+                $bayiVarsByBarkod = [];
+                foreach ($bayiVariants as $bv) {
+                    $bk = (string) ($bv['Barkod'] ?? '');
+                    if ($bk !== '') {
+                        $bayiVarsByBarkod[$bk] = (int) ($bv['ID'] ?? 0);
+                    }
+                }
+                foreach ($payload['Varyasyonlar'] as $i => $v) {
+                    $bk = (string) ($v['Barkod'] ?? '');
+                    if (isset($bayiVarsByBarkod[$bk]) && $bayiVarsByBarkod[$bk] > 0) {
+                        $payload['Varyasyonlar'][$i]['ID'] = $bayiVarsByBarkod[$bk];
+                        $payload['Varyasyonlar'][$i]['UrunKartiID'] = (int) $bayiExisting['ID'];
+                    }
+                }
+            }
+
             $bayi->createProduct($payload);
 
             ProductMapping::updateOrCreate(
