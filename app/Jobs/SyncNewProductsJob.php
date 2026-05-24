@@ -115,6 +115,11 @@ class SyncNewProductsJob implements ShouldQueue
 
     protected function processOne(SyncJob $job, array $urunKarti, ProductService $bayi, ProductMapper $mapper): void
     {
+        // Her SOAP çağrısından önce ek bir flag kontrolü — kullanıcı tam bu sırada
+        // durdura basabilir, beklemeden çıkalım
+        if (Cache::get(QueueControl::STOP_FLAG_KEY, false)) {
+            return;
+        }
         $anaUrunId = (string) ($urunKarti['ID'] ?? '');
         $stokKodu = $mapper->resolveStokKodu($urunKarti);
         $tedKodu = $mapper->buildTedarikciKodu((int) $anaUrunId, $stokKodu);

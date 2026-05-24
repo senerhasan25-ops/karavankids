@@ -8,7 +8,6 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\On;
 use Livewire\Component;
-use Symfony\Component\Process\Process;
 
 /**
  * Navigation bar'da her sayfada görünen "Kuyruk Durdur" denetimi.
@@ -47,14 +46,18 @@ class QueueControl extends Component
     }
 
     /**
-     * Soft + hard stop: queue:restart (graceful exit), jobs tablosunu temizle,
-     * çalışan SyncJob satırlarını failed/cancelled olarak işaretle.
+     * Stop: worker process'ine DOKUNMAZ. Sadece:
+     *  - Cache stop flag → çalışan job her SOAP çağrısından önce kontrol eder ve çıkar
+     *  - jobs tablosu (bekleyenler) temizlenir
+     *  - "running" SyncJob satırları failed işaretlenir (UI hemen güncellensin)
+     *
+     * Worker yaşamaya devam eder, yeni job dispatch edildiğinde alır.
      */
     public function stopAll(): void
     {
-        $log = []; // Her adımın sonucunu topla, hangisinin başarısız olduğunu kullanıcıya göster
+        $log = [];
 
-        // 1) IN-JOB STOP FLAG
+        // 1) Cache stop flag — job'lar bunu görünce nazikçe çıkar
         try {
             Cache::put(self::STOP_FLAG_KEY, true, now()->addHour());
             $log[] = '✓ Stop flag yollandı';
@@ -63,7 +66,6 @@ class QueueControl extends Component
         }
 
         // 2) Bekleyen job'ları sil
-        $cleared = 0;
         try {
             $cleared = (int) DB::table('jobs')->count();
             DB::table('jobs')->delete();
@@ -72,83 +74,20 @@ class QueueControl extends Component
             $log[] = '✗ Jobs sil: ' . $e->getMessage();
         }
 
-        // 3) DB'deki "running" SyncJob satırlarını ZORLA failed işaretle
-        $cancelled = 0;
+        // 3) "running" SyncJob satırlarını failed → UI'da hemen 0 görünsün
         try {
             $cancelled = SyncJob::where('status', 'running')->update([
                 'status' => 'failed',
                 'finished_at' => now(),
-                'last_error' => 'Kullanıcı tarafından zorla durduruldu',
+                'last_error' => 'Kullanıcı tarafından manuel durduruldu',
             ]);
             $log[] = "✓ {$cancelled} çalışan SyncJob → failed";
         } catch (\Throwable $e) {
             $log[] = '✗ SyncJob update: ' . $e->getMessage();
         }
 
-        // 4) queue:restart sinyali
-        try {
-            Artisan::call('queue:restart');
-            $log[] = '✓ queue:restart sinyali';
-        } catch (\Throwable $e) {
-            $log[] = '✗ queue:restart: ' . $e->getMessage();
-        }
-
-        // 5) Worker process'lerini öldür (opsiyonel — hata olsa bile diğer adımlar tamamlanmış olmalı)
-        try {
-            $killed = $this->killQueueWorkerProcesses();
-            $log[] = $killed > 0 ? "✓ {$killed} worker process öldürüldü" : '· Worker process bulunamadı';
-        } catch (\Throwable $e) {
-            $log[] = '✗ Worker kill: ' . $e->getMessage();
-        }
-
         $this->refreshCounts();
-        $this->statusMsg = implode(' | ', $log);
-    }
-
-    /**
-     * Çalışan `php artisan queue:work` process'lerini Windows üzerinde bulup öldürür.
-     * Linux/Mac için `pkill -f "queue:work"` fallback'i de denenir.
-     *
-     * @return int Öldürülen process sayısı
-     */
-    protected function killQueueWorkerProcesses(): int
-    {
-        $killed = 0;
-
-        if (PHP_OS_FAMILY === 'Windows') {
-            // wmic ile queue:work içeren php.exe process'lerini bul
-            $process = new Process([
-                'powershell.exe',
-                '-NoProfile',
-                '-Command',
-                "Get-WmiObject Win32_Process -Filter \"name='php.exe'\" | "
-                . "Where-Object { \$_.CommandLine -like '*queue:work*' } | "
-                . "ForEach-Object { Stop-Process -Id \$_.ProcessId -Force; Write-Output \$_.ProcessId }",
-            ]);
-            $process->setTimeout(15);
-            try {
-                $process->run();
-                $output = trim($process->getOutput());
-                if ($output !== '') {
-                    $killed = count(array_filter(explode("\n", $output)));
-                }
-            } catch (\Throwable) {
-                // sessiz geç
-            }
-        } else {
-            // Linux/Mac
-            $process = new Process(['pkill', '-f', 'queue:work']);
-            $process->setTimeout(10);
-            try {
-                $process->run();
-                if ($process->isSuccessful()) {
-                    $killed = 1; // pkill exact count vermiyor, tahmin
-                }
-            } catch (\Throwable) {
-            }
-        }
-
-        return $killed;
+        $this->statusMsg = implode(' | ', $log) . ' — Worker mevcut SOAP çağrısını bitirir bitirmez çıkar.';
     }
 
     /**

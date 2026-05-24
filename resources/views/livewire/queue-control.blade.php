@@ -51,8 +51,9 @@
                 </button>
             @else
                 <p class="text-xs text-gray-500 dark:text-gray-400 mb-3 leading-relaxed">
-                    "Şimdi Durdur" hem bekleyen işleri siler hem de çalışan worker'a durdurma flag'i yollar.
-                    Worker mevcut işin <strong>bir sonraki ürün/sipariş arasında</strong> bu flag'i görür ve nazikçe çıkar.
+                    "Şimdi Durdur" bekleyen işleri siler ve çalışan job'a durdur sinyali yollar.
+                    Worker süreci kapanmaz — mevcut SOAP çağrısı biter bitmez bir sonraki ürün/sipariş
+                    işlenmeden çıkar (genelde 5–30 sn).
                 </p>
                 <button type="button"
                         x-on:click="if (confirm('Tüm kuyruğu durduracaksın, devam edilsin mi?')) { $wire.stopAll() }"
