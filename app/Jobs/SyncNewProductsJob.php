@@ -72,6 +72,16 @@ class SyncNewProductsJob implements ShouldQueue
                 return $id > 0 ? $id : $defaultSupplierId;
             });
 
+            // Kategori agaci mirror: ana mağazadaki kategori ağacının yolu bayide
+            // findOrCreateCategoryByNameAndParent ile aynen kurulur (root → leaf).
+            // Bayi getCategoryTree de bir kere cekilir; sonraki mirror cagrilari cache'lenir.
+            $anaCategoryTree = $ana->getCategoryTree();
+            $bayi->getCategoryTree(); // bayi cache'ini once isit (mevcut kategoriler eslesince yeniden olusturmasin)
+            $mapper->setCategoryIdResolver(function (int $anaCatId) use ($bayi, $anaCategoryTree, $defaultCategoryId) {
+                $bayiId = $bayi->mirrorCategoryFromAna($anaCatId, $anaCategoryTree);
+                return $bayiId > 0 ? $bayiId : $defaultCategoryId;
+            });
+
             $since = $this->since;
             $page = 1;
             $perPage = (int) config('ticimax.batch_size', 50);
