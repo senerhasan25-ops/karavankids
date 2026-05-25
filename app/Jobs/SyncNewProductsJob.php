@@ -2,10 +2,11 @@
 
 namespace App\Jobs;
 
+use App\Livewire\QueueControl;
 use App\Models\ProductMapping;
 use App\Models\SyncJob;
 use App\Models\SyncLog;
-use App\Livewire\QueueControl;
+use App\Models\SyncSetting;
 use App\Services\Ticimax\ProductMapper;
 use App\Services\Ticimax\ProductService;
 use Illuminate\Bus\Queueable;
@@ -84,6 +85,10 @@ class SyncNewProductsJob implements ShouldQueue
                 return $bayiId > 0 ? $bayiId : $defaultCategoryId;
             });
 
+            // Ürünler menüsünde kaydedilen parametre seçimini oku.
+            // Null = kaydedilmemiş veya boş → mevcut ürünler tam güncellenir.
+            $selectedFields = $this->loadSavedSelectedFields();
+
             $since = $this->since;
             $page = 1;
             $perPage = (int) config('ticimax.batch_size', 50);
@@ -105,7 +110,7 @@ class SyncNewProductsJob implements ShouldQueue
                         break 2;
                     }
                     $job->increment('total');
-                    $this->processOne($job, $urunKarti, $bayi, $mapper);
+                    $this->processOne($job, $urunKarti, $bayi, $mapper, $selectedFields);
                 }
 
                 if (count($products) < $perPage) {
@@ -129,7 +134,7 @@ class SyncNewProductsJob implements ShouldQueue
         }
     }
 
-    protected function processOne(SyncJob $job, array $urunKarti, ProductService $bayi, ProductMapper $mapper): void
+    protected function processOne(SyncJob $job, array $urunKarti, ProductService $bayi, ProductMapper $mapper, ?array $selectedFields = null): void
     {
         if (QueueControl::isStopRequested($job->id)) {
             return;
@@ -216,27 +221,48 @@ class SyncNewProductsJob implements ShouldQueue
                 }
             }
 
-            // ========== AŞAMA 4: PAYLOAD'A ID'LERİ YAZ ==========
-            if ($bayiProductId) {
-                $payload['ID'] = $bayiProductId;
-                foreach ($payload['Varyasyonlar'] as $i => $v) {
-                    $vbk = (string) ($v['Barkod'] ?? '');
-                    $vsk = (string) ($v['StokKodu'] ?? '');
-                    $matchId = $bayiVarIdByBarkod[$vbk] ?? $bayiVarIdByStokKodu[$vsk] ?? null;
-                    if ($matchId) {
-                        $payload['Varyasyonlar'][$i]['ID'] = $matchId;
-                        $payload['Varyasyonlar'][$i]['UrunKartiID'] = $bayiProductId;
+            // ========== AŞAMA 4+5: KAYDET ==========
+            // Mevcut ürün + kaydedilmiş parametre seçimi → sadece seçili alanları güncelle.
+            // Mevcut ürün + seçim yok → tam güncelleme (geriye dönük uyumluluk).
+            // Yeni ürün → her zaman tam oluşturma (seçim gözetilmez).
+            if ($bayiProductId && ! empty($selectedFields)) {
+                // updateProductSelective: seçili alanları günceller, geri kalanı bayi'den korur.
+                // $bayiProductSoapData mevcutsa override koruması devreye girer;
+                // lokal mapping yolundan geldiyse null — koruma atlanır (kabul edilebilir).
+                $savedCard = $bayi->updateProductSelective(
+                    $payload,
+                    $bayiProductId,
+                    $bayiVarIdByStokKodu,
+                    $selectedFields,
+                    $bayiProductSoapData
+                );
+                $msg = $localMapping
+                    ? "Lokal eşleşme → seçili parametrelerle güncellendi (bayi #{$bayiProductId})"
+                    : "SOAP eşleşmesi → seçili parametrelerle güncellendi (bayi #{$bayiProductId})";
+            } else {
+                // Tam kayıt (yeni ürün veya parametre seçimi yapılmamış)
+                if ($bayiProductId) {
+                    $payload['ID'] = $bayiProductId;
+                    foreach ($payload['Varyasyonlar'] as $i => $v) {
+                        $vbk = (string) ($v['Barkod'] ?? '');
+                        $vsk = (string) ($v['StokKodu'] ?? '');
+                        $matchId = $bayiVarIdByBarkod[$vbk] ?? $bayiVarIdByStokKodu[$vsk] ?? null;
+                        if ($matchId) {
+                            $payload['Varyasyonlar'][$i]['ID'] = $matchId;
+                            $payload['Varyasyonlar'][$i]['UrunKartiID'] = $bayiProductId;
+                        }
                     }
                 }
+                $savedList = $bayi->createProduct($payload);
+                $savedCard = $savedList[0] ?? null;
+                $msg = $localMapping
+                    ? "Lokal eşleşme → tüm alanlar güncellendi (bayi #{$bayiProductId})"
+                    : ($bayiProductId
+                        ? "SOAP eşleşmesi bulundu → mapping kaydedildi (bayi #{$bayiProductId})"
+                        : "Yeni ürün oluşturuldu");
             }
 
-            // ========== AŞAMA 5: SAVE ==========
-            $savedList = $bayi->createProduct($payload);
-            $savedCard = $savedList[0] ?? null;
-
             // ========== AŞAMA 6: LOKAL MAPPING KAYDET / GÜNCELLE ==========
-            // SaveUrun cevabında Ticimax atanan ID'leri echo eder (varsa).
-            // Yoksa yukarıda topladığımız ID map'i kullanırız.
             $this->upsertMappings(
                 $anaUrunId,
                 $anaVariants,
@@ -246,12 +272,6 @@ class SyncNewProductsJob implements ShouldQueue
                 $bayiVarIdByStokKodu,
                 $tedKodu
             );
-
-            $msg = $localMapping
-                ? "Lokal eşleşme → güncellendi (bayi #{$bayiProductId})"
-                : ($bayiProductId
-                    ? "SOAP eşleşmesi bulundu → mapping kaydedildi (bayi #{$bayiProductId})"
-                    : "Yeni ürün oluşturuldu");
             $this->logSuccess($job, $context, $msg);
         } catch (Throwable $e) {
             $client = $bayi->getClient();
@@ -375,5 +395,33 @@ class SyncNewProductsJob implements ShouldQueue
             'raw_request' => $rawRequest,
             'raw_response' => $rawResponse,
         ]));
+    }
+
+    /**
+     * sync_settings.'product_sync_fields' anahtarından seçili güncelleme alanlarını oku.
+     * Ürünler menüsünde yapılan seçim buraya kaydedilir (ProductPicker::persistFieldSettings).
+     *
+     * @return array|null  null → kayıt yok / boş → tam güncelleme kullanılır.
+     */
+    protected function loadSavedSelectedFields(): ?array
+    {
+        $raw = SyncSetting::get('product_sync_fields', '');
+        if (! $raw) {
+            return null;
+        }
+
+        $saved = json_decode($raw, true);
+        if (! is_array($saved)) {
+            return null;
+        }
+
+        $out = array_keys(array_filter($saved['fields'] ?? []));
+        foreach ($saved['uye_tipi'] ?? [] as $i => $on) {
+            if ($on) {
+                $out[] = 'uye_tipi_fiyat_' . $i;
+            }
+        }
+
+        return ! empty($out) ? $out : null;
     }
 }

@@ -164,13 +164,16 @@
 
         {{-- PARAMETRELER + AKTAR --}}
         <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-4 mb-4">
-            <div class="flex items-center justify-between mb-3">
+            <div class="flex items-center justify-between mb-1">
                 <h2 class="font-semibold">Güncellenecek Parametreler</h2>
                 <div class="flex gap-2 text-xs">
                     <button wire:click="tumunuSec" class="px-2 py-1 rounded bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600">Tümü</button>
                     <button wire:click="hicbirini" class="px-2 py-1 rounded bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600">Hiçbiri</button>
                 </div>
             </div>
+            <p class="text-xs text-blue-600 dark:text-blue-400 mb-3">
+                💾 Seçimler otomatik kaydedilir — sayfa yenilenince ve otomatik ürün sync'inde bu ayarlar kullanılır.
+            </p>
             <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 text-sm">
                 @foreach([
                     'urun_adi'         => 'Ürün Adı',

@@ -6,6 +6,7 @@ use App\Jobs\ManuelUrunAktarJob;
 use App\Models\ProductMapping;
 use App\Models\SyncJob;
 use App\Models\SyncLog;
+use App\Models\SyncSetting;
 use App\Services\Ticimax\ProductService;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Layout;
@@ -92,6 +93,49 @@ class ProductPicker extends Component
 
     /** Aktarım sonuçları */
     public array $results = [];
+
+    /* ---------------------------------------------------------------------
+     |  Yaşam döngüsü
+     * --------------------------------------------------------------------- */
+
+    /** DB'den kaydedilmiş parametre seçimini yükle. */
+    public function mount(): void
+    {
+        $raw = SyncSetting::get('product_sync_fields', '');
+        if ($raw) {
+            $saved = json_decode($raw, true);
+            if (isset($saved['fields']) && is_array($saved['fields'])) {
+                // Yeni anahtarlar eklenirse $this->fields'daki varsayılan korunur
+                $this->fields   = array_merge($this->fields,   $saved['fields']);
+            }
+            if (isset($saved['uye_tipi']) && is_array($saved['uye_tipi'])) {
+                $this->uyeTipi  = array_merge($this->uyeTipi, $saved['uye_tipi']);
+            }
+        }
+    }
+
+    /**
+     * Herhangi bir alan checkbox'ı değiştiğinde otomatik kaydet.
+     * Livewire 3: updatedFields($key) → $fields dizisinin herhangi alt anahtarı değişince tetiklenir.
+     */
+    public function updatedFields(): void
+    {
+        $this->persistFieldSettings();
+    }
+
+    public function updatedUyeTipi(): void
+    {
+        $this->persistFieldSettings();
+    }
+
+    /** sync_settings.'product_sync_fields' anahtarına kaydet. */
+    protected function persistFieldSettings(): void
+    {
+        SyncSetting::put('product_sync_fields', json_encode([
+            'fields'   => $this->fields,
+            'uye_tipi' => $this->uyeTipi,
+        ]));
+    }
 
     /* ---------------------------------------------------------------------
      |  Aksiyonlar
@@ -184,11 +228,14 @@ class ProductPicker extends Component
     {
         foreach (array_keys($this->fields) as $k) $this->fields[$k] = true;
         foreach (array_keys($this->uyeTipi) as $k) $this->uyeTipi[$k] = true;
+        $this->persistFieldSettings();
     }
+
     public function hicbirini(): void
     {
         foreach (array_keys($this->fields) as $k) $this->fields[$k] = false;
         foreach (array_keys($this->uyeTipi) as $k) $this->uyeTipi[$k] = false;
+        $this->persistFieldSettings();
     }
 
     /**
