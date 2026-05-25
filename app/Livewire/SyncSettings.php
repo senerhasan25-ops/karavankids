@@ -47,11 +47,13 @@ class SyncSettings extends Component
             ? json_decode($seciliRaw, true)
             : [];
 
-        // DB'den kaydedilmiş durum listesini yükle — Ticimax çağrısı YOK
+        // DB'de kayıtlı liste varsa kullan; yoksa Ticimax'tan bir kez çek ve kaydet
         $listRaw = SyncSetting::get('siparis_durum_listesi', '');
-        $this->siparisDurumlari = ($listRaw && $listRaw !== '[]')
-            ? json_decode($listRaw, true)
-            : [];
+        if ($listRaw && $listRaw !== '[]') {
+            $this->siparisDurumlari = json_decode($listRaw, true);
+        } else {
+            $this->yukleSiparisDurumlari(); // ilk açılışta bir kez otomatik çek
+        }
     }
 
     /**

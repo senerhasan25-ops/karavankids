@@ -76,37 +76,29 @@ class OrderService
         $params = ['UyeKodu' => $this->client->getUyeKodu()];
         $resp = $this->client->call('order', $this->method('select_status_list'), $params);
 
-        // Normalize: stdClass veya array farklı gelir, ID + ad alanlarını normalize et
-        $raw = $resp;
-        if (is_object($raw) && isset($raw->SelectSiparisDurumResult)) {
-            $raw = $raw->SelectSiparisDurumResult;
+        // Yanıt yapısı: SelectSiparisDurumlariResult → SiparisDurumlari → EnumKeyValue[]{Key, Value}
+        $resultObj = null;
+        if (is_object($resp) && isset($resp->SelectSiparisDurumlariResult)) {
+            $resultObj = $resp->SelectSiparisDurumlariResult;
+        } elseif (is_object($resp)) {
+            $resultObj = $resp;
         }
-        if (is_object($raw)) {
-            $raw = (array) $raw;
-        }
-        if (! is_array($raw)) {
+
+        $items = $resultObj->SiparisDurumlari->EnumKeyValue ?? null;
+        if (! $items) {
             return [];
         }
 
-        // Wrapper key'leri dene: SiparisDurum, WebSiparisDurum, vb.
-        foreach (['SiparisDurum', 'WebSiparisDurum', 'Durum'] as $key) {
-            if (isset($raw[$key])) {
-                $raw = is_array($raw[$key]) && array_is_list($raw[$key]) ? $raw[$key] : [$raw[$key]];
-                break;
-            }
-        }
-        if (! array_is_list($raw)) {
-            $raw = [$raw];
+        // Tek kayıt gelirse object, çok kayıt gelirse array
+        if (is_object($items)) {
+            $items = [$items];
         }
 
         $result = [];
-        foreach ($raw as $item) {
-            $item = is_object($item) ? (array) $item : (array) $item;
-            $id = (int) ($item['ID'] ?? $item['DurumID'] ?? $item['SiparisDurumID'] ?? 0);
-            $ad = (string) ($item['DurumAdi'] ?? $item['Ad'] ?? $item['Adi'] ?? $item['SiparisDurumu'] ?? "Durum #{$id}");
-            if ($id > 0) {
-                $result[] = ['id' => $id, 'ad' => $ad];
-            }
+        foreach ((array) $items as $item) {
+            $id  = (int) (is_object($item) ? $item->Key   : ($item['Key']   ?? null));
+            $ad  = (string) (is_object($item) ? $item->Value : ($item['Value'] ?? "Durum #{$id}"));
+            $result[] = ['id' => $id, 'ad' => $ad];
         }
 
         usort($result, fn ($a, $b) => $a['id'] <=> $b['id']);

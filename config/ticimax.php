@@ -30,7 +30,7 @@ return [
             'save' => 'SaveSiparis',
             'mark_transferred' => 'SetSiparisAktarildi',
             'set_status' => 'SetSiparisDurum',
-            'select_status_list' => 'SelectSiparisDurum',
+            'select_status_list' => 'SelectSiparisDurumlari',
         ],
     ],
 ];
