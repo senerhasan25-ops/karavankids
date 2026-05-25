@@ -31,6 +31,8 @@ class SyncStockPriceJob implements ShouldQueue
 
     public int $tries = 3;
     public int $backoff = 30;
+    /** 1000 ürün stok/fiyat ~60 dk sürebilir; 3 saat yeterli tampon. */
+    public int $timeout = 10800;
 
     public function __construct(public ?string $singleStokKodu = null)
     {

@@ -31,6 +31,8 @@ class PullBayiOrdersJob implements ShouldQueue
 
     public int $tries = 3;
     public int $backoff = 30;
+    /** Sipariş aktarımı için 1 saat yeterli (çok sayıda sipariş gelse de). */
+    public int $timeout = 3600;
 
     public function handle(): void
     {

@@ -28,8 +28,8 @@ class ManuelUrunAktarJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    /** PHP execution timeout for this job (seconds) */
-    public int $timeout = 300;
+    /** Manuel aktarım job'u için 2 saat limit (100 ürün ~10 dk, 1000 ürün ~100 dk). */
+    public int $timeout = 7200;
 
     /** Manuel işler için tek deneme yeterli — retry mantıksız (kullanıcı tekrar başlatır) */
     public int $tries = 1;

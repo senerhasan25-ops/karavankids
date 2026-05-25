@@ -37,6 +37,8 @@ class SyncNewProductsJob implements ShouldQueue
 
     public int $tries = 3;
     public int $backoff = 30;
+    /** 1000 yeni ürün ~100 dk sürebilir; 3 saat yeterli tampon. */
+    public int $timeout = 10800;
 
     public function __construct(public ?Carbon $since = null, public ?Carbon $until = null)
     {

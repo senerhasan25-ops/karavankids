@@ -23,12 +23,12 @@ $action = New-ScheduledTaskAction `
 $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddSeconds(30) `
     -RepetitionInterval (New-TimeSpan -Minutes 1)
 
-# Tek çalışma için maks 6 dakika (300s timeout + overhead)
+# Tek çalışma için maks 4 saat (1000 ürün sync ~100 dk alabilir, tampon bırakılır)
 $settings = New-ScheduledTaskSettingsSet `
     -AllowStartIfOnBatteries `
     -DontStopIfGoingOnBatteries `
     -StartWhenAvailable `
-    -ExecutionTimeLimit (New-TimeSpan -Minutes 6) `
+    -ExecutionTimeLimit (New-TimeSpan -Hours 4) `
     -MultipleInstances IgnoreNew
 
 $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive
