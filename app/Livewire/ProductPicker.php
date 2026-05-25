@@ -2,10 +2,8 @@
 
 namespace App\Livewire;
 
-use App\Models\ProductMapping;
+use App\Jobs\ManuelUrunAktarJob;
 use App\Models\SyncJob;
-use App\Models\SyncLog;
-use App\Services\Ticimax\ProductMapper;
 use App\Services\Ticimax\ProductService;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
@@ -194,126 +192,43 @@ class ProductPicker extends Component
 
     /**
      * Sadece yeni ürünleri aktar (seçim YOK).
-     * Listedeki tüm ürünleri bayide kontrol eder, bayide olmayanları yeni ürün
-     * olarak ekler. Aktarılan her ürün için SyncLog kaydı oluşturur — log ekranında
-     * stok kodu + barkod ile görünür.
+     * İşlemi arka plan job'una devreder — HTTP timeout riski ortadan kalkar.
+     * İlerleme Loglar sayfasından izlenebilir.
      */
     public function yeniUrunleriAktar(): void
     {
         $this->results = [];
-        $this->status = null;
-        $this->error = null;
+        $this->status  = null;
+        $this->error   = null;
 
         if (empty($this->products)) {
             $this->error = 'Listede ürün yok — önce "Listele" tıkla.';
             return;
         }
 
-        // Aynı UrunKartı birden fazla varyasyon ile gelmiş olabilir; UrunKartiID
-        // bazında tek seferlik aktarım yapacağız. Her UrunKartı için primary StokKodu
-        // ile bayide var/yok kontrolü.
-        $byUrunKarti = [];
-        foreach ($this->products as $row) {
-            $uid = (int) $row['urun_karti_id'];
-            if (! isset($byUrunKarti[$uid])) {
-                $byUrunKarti[$uid] = $row; // ilk varyasyon temsilci
-            }
-        }
+        // _raw alanını çıkar — job payload'ı küçük tutmak için Ana'dan yeniden çeker
+        $compactRows = array_map(fn ($r) => array_diff_key($r, ['_raw' => true]), $this->products);
 
-        $ana = ProductService::for('ana');
-        $bayi = ProductService::for('bayi');
-        $mapper = $this->buildMapper($ana, $bayi);
-
-        // SyncJob kaydı — log ekranında "manuel yeni ürün aktarımı" işi olarak gözüksün
         $job = SyncJob::create([
-            'type' => 'product_create',
-            'status' => 'running',
-            'started_at' => now(),
+            'type'       => 'product_create',
+            'status'     => 'pending',
+            'started_at' => null,
         ]);
 
-        $yeni = 0; $atlandi = 0; $hata = 0;
-        foreach ($byUrunKarti as $row) {
-            $stokKodu = $row['stok_kodu'] ?? '';
-            $barkod   = $row['barkod'] ?? '';
-            $urunAdi  = $row['urun_adi'] ?? '';
-            $raw      = $row['_raw'] ?? null;
+        ManuelUrunAktarJob::dispatch('yeni_urun', $compactRows, [], $job->id);
 
-            if (! is_array($raw) || $stokKodu === '') {
-                $this->results[] = ['stok_kodu' => $stokKodu, 'urun_adi' => $urunAdi, 'durum' => 'atlandi', 'mesaj' => 'StokKodu yok'];
-                $atlandi++;
-                continue;
-            }
-
-            $job->increment('total');
-
-            try {
-                // Bayide var mı?
-                $bayiMevcut = $bayi->getProductByStokKodu($stokKodu);
-                if ($bayiMevcut && (int) ($bayiMevcut['ID'] ?? 0) > 0) {
-                    $this->results[] = ['stok_kodu' => $stokKodu, 'urun_adi' => $urunAdi, 'durum' => 'atlandi', 'mesaj' => 'Zaten bayide var (ID=' . $bayiMevcut['ID'] . ')'];
-                    $atlandi++;
-                    continue;
-                }
-
-                // YENİ ürün — oluştur
-                $payload = $mapper->anaToBayiCreatePayload($raw);
-                $created = $bayi->createProduct($payload);
-                $bayiId = (int) ($created['ID'] ?? 0);
-
-                $msg = "Yeni ürün aktarıldı — stok kodu: {$stokKodu} | barkod: {$barkod} | bayi ID: {$bayiId}";
-                $this->results[] = ['stok_kodu' => $stokKodu, 'urun_adi' => $urunAdi, 'durum' => 'olusturuldu', 'mesaj' => $msg];
-
-                // Log ekranina yaz
-                $job->increment('success_count');
-                SyncLog::create([
-                    'job_id' => $job->id,
-                    'action' => 'create_product',
-                    'direction' => 'ana_to_bayi',
-                    'status' => 'success',
-                    'barcode' => $barkod ?: null,
-                    'stok_kodu' => $stokKodu,
-                    'urun_adi' => $urunAdi,
-                    'ana_id' => $row['urun_karti_id'] ?? null,
-                    'message' => $msg,
-                ]);
-
-                $this->upsertMapping($row, $bayiId, []);
-                $yeni++;
-            } catch (\Throwable $e) {
-                $errMsg = substr($e->getMessage(), 0, 250);
-                $this->results[] = ['stok_kodu' => $stokKodu, 'urun_adi' => $urunAdi, 'durum' => 'hata', 'mesaj' => $errMsg];
-                $job->increment('error_count');
-                SyncLog::create([
-                    'job_id' => $job->id,
-                    'action' => 'create_product',
-                    'direction' => 'ana_to_bayi',
-                    'status' => 'error',
-                    'barcode' => $barkod ?: null,
-                    'stok_kodu' => $stokKodu,
-                    'urun_adi' => $urunAdi,
-                    'ana_id' => $row['urun_karti_id'] ?? null,
-                    'message' => $errMsg,
-                ]);
-                $hata++;
-            }
-        }
-
-        $job->update(['status' => 'completed', 'finished_at' => now()]);
-
-        $this->status = "Yeni ürün aktarımı tamamlandı: {$yeni} eklendi"
-            . ($atlandi ? ", {$atlandi} atlandı (zaten bayide)" : '')
-            . ($hata ? ", {$hata} hata" : '')
-            . ". Detay: Loglar sayfasında görüntülenebilir.";
+        $this->status = count($compactRows) . ' satır (benzersiz kart bazında işlenecek) kuyruğa alındı '
+            . '— İş #' . $job->id . '. İlerlemeyi Loglar sayfasından takip edebilirsin.';
     }
 
     /**
-     * Hızlı yol: seçili ürünlerin sadece STOK ve FİYAT bilgilerini bayide günceller.
-     * Bayide olmayan ürünler atlanır (oluşturma yapmaz — sadece update).
+     * Seçili ürünlerin sadece STOK ve FİYAT bilgilerini bayide günceller.
+     * İşlemi arka plan job'una devreder — HTTP timeout riski ortadan kalkar.
      */
     public function stokFiyatGuncelle(): void
     {
         $this->results = [];
-        $this->status = null;
+        $this->status  = null;
 
         if (empty($this->selected)) {
             $this->error = 'Güncellemek için ürün seçin.';
@@ -321,70 +236,35 @@ class ProductPicker extends Component
         }
         $this->error = null;
 
-        // Sadece stok + satış + indirimli fiyat alanları
-        $fields = ['stok_adedi', 'satis_fiyati', 'indirimli_fiyat'];
+        $rows = array_values(array_filter(
+            $this->products,
+            fn ($r) => in_array((string) $r['variant_id'], $this->selected, true)
+        ));
+        // _raw alanını çıkar — job, Ana'dan yeniden çeker
+        $compactRows = array_map(fn ($r) => array_diff_key($r, ['_raw' => true]), $rows);
 
-        $rows = array_values(array_filter($this->products, fn($r) => in_array((string) $r['variant_id'], $this->selected, true)));
+        $job = SyncJob::create([
+            'type'       => 'stock_price_update',
+            'status'     => 'pending',
+            'started_at' => null,
+        ]);
 
-        $ana = ProductService::for('ana');
-        $bayi = ProductService::for('bayi');
-        $mapper = $this->buildMapper($ana, $bayi);
+        ManuelUrunAktarJob::dispatch('stok_fiyat', $compactRows, [], $job->id);
 
-        $ok = 0; $atlandi = 0; $fail = 0;
-        foreach ($rows as $row) {
-            $stokKodu = $row['stok_kodu'] ?? '';
-            $urunAdi  = $row['urun_adi'] ?? '';
-            $raw      = $row['_raw'] ?? null;
-
-            if (! is_array($raw) || $stokKodu === '') {
-                $this->results[] = ['stok_kodu' => $stokKodu, 'urun_adi' => $urunAdi, 'durum' => 'atlandi', 'mesaj' => 'Ham payload yok'];
-                $atlandi++;
-                continue;
-            }
-
-            try {
-                $bayiMevcut = $bayi->getProductByStokKodu($stokKodu);
-                if (! $bayiMevcut || (int) ($bayiMevcut['ID'] ?? 0) === 0) {
-                    $this->results[] = ['stok_kodu' => $stokKodu, 'urun_adi' => $urunAdi, 'durum' => 'atlandi', 'mesaj' => 'Bayide bulunamadı (önce aktar)'];
-                    $atlandi++;
-                    continue;
-                }
-
-                $payload = $mapper->anaToBayiCreatePayload($raw);
-                $bayiId = (int) $bayiMevcut['ID'];
-                $varMap = $this->mapBayiVariantIds($bayiMevcut);
-                // bayiMevcut'u 5. parametre olarak gec — override koruması calissin
-                $bayi->updateProductSelective($payload, $bayiId, $varMap, $fields, $bayiMevcut);
-
-                $stok = $row['stok_adedi'] ?? 0;
-                $fiyat = number_format((float) ($row['satis_fiyati'] ?? 0), 2, ',', '.');
-                $this->results[] = [
-                    'stok_kodu' => $stokKodu, 'urun_adi' => $urunAdi,
-                    'durum' => 'guncellendi',
-                    'mesaj' => "bayi ID={$bayiId} | stok={$stok} fiyat={$fiyat}",
-                ];
-                $this->upsertMapping($row, $bayiId, $varMap);
-                $ok++;
-            } catch (\Throwable $e) {
-                $this->results[] = ['stok_kodu' => $stokKodu, 'urun_adi' => $urunAdi, 'durum' => 'hata', 'mesaj' => substr($e->getMessage(), 0, 200)];
-                $fail++;
-            }
-        }
-
-        $this->status = "Stok/Fiyat güncelleme tamamlandı: {$ok} başarılı"
-            . ($atlandi ? ", {$atlandi} atlandı (bayide yok)" : '')
-            . ($fail ? ", {$fail} hata" : '') . '.';
-        $this->selected = [];
+        $this->status = count($compactRows) . ' satır stok/fiyat güncellemesi kuyruğa alındı '
+            . '— İş #' . $job->id . '. İlerlemeyi Loglar sayfasından takip edebilirsin.';
+        $this->selected  = [];
         $this->selectAll = false;
     }
 
     /**
      * Seçili ürünleri belirlenen parametrelere göre bayi'ye aktar.
+     * İşlemi arka plan job'una devreder — HTTP timeout riski ortadan kalkar.
      */
     public function aktar(): void
     {
         $this->results = [];
-        $this->status = null;
+        $this->status  = null;
 
         if (empty($this->selected)) {
             $this->error = 'Aktarmak için ürün seçin.';
@@ -397,55 +277,28 @@ class ProductPicker extends Component
         }
         $this->error = null;
 
-        // Seçili satırları products içinden bul
-        $rows = array_values(array_filter($this->products, fn($r) => in_array((string) $r['variant_id'], $this->selected, true)));
+        $rows = array_values(array_filter(
+            $this->products,
+            fn ($r) => in_array((string) $r['variant_id'], $this->selected, true)
+        ));
         if (empty($rows)) {
             $this->error = 'Seçili ürünler listede bulunamadı.';
             return;
         }
+        // _raw alanını çıkar — job, Ana'dan yeniden çeker
+        $compactRows = array_map(fn ($r) => array_diff_key($r, ['_raw' => true]), $rows);
 
-        $ana = ProductService::for('ana');
-        $bayi = ProductService::for('bayi');
-        $mapper = $this->buildMapper($ana, $bayi);
+        $job = SyncJob::create([
+            'type'       => 'product_create',
+            'status'     => 'pending',
+            'started_at' => null,
+        ]);
 
-        $ok = 0; $fail = 0;
-        foreach ($rows as $row) {
-            $stokKodu = $row['stok_kodu'] ?? '';
-            $urunAdi  = $row['urun_adi'] ?? '';
-            $raw      = $row['_raw'] ?? null;
+        ManuelUrunAktarJob::dispatch('full_aktar', $compactRows, $selectedFields, $job->id);
 
-            if (! is_array($raw) || $stokKodu === '') {
-                $this->results[] = ['stok_kodu' => $stokKodu, 'urun_adi' => $urunAdi, 'durum' => 'atlandi', 'mesaj' => 'Ham payload yok'];
-                $fail++;
-                continue;
-            }
-
-            try {
-                $bayiMevcut = $bayi->getProductByStokKodu($stokKodu);
-                $payload = $mapper->anaToBayiCreatePayload($raw);
-
-                if ($bayiMevcut && (int) ($bayiMevcut['ID'] ?? 0) > 0) {
-                    $bayiId = (int) $bayiMevcut['ID'];
-                    $varMap = $this->mapBayiVariantIds($bayiMevcut);
-                    // bayiMevcut'u 5. parametre olarak gec — override koruması calissin
-                    $bayi->updateProductSelective($payload, $bayiId, $varMap, $selectedFields, $bayiMevcut);
-                    $this->results[] = ['stok_kodu' => $stokKodu, 'urun_adi' => $urunAdi, 'durum' => 'guncellendi', 'mesaj' => "bayi ID={$bayiId}"];
-                    $this->upsertMapping($row, $bayiId, $varMap);
-                    $ok++;
-                } else {
-                    $created = $bayi->createProduct($payload);
-                    $bayiId = (int) ($created['ID'] ?? 0);
-                    $this->results[] = ['stok_kodu' => $stokKodu, 'urun_adi' => $urunAdi, 'durum' => 'olusturuldu', 'mesaj' => "bayi ID={$bayiId}"];
-                    $this->upsertMapping($row, $bayiId, []);
-                    $ok++;
-                }
-            } catch (\Throwable $e) {
-                $this->results[] = ['stok_kodu' => $stokKodu, 'urun_adi' => $urunAdi, 'durum' => 'hata', 'mesaj' => substr($e->getMessage(), 0, 200)];
-                $fail++;
-            }
-        }
-        $this->status = "Aktarım tamamlandı: {$ok} başarılı, {$fail} hata.";
-        $this->selected = [];
+        $this->status = count($compactRows) . ' ürün aktarımı kuyruğa alındı '
+            . '— İş #' . $job->id . '. İlerlemeyi Loglar sayfasından takip edebilirsin.';
+        $this->selected  = [];
         $this->selectAll = false;
     }
 
@@ -476,70 +329,6 @@ class ProductPicker extends Component
             }
         }
         return $rows;
-    }
-
-    protected function mapBayiVariantIds(array $bayiKart): array
-    {
-        $vars = $bayiKart['Varyasyonlar']['Varyasyon'] ?? $bayiKart['Varyasyonlar'] ?? [];
-        if (isset($vars['Barkod'])) $vars = [$vars];
-        $out = [];
-        if (is_array($vars)) {
-            foreach ($vars as $v) {
-                $sk = (string) ($v['StokKodu'] ?? '');
-                $id = (int) ($v['ID'] ?? 0);
-                if ($sk !== '' && $id > 0) $out[$sk] = $id;
-            }
-        }
-        return $out;
-    }
-
-    protected function upsertMapping(array $row, int $bayiProductId, array $bayiVarMap): void
-    {
-        $stokKodu = $row['stok_kodu'] ?? '';
-        if ($stokKodu === '') return;
-        ProductMapping::updateOrCreate(
-            ['stok_kodu' => $stokKodu],
-            [
-                'barcode' => $row['barkod'] ?? null,
-                'ana_variant_id' => $row['variant_id'] ?? null,
-                'bayi_product_id' => $bayiProductId ?: null,
-                'bayi_variant_id' => $bayiVarMap[$stokKodu] ?? null,
-                'last_price' => $row['satis_fiyati'] ?? null,
-                'last_stock' => $row['stok_adedi'] ?? null,
-                'status' => 'synced',
-                'last_error' => null,
-                'last_synced_at' => now(),
-            ]
-        );
-    }
-
-    protected function buildMapper(ProductService $ana, ProductService $bayi): ProductMapper
-    {
-        $mapper = new ProductMapper();
-        $defaultBrandId = $bayi->getDefaultBrandId();
-        $defaultSupplierId = $bayi->getDefaultSupplierId();
-        $defaultCategoryId = $bayi->getDefaultCategoryId();
-        $mapper->setDefaultCategoryId($defaultCategoryId);
-
-        $mapper->setBrandResolver(function (string $name) use ($bayi, $defaultBrandId) {
-            $id = $bayi->findOrCreateBrandId($name);
-            return $id > 0 ? $id : $defaultBrandId;
-        });
-        $anaSupplierIdToName = array_flip($ana->getSupplierMap());
-        $mapper->setSupplierResolver(function (int $anaId) use ($anaSupplierIdToName, $bayi, $defaultSupplierId) {
-            $name = $anaSupplierIdToName[$anaId] ?? '';
-            $id = $name ? $bayi->findOrCreateSupplierId($name) : 0;
-            return $id > 0 ? $id : $defaultSupplierId;
-        });
-
-        $anaTree = $ana->getCategoryTree();
-        $bayi->getCategoryTree();
-        $mapper->setCategoryIdResolver(function (int $anaCatId) use ($bayi, $anaTree, $defaultCategoryId) {
-            $bid = $bayi->mirrorCategoryFromAna($anaCatId, $anaTree);
-            return $bid > 0 ? $bid : $defaultCategoryId;
-        });
-
-        return $mapper;
     }
 
     public function render()
