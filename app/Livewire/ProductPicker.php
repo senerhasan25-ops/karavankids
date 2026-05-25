@@ -192,8 +192,10 @@ class ProductPicker extends Component
 
     /**
      * Sadece yeni ürünleri aktar (seçim YOK).
+     *
+     * Önce product_mappings tablosunu kontrol eder: bayi_product_id dolu = zaten aktarılmış.
+     * Sadece mapping'de olmayan ürünleri job'a gönderir; hiç aday yoksa bilgi mesajı verir.
      * İşlemi arka plan job'una devreder — HTTP timeout riski ortadan kalkar.
-     * İlerleme Loglar sayfasından izlenebilir.
      */
     public function yeniUrunleriAktar(): void
     {
@@ -206,8 +208,38 @@ class ProductPicker extends Component
             return;
         }
 
+        // urun_karti_id bazında grupla (her kart için bir temsilci)
+        $byUrunKarti = [];
+        foreach ($this->products as $r) {
+            $uid = (int) $r['urun_karti_id'];
+            if ($uid > 0 && ! isset($byUrunKarti[$uid])) {
+                $byUrunKarti[$uid] = $r;
+            }
+        }
+
+        // product_mappings'te bayi_product_id dolu olanları tek sorguda bul → zaten aktarılmış
+        $stokKodulari  = array_filter(array_column(array_values($byUrunKarti), 'stok_kodu'));
+        $mevcutMapping = \App\Models\ProductMapping::whereIn('stok_kodu', $stokKodulari)
+            ->whereNotNull('bayi_product_id')
+            ->pluck('stok_kodu')
+            ->all();
+        $mevcutSet = array_flip($mevcutMapping);
+
+        // Sadece mapping'de olmayan adaylar
+        $adaylar = array_values(array_filter(
+            $byUrunKarti,
+            fn ($r) => ! isset($mevcutSet[$r['stok_kodu'] ?? ''])
+        ));
+
+        $mevcutSayisi = count($byUrunKarti) - count($adaylar);
+
+        if (empty($adaylar)) {
+            $this->status = 'Listede ' . count($byUrunKarti) . ' ürün kart var, hepsi zaten bayide mevcut. Aktarılacak yeni ürün yok.';
+            return;
+        }
+
         // _raw alanını çıkar — job payload'ı küçük tutmak için Ana'dan yeniden çeker
-        $compactRows = array_map(fn ($r) => array_diff_key($r, ['_raw' => true]), $this->products);
+        $compactRows = array_map(fn ($r) => array_diff_key($r, ['_raw' => true]), $adaylar);
 
         $job = SyncJob::create([
             'type'       => 'product_create',
@@ -217,8 +249,9 @@ class ProductPicker extends Component
 
         ManuelUrunAktarJob::dispatch('yeni_urun', $compactRows, [], $job->id);
 
-        $this->status = count($compactRows) . ' satır (benzersiz kart bazında işlenecek) kuyruğa alındı '
-            . '— İş #' . $job->id . '. İlerlemeyi Loglar sayfasından takip edebilirsin.';
+        $this->status = count($compactRows) . ' yeni ürün kuyruğa alındı'
+            . ($mevcutSayisi > 0 ? " ({$mevcutSayisi} tanesi zaten bayide, atlandı)" : '')
+            . ' — İş #' . $job->id . '. İlerlemeyi Loglar sayfasından takip edebilirsin.';
     }
 
     /**

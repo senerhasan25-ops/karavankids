@@ -72,11 +72,41 @@ class ManuelUrunAktarJob implements ShouldQueue
 
     private function handleYeniUrun(?SyncJob $job): void
     {
+        $byUrunKarti = $this->groupByUrunKarti();
+
+        // ── Adım 1: product_mappings'te bayi_product_id dolu olanları toplu bul ──
+        // Bu ürünler zaten aktarılmış → SOAP çağrısı yapmadan atla.
+        $stokKodulari = array_filter(array_column(array_values($byUrunKarti), 'stok_kodu'));
+        $mevcutMapping = ProductMapping::whereIn('stok_kodu', $stokKodulari)
+            ->whereNotNull('bayi_product_id')
+            ->pluck('bayi_product_id', 'stok_kodu')
+            ->all();
+
+        // ── Adım 2: Mapping'de olmayan (gerçekten yeni olabilecek) ürünleri filtrele ──
+        $adaylar = array_filter(
+            $byUrunKarti,
+            fn ($row) => ! isset($mevcutMapping[$row['stok_kodu'] ?? ''])
+        );
+
+        if (empty($adaylar)) {
+            // Tüm ürünler zaten bayide — log kaydı bile oluşturma
+            SyncLog::create([
+                'job_id'    => $job?->id,
+                'action'    => 'create_product',
+                'direction' => 'ana_to_bayi',
+                'status'    => 'skipped',
+                'message'   => 'Listelenen tüm ürünler zaten bayide mevcut ('
+                    . count($byUrunKarti) . ' ürün kart).',
+            ]);
+            return;
+        }
+
         $ana    = ProductService::for('ana');
         $bayi   = ProductService::for('bayi');
         $mapper = $this->buildMapper($ana, $bayi);
 
-        foreach ($this->groupByUrunKarti() as $row) {
+        // ── Adım 3: Kalan adaylar için Bayi SOAP probe → gerçekten yoksa oluştur ──
+        foreach ($adaylar as $row) {
             $stokKodu = $row['stok_kodu'] ?? '';
             $barkod   = $row['barkod']   ?? '';
             $urunAdi  = $row['urun_adi'] ?? '';
@@ -87,11 +117,14 @@ class ManuelUrunAktarJob implements ShouldQueue
             $job?->increment('total');
 
             try {
-                // Bayide zaten varsa atla
+                // Bayi SOAP probe — mapping'te yoktu ama Bayi'de olabilir (eski ürün vb.)
                 $bayiMevcut = $bayi->getProductByStokKodu($stokKodu);
                 if ($bayiMevcut && (int) ($bayiMevcut['ID'] ?? 0) > 0) {
+                    // Bayide var ama mapping'te yoktu → mapping'i güncelle, atla
+                    $this->upsertMapping($row, (int) $bayiMevcut['ID'],
+                        $this->mapBayiVariantIds($bayiMevcut));
                     SyncLog::create($this->logData($job, 'create_product', 'skipped', $row,
-                        'Bayide zaten var (ID=' . $bayiMevcut['ID'] . ')'));
+                        'Bayide zaten var (ID=' . $bayiMevcut['ID'] . ') — mapping güncellendi'));
                     continue;
                 }
 
