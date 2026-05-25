@@ -714,6 +714,73 @@ class ProductService
     }
 
     /**
+     * Toplu stok güncelleme — tek SOAP çağrısı (StokAdediGuncelle ArrayOfVaryasyon).
+     *
+     * @param  array  $varyasyonlar  [['ID' => bayiVarId, 'StokAdedi' => stock, 'Barkod' => barkod|null], ...]
+     */
+    public function updateStockBatch(array $varyasyonlar): void
+    {
+        if (empty($varyasyonlar)) {
+            return;
+        }
+        $params = [
+            'UyeKodu' => $this->client->getUyeKodu(),
+            'urunler' => $varyasyonlar,
+        ];
+        $this->client->call('product', $this->method('update_stock'), $params);
+    }
+
+    /**
+     * Toplu fiyat güncelleme — tek SOAP çağrısı (UpdateUrunFiyat ArrayOfUpdateUrunFiyat).
+     *
+     * @param  array  $items  [['Barkod' => barkod, 'SatisFiyati' => price, 'KdvOrani' => 20, 'KdvDahil' => true], ...]
+     */
+    public function updatePriceBatch(array $items): void
+    {
+        if (empty($items)) {
+            return;
+        }
+        $request = array_map(fn ($item) => [
+            'Barkod'         => $item['Barkod'],
+            'Fiyatlar'       => [
+                'SatisFiyati'   => (float) $item['SatisFiyati'],
+                'IndirimliFiyat' => 0,
+                'KDVDahil'      => (bool) ($item['KdvDahil'] ?? true),
+                'KdvOrani'      => (int) ($item['KdvOrani'] ?? 20),
+                'UyeTipiFiyat1' => 0,
+                'UyeTipiFiyat2' => 0,
+                'UyeTipiFiyat3' => 0,
+                'UyeTipiFiyat4' => 0,
+                'UyeTipiFiyat5' => 0,
+            ],
+            'TedarikciKodu'  => '',
+            'TedarikciKodu2' => '',
+            'UrunIds'        => '',
+            'UrunKartiIds'   => '',
+        ], $items);
+
+        $params = [
+            'UyeKodu' => $this->client->getUyeKodu(),
+            'request' => $request,
+            'ayar'    => [
+                'BarkodKodunaGoreGuncelle'    => true,
+                'IndirimliFiyatGuncelle'       => false,
+                'TedarikciKodu2GoreGuncelle'   => false,
+                'TedarikciKodunaGoreGuncelle'  => false,
+                'UrunIdGoreGuncelle'           => false,
+                'UrunKartiIdGoreGuncelle'      => false,
+                'UyeTipiFiyat1Guncelle'        => false,
+                'UyeTipiFiyat2Guncelle'        => false,
+                'UyeTipiFiyat3Guncelle'        => false,
+                'UyeTipiFiyat4Guncelle'        => false,
+                'UyeTipiFiyat5Guncelle'        => false,
+                'VaryasyonGuncelle'            => true,
+            ],
+        ];
+        $this->client->call('product', $this->method('update_price'), $params);
+    }
+
+    /**
      * UrunKarti.Aktif alanını güncellemek için SaveUrun ile sadece Aktif update.
      */
     public function setActive(string $productId, bool $active): array

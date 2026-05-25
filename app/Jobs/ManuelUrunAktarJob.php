@@ -155,57 +155,154 @@ class ManuelUrunAktarJob implements ShouldQueue
 
     /* -----------------------------------------------------------------------
      |  Mode: sadece stok + fiyat güncelle
+     |
+     |  Optimizasyon: product_mappings'te bayi_variant_id olan ürünler için
+     |  tek bir toplu SOAP çağrısı yapılır (2 çağrı: updateStockBatch +
+     |  updatePriceBatch). Mapping'te olmayan ürünler bireysel fallback ile
+     |  işlenir. 70 ürün için 210 SOAP çağrısı → 2 SOAP çağrısı (~5 sn).
      * --------------------------------------------------------------------- */
 
     private function handleStokFiyat(?SyncJob $job): void
     {
-        $ana    = ProductService::for('ana');
-        $bayi   = ProductService::for('bayi');
-        $mapper = $this->buildMapper($ana, $bayi);
-        $fields = ['stok_adedi', 'satis_fiyati', 'indirimli_fiyat'];
+        // Her varyasyonu ayrı işle — groupByUrunKarti() KULLANILMAZ
+        $allRows = array_values(array_filter(
+            $this->rows,
+            fn ($r) => ($r['stok_kodu'] ?? '') !== ''
+        ));
 
-        foreach ($this->groupByUrunKarti() as $row) {
-            $stokKodu = $row['stok_kodu'] ?? '';
-            $barkod   = $row['barkod']   ?? '';
-            $urunAdi  = $row['urun_adi'] ?? '';
+        if (empty($allRows)) {
+            return;
+        }
 
-            if ($stokKodu === '') {
-                continue;
+        $job?->update(['total' => count($allRows)]);
+
+        // ── Adım 1: Tek SQL ile tüm mapping'leri çek ──
+        $stokKodlari = array_column($allRows, 'stok_kodu');
+        $mappings    = ProductMapping::whereIn('stok_kodu', $stokKodlari)
+            ->get()
+            ->keyBy('stok_kodu');
+
+        // ── Adım 2: Batch dizilerini doldur ──
+        $stockBatch  = [];   // updateStockBatch için
+        $priceBatch  = [];   // updatePriceBatch için
+        $mappedRows  = [];   // batch'e giren satırlar
+        $unmappedRows = [];  // fallback gereken satırlar
+
+        foreach ($allRows as $row) {
+            $stokKodu = $row['stok_kodu'];
+            $barkod   = ($row['barkod'] ?? '') ?: null;
+            $stock    = (int) ($row['stok_adedi'] ?? 0);
+            $price    = (float) ($row['satis_fiyati'] ?? 0);
+            $mapping  = $mappings->get($stokKodu);
+
+            if ($mapping && $mapping->bayi_variant_id) {
+                $varItem = [
+                    'ID'        => (int) $mapping->bayi_variant_id,
+                    'StokAdedi' => $stock,
+                ];
+                if ($barkod !== null) {
+                    $varItem['Barkod'] = $barkod;
+                }
+                $stockBatch[] = $varItem;
+
+                if ($barkod !== null && $price > 0) {
+                    $priceBatch[] = [
+                        'Barkod'      => $barkod,
+                        'SatisFiyati' => $price,
+                        'KdvOrani'    => 20,
+                        'KdvDahil'    => true,
+                    ];
+                }
+
+                $mappedRows[] = $row;
+            } else {
+                $unmappedRows[] = $row;
             }
-            $job?->increment('total');
+        }
 
-            try {
-                $bayiMevcut = $bayi->getProductByStokKodu($stokKodu);
-                if (! $bayiMevcut || (int) ($bayiMevcut['ID'] ?? 0) === 0) {
-                    SyncLog::create($this->logData($job, 'update_stock_price', 'skipped', $row,
-                        'Bayide bulunamadı (önce aktar)'));
-                    continue;
-                }
+        // ── Adım 3: Toplu SOAP (2 çağrı, N ürün) ──
+        $bayi       = ProductService::for('bayi');
+        $batchError = null;
 
-                // Stok/fiyat payload'ı için Ana'dan ham veriyi çek
-                $raw = $ana->getProductByStokKodu($stokKodu);
-                if (! $raw) {
-                    $job?->increment('error_count');
-                    SyncLog::create($this->logData($job, 'update_stock_price', 'error', $row,
-                        'Ana mağazada ürün bulunamadı'));
-                    continue;
-                }
+        try {
+            if (! empty($stockBatch)) {
+                $bayi->updateStockBatch($stockBatch);
+            }
+            if (! empty($priceBatch)) {
+                $bayi->updatePriceBatch($priceBatch);
+            }
+        } catch (\Throwable $e) {
+            $batchError = $e->getMessage();
+        }
 
-                $payload = $mapper->anaToBayiCreatePayload($raw);
-                $bayiId  = (int) $bayiMevcut['ID'];
-                $varMap  = $this->mapBayiVariantIds($bayiMevcut);
-                $bayi->updateProductSelective($payload, $bayiId, $varMap, $fields, $bayiMevcut);
-
+        // ── Adım 4: Batch sonuçlarını logla + mapping'i güncelle ──
+        foreach ($mappedRows as $row) {
+            if ($batchError === null) {
                 $stok  = $row['stok_adedi'] ?? 0;
-                $fiyat = number_format((float) ($row['satis_fiyati'] ?? 0), 2, ',', '.');
-                $msg   = "bayi ID={$bayiId} | stok={$stok} fiyat={$fiyat}";
+                $fiyat = number_format((float) ($row['satis_fiyati'] ?? 0), 2, '.', '');
+                $msg   = "stok={$stok} fiyat={$fiyat} (batch)";
                 $job?->increment('success_count');
                 SyncLog::create($this->logData($job, 'update_stock_price', 'success', $row, $msg));
-                $this->upsertMapping($row, $bayiId, $varMap);
-            } catch (\Throwable $e) {
+
+                ProductMapping::where('stok_kodu', $row['stok_kodu'])
+                    ->update([
+                        'last_stock'     => $row['stok_adedi'] ?? null,
+                        'last_price'     => $row['satis_fiyati'] ?? null,
+                        'status'         => 'synced',
+                        'last_error'     => null,
+                        'last_synced_at' => now(),
+                    ]);
+            } else {
                 $job?->increment('error_count');
                 SyncLog::create($this->logData($job, 'update_stock_price', 'error', $row,
-                    substr($e->getMessage(), 0, 250)));
+                    'Batch güncelleme hatası: ' . substr($batchError, 0, 200)));
+            }
+        }
+
+        // ── Adım 5: Fallback — mapping'i olmayan satırlar (bireysel SOAP) ──
+        if (! empty($unmappedRows)) {
+            foreach ($unmappedRows as $row) {
+                $stokKodu = $row['stok_kodu'];
+                $barkod   = ($row['barkod'] ?? '') ?: null;
+                $stock    = (int) ($row['stok_adedi'] ?? 0);
+                $price    = (float) ($row['satis_fiyati'] ?? 0);
+
+                try {
+                    $bayiMevcut = $bayi->getProductByStokKodu($stokKodu);
+                    if (! $bayiMevcut || (int) ($bayiMevcut['ID'] ?? 0) === 0) {
+                        SyncLog::create($this->logData($job, 'update_stock_price', 'skipped', $row,
+                            'Bayide bulunamadı — önce "Sadece Yeni Ürünleri Aktar" yapın'));
+                        continue;
+                    }
+
+                    $bayiId  = (int) $bayiMevcut['ID'];
+                    $varMap  = $this->mapBayiVariantIds($bayiMevcut);
+                    $bayiVarId = $varMap[$stokKodu] ?? null;
+
+                    if (! $bayiVarId) {
+                        $job?->increment('error_count');
+                        SyncLog::create($this->logData($job, 'update_stock_price', 'error', $row,
+                            "Bayi varyasyon ID'si bulunamadı (bayi ürün ID={$bayiId})"));
+                        continue;
+                    }
+
+                    $bayi->updateStock((string) $bayiVarId, $stock, $barkod);
+                    if ($barkod !== null && $price > 0) {
+                        $bayi->updatePrice($barkod, $price);
+                    }
+
+                    // Bir sonraki çalıştırmada batch yoluna girecek — mapping kaydet
+                    $this->upsertMapping($row, $bayiId, $varMap);
+
+                    $fiyat = number_format($price, 2, '.', '');
+                    $msg   = "stok={$stock} fiyat={$fiyat} (bireysel; mapping kaydedildi)";
+                    $job?->increment('success_count');
+                    SyncLog::create($this->logData($job, 'update_stock_price', 'success', $row, $msg));
+                } catch (\Throwable $e) {
+                    $job?->increment('error_count');
+                    SyncLog::create($this->logData($job, 'update_stock_price', 'error', $row,
+                        substr($e->getMessage(), 0, 250)));
+                }
             }
         }
     }
