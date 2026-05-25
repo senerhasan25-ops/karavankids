@@ -26,6 +26,9 @@ class SyncSettings extends Component
 
     public int $siparis_saat_aralik = 24;
 
+    /** Stok/fiyat delta sync checkpoint (SyncStockPriceJob::LAST_RUN_KEY). */
+    public ?string $last_stock_price_run_at = null;
+
     /** Ticimax'tan çekilen sipariş durumları: [['id' => 1, 'ad' => 'Yeni Sipariş'], ...] */
     public array $siparisDurumlari = [];
     /** Seçili durum ID'leri — boş = tümü */
@@ -39,8 +42,9 @@ class SyncSettings extends Component
         $this->otomatik_urunler = (bool) SyncSetting::get('otomatik_urunler', true);
         $this->otomatik_stok_fiyat = (bool) SyncSetting::get('otomatik_stok_fiyat', true);
         $this->otomatik_siparis = (bool) SyncSetting::get('otomatik_siparis', true);
-        $this->last_run_at = SyncSetting::get('last_run_at') ?: null;
-        $this->siparis_saat_aralik = (int) SyncSetting::get('siparis_saat_aralik', 24);
+        $this->last_run_at              = SyncSetting::get('last_run_at') ?: null;
+        $this->last_stock_price_run_at  = SyncSetting::get(SyncStockPriceJob::LAST_RUN_KEY) ?: null;
+        $this->siparis_saat_aralik      = (int) SyncSetting::get('siparis_saat_aralik', 24);
 
         $seciliRaw = SyncSetting::get('secili_siparis_durumlari', '');
         $this->seciliDurumlar = ($seciliRaw && $seciliRaw !== '[]')
@@ -146,6 +150,18 @@ class SyncSettings extends Component
         } else {
             session()->flash('status', 'Ayarlar kaydedildi + kuyruğa alındı: ' . implode(', ', $dispatched) . '. İlerleme için Loglar sekmesine bak.');
         }
+    }
+
+    /**
+     * Stok/fiyat delta checkpoint'ini sıfırla.
+     * Bir sonraki job çalışmasında son 24 saate bakılır (ilk-çalışma davranışı).
+     * Tüm ürünleri yeniden taramak istediğinde kullanılır.
+     */
+    public function sifirlaStokFiyatCheckpoint(): void
+    {
+        SyncSetting::put(SyncStockPriceJob::LAST_RUN_KEY, '');
+        $this->last_stock_price_run_at = null;
+        session()->flash('status', 'Stok/fiyat checkpoint sıfırlandı — bir sonraki çalışmada son 24 saatteki tüm değişiklikler taranacak.');
     }
 
     public function render()
