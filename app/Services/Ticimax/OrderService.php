@@ -125,21 +125,28 @@ class OrderService
         $son = $son instanceof Carbon ? $son->format('Y-m-d\T23:59:59')
             : (strlen((string) $son) === 10 ? $son . 'T23:59:59' : $son);
 
+        // KRİTİK: Ticimax SiparisDurumu/OdemeDurumu/PaketlemeDurumu dropdown'larında
+        // "Hepsi" diye bir option YOK. Geçerli kodlar:
+        //   SiparisDurumu  : 0-22 (0 = "Sipariş Alındı"!)
+        //   OdemeDurumu    : 0-6  (0 = "Onay Bekliyor")
+        //   PaketlemeDurumu: 1-6  (0 yok)
+        // -1 sahte kodumuz "Hepsi" anlamına gelir → SOAP'a göndermeyiz (Ticimax aksi halde
+        // -1 ile eşleşen sipariş aramaya kalkar ve 0 sonuç döner).
+        $siparisDurumu = $filters['siparis_durumu'] ?? -1;
+        $odemeDurumu = $filters['odeme_durumu'] ?? -1;
+        $paketlemeDurumu = $filters['paketleme_durumu'] ?? -1;
+        $odemeTipi = $filters['odeme_tipi'] ?? -1;
+        $aktarildi = $filters['aktarildi'] ?? -1;
+
         $params = [
             'UyeKodu' => $this->client->getUyeKodu(),
             'f' => [
                 'DuzenlemeTarihiBas' => null,
                 'DuzenlemeTarihiSon' => null,
-                // -1 = filtreleme yapma (hem aktarılmış hem aktarılmamış)
-                'EntegrasyonAktarildi' => $filters['aktarildi'] ?? -1,
                 'EntegrasyonParams' => ['EntegrasyonParamsAktif' => false],
                 'IptalEdilmisUrunler' => false,
                 'KampanyaGetir' => false,
                 'KargoFirmaID' => 0,
-                'OdemeDurumu' => $filters['odeme_durumu'] ?? -1,
-                'OdemeTipi' => $filters['odeme_tipi'] ?? -1,
-                'PaketlemeDurumu' => $filters['paketleme_durumu'] ?? 0,
-                'SiparisDurumu' => $filters['siparis_durumu'] ?? 0,
                 'SiparisID' => $filters['siparis_id'] ?? 0,
                 'SiparisKaynagi' => $filters['siparis_kaynagi'] ?? '',
                 'SiparisNo' => $filters['siparis_no'] ?? null,
@@ -159,6 +166,24 @@ class OrderService
                 'SiralamaYonu' => 'DESC',
             ],
         ];
+
+        // Şartlı filtre ekleme: -1 = "Hepsi" demek, SOAP'a hiç geçirmeyiz.
+        // Sadece geçerli bir kod seçildiyse parametreyi ekleriz.
+        if ($siparisDurumu >= 0) {
+            $params['f']['SiparisDurumu'] = $siparisDurumu;
+        }
+        if ($odemeDurumu >= 0) {
+            $params['f']['OdemeDurumu'] = $odemeDurumu;
+        }
+        if ($paketlemeDurumu >= 1) { // paketleme kodları 1'den başlar
+            $params['f']['PaketlemeDurumu'] = $paketlemeDurumu;
+        }
+        if ($odemeTipi >= 0) {
+            $params['f']['OdemeTipi'] = $odemeTipi;
+        }
+        // EntegrasyonAktarildi 0/1/-1 — 0 = sadece aktarılmamış, 1 = sadece aktarılmış,
+        // -1 = filtreleme yapma (hem hem). Her durumda parametreyi geç.
+        $params['f']['EntegrasyonAktarildi'] = $aktarildi;
 
         $resp = $this->client->call('order', $this->method('select'), $params);
         return $this->normalizeList($resp, $this->method('select'));

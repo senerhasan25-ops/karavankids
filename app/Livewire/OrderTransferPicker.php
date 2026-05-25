@@ -27,10 +27,12 @@ class OrderTransferPicker extends Component
     public string $aliciAdi = '';    // istemci-taraflı arama (Ticimax SOAP filtresi desteklemiyor)
     public string $aliciMail = '';   // istemci-taraflı arama
     public string $telefon = '';     // Ticimax UyeTelefon filtresi var, SOAP tarafında uygulanır
-    public int $odemeTipi = -1;     // -1 = hepsi
-    public int $odemeDurumu = -1;   // -1 = hepsi, 1 = ödendi, 2 = bekliyor, 3 = iptal/iade
-    public int $siparisDurumu = 0;  // 0 = hepsi, 1 = onaylandı, 2 = hazırlanıyor, 3 = kargolandı, 4 = teslim, 5 = iptal
-    public int $paketlemeDurumu = 0; // 0 = hepsi, 1 = beklemede, 2 = paketlendi, 3 = kargolandı
+    // -1 = Hepsi (filtre yok). Ticimax bu kodu valid bir durum olarak tanımamış,
+    // server'da ignore edilir (veya getOrdersByFilter'da SOAP'a hiç eklenmez).
+    public int $odemeTipi = -1;
+    public int $odemeDurumu = -1;
+    public int $siparisDurumu = -1;
+    public int $paketlemeDurumu = -1;
     public int $aktarildi = -1;     // -1 = hepsi, 0 = aktarılmamış, 1 = aktarılmış
     public int $page = 1;
     public int $perPage = 25;
@@ -55,44 +57,52 @@ class OrderTransferPicker extends Component
     ];
 
     // Ödeme Durumu — Ticimax bayi panelindeki sıraya göre (Ali'nin gönderdiği screenshot)
+    // Ödeme Durumu — Ticimax HTML inspect'ten gerçek option value'ları (id=ddl_Odeme_Durum)
     public array $odemeDurumlari = [
         -1 => 'Hepsi',
+        0 => 'Onay Bekliyor',
+        1 => 'Onaylandı',
+        2 => 'Hatalı',
+        3 => 'İade Edilmiş',
+        4 => 'İptal Edilmiş',
+        5 => 'Ödeme Bekliyor',
+        6 => 'Ödeme Talep Edildi',
+    ];
+
+    // Sipariş Durumu — Ticimax HTML inspect'ten gerçek 23 durum (id=ddl_Siparis_Durum)
+    // DİKKAT: 0 = "Sipariş Alındı" (bizim eski default 0 = "Hepsi" varsayımımız YANLIŞTI,
+    // sadece Sipariş Alındı statüsündeki siparişleri görüyorduk). -1 = Hepsi olarak ekledik.
+    public array $siparisDurumlari = [
+        -1 => 'Hepsi',
+        0 => 'Sipariş Alındı',
         1 => 'Onay Bekliyor',
         2 => 'Onaylandı',
-        3 => 'Hatalı',
-        4 => 'İade Edilmiş',
-        5 => 'İptal Edilmiş',
-        6 => 'Ödeme Bekliyor',
-        7 => 'Ödeme Talep Edildi',
+        3 => 'Ödeme Bekliyor',
+        4 => 'Paketleniyor',
+        5 => 'Tedarik Ediliyor',
+        6 => 'Kargoya Verildi',
+        7 => 'Teslim Edildi',
+        8 => 'İptal Edildi',
+        9 => 'İade Edildi',
+        10 => 'Silinmiş',
+        11 => 'İade Talebi Alındı',
+        12 => 'İade Ulaştı Ödeme Yapılacak',
+        13 => 'İade Ödemesi Yapıldı',
+        14 => 'Teslimat Öncesi İptal Talebi',
+        15 => 'İptal Talebi',
+        16 => 'Kısmı İade Talebi',
+        17 => 'Kısmı İade Yapıldı',
+        18 => 'Teslim Edilemedi',
+        19 => 'Mağazaya Gönderildi',
+        20 => 'Mağazaya Ulaştı',
+        21 => 'Mağazada Teslim Bekliyor',
+        22 => 'Cüzdana İade',
     ];
 
-    // Sipariş Durumu — Ticimax panelindeki TAM liste (20 durum)
-    public array $siparisDurumlari = [
-        0 => 'Hepsi',
-        1 => 'Sipariş Alındı',
-        2 => 'Onay Bekliyor',
-        3 => 'Onaylandı',
-        4 => 'Ödeme Bekliyor',
-        5 => 'Paketleniyor',
-        6 => 'Tedarik Ediliyor',
-        7 => 'Kargoya Verildi',
-        8 => 'Teslim Edildi',
-        9 => 'İptal Edildi',
-        10 => 'İade Edildi',
-        11 => 'Silinmiş',
-        12 => 'İade Talebi Alındı',
-        13 => 'İade Ulaştı Ödeme Yapılacak',
-        14 => 'İade Ödemesi Yapıldı',
-        15 => 'Teslimat Öncesi İptal Talebi',
-        16 => 'İptal Talebi',
-        17 => 'Kısmı İade Talebi',
-        18 => 'Kısmı İade Yapıldı',
-        19 => 'Teslim Edilemedi',
-    ];
-
-    // Paketleme Durumu — Ticimax panelindeki TAM liste
+    // Paketleme Durumu — Ticimax HTML inspect'ten gerçek 6 durum (id=ddl_Paketleme_Durum)
+    // Kodlar 1'den başlar (0 yok), bu yüzden Hepsi için -1.
     public array $paketlemeDurumlari = [
-        0 => 'Hepsi',
+        -1 => 'Hepsi',
         1 => 'Beklemede',
         2 => 'Paketleniyor',
         3 => 'Eksik Ürün',
@@ -232,8 +242,8 @@ class OrderTransferPicker extends Component
         $this->telefon = '';
         $this->odemeTipi = -1;
         $this->odemeDurumu = -1;
-        $this->siparisDurumu = 0;
-        $this->paketlemeDurumu = 0;
+        $this->siparisDurumu = -1;
+        $this->paketlemeDurumu = -1;
         $this->aktarildi = -1;
         $this->page = 1;
         $this->orders = [];
