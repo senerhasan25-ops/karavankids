@@ -49,6 +49,68 @@
         @endif
     </div>
 
+    {{-- PARAMETRELER — her zaman görünür, listeden önce de ayarlanabilir --}}
+    <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-4 mb-4">
+        <div class="flex items-center justify-between mb-1">
+            <h2 class="font-semibold">Güncellenecek Parametreler</h2>
+            <div class="flex gap-2 text-xs">
+                <button wire:click="tumunuSec" class="px-2 py-1 rounded bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600">Tümü</button>
+                <button wire:click="hicbirini" class="px-2 py-1 rounded bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600">Hiçbiri</button>
+            </div>
+        </div>
+        <p class="text-xs text-blue-600 dark:text-blue-400 mb-3">
+            💾 Seçimler otomatik kaydedilir — sayfa yenilenince ve otomatik ürün sync'inde bu ayarlar kullanılır.
+        </p>
+        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 text-sm">
+            @foreach([
+                'urun_adi'         => 'Ürün Adı',
+                'aciklama'         => 'Açıklama',
+                'on_yazi'          => 'Ön Yazı',
+                'kategori'         => 'Kategori',
+                'marka'            => 'Marka',
+                'tedarikci'        => 'Tedarikçi',
+                'satis_fiyati'     => 'Satış Fiyatı',
+                'indirimli_fiyat'  => 'İndirimli Fiyat',
+                'stok_adedi'       => 'Stok Adedi',
+                'eksi_stok_adedi'  => 'Eksi Stok Adedi',
+                'kdv_dahil'        => 'KDV Dahil',
+                'kdv_orani'        => 'KDV Oranı',
+                'stok_kodu'        => 'Stok Kodu',
+                'barkod'           => 'Barkod',
+                'seo'              => 'SEO',
+                'resimler'         => 'Resimler',
+                'aktif'            => 'Aktiflik',
+                'vitrin'           => 'Vitrin',
+                'yeni_urun'        => 'Yeni Ürün',
+                'firsat_urunu'     => 'Fırsat Ürünü',
+            ] as $key => $label)
+                <label class="flex items-center gap-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 px-2 py-1 rounded">
+                    <input type="checkbox" wire:model.live="fields.{{ $key }}" class="rounded">
+                    <span>{{ $label }}</span>
+                </label>
+            @endforeach
+        </div>
+
+        {{-- Uye Tipi Fiyatlari 1-20 alt panel --}}
+        <div class="mt-4 pt-3 border-t dark:border-gray-700">
+            <div class="flex items-center justify-between mb-2">
+                <h3 class="text-sm font-semibold">Üye Tipi Fiyatları (1–20)</h3>
+                <label class="flex items-center gap-2 cursor-pointer text-xs text-gray-600 dark:text-gray-400">
+                    <input type="checkbox" wire:model.live="fields.uye_tipi_fiyat" class="rounded">
+                    <span>Hepsini birden seç</span>
+                </label>
+            </div>
+            <div class="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-10 gap-1 text-xs">
+                @for($i = 1; $i <= 20; $i++)
+                    <label class="flex items-center gap-1 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 px-2 py-1 rounded">
+                        <input type="checkbox" wire:model.live="uyeTipi.{{ $i }}" class="rounded">
+                        <span>Fiyat {{ $i }}</span>
+                    </label>
+                @endfor
+            </div>
+        </div>
+    </div>
+
     {{-- URUN LISTESI --}}
     @if(! empty($products))
         {{-- Tablo içi filtreler --}}
@@ -162,67 +224,9 @@
             </div>
         </div>
 
-        {{-- PARAMETRELER + AKTAR --}}
+        {{-- AKTAR BUTONLARI --}}
         <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-4 mb-4">
-            <div class="flex items-center justify-between mb-1">
-                <h2 class="font-semibold">Güncellenecek Parametreler</h2>
-                <div class="flex gap-2 text-xs">
-                    <button wire:click="tumunuSec" class="px-2 py-1 rounded bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600">Tümü</button>
-                    <button wire:click="hicbirini" class="px-2 py-1 rounded bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600">Hiçbiri</button>
-                </div>
-            </div>
-            <p class="text-xs text-blue-600 dark:text-blue-400 mb-3">
-                💾 Seçimler otomatik kaydedilir — sayfa yenilenince ve otomatik ürün sync'inde bu ayarlar kullanılır.
-            </p>
-            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 text-sm">
-                @foreach([
-                    'urun_adi'         => 'Ürün Adı',
-                    'aciklama'         => 'Açıklama',
-                    'on_yazi'          => 'Ön Yazı',
-                    'kategori'         => 'Kategori',
-                    'marka'            => 'Marka',
-                    'tedarikci'        => 'Tedarikçi',
-                    'satis_fiyati'     => 'Satış Fiyatı',
-                    'indirimli_fiyat'  => 'İndirimli Fiyat',
-                    'stok_adedi'       => 'Stok Adedi',
-                    'eksi_stok_adedi'  => 'Eksi Stok Adedi',
-                    'kdv_dahil'        => 'KDV Dahil',
-                    'kdv_orani'        => 'KDV Oranı',
-                    'stok_kodu'        => 'Stok Kodu',
-                    'barkod'           => 'Barkod',
-                    'seo'              => 'SEO',
-                    'resimler'         => 'Resimler',
-                    'aktif'            => 'Aktiflik',
-                    'vitrin'           => 'Vitrin',
-                    'yeni_urun'        => 'Yeni Ürün',
-                    'firsat_urunu'     => 'Fırsat Ürünü',
-                ] as $key => $label)
-                    <label class="flex items-center gap-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 px-2 py-1 rounded">
-                        <input type="checkbox" wire:model.live="fields.{{ $key }}" class="rounded">
-                        <span>{{ $label }}</span>
-                    </label>
-                @endforeach
-            </div>
-
-            {{-- Uye Tipi Fiyatlari 1-20 alt panel --}}
-            <div class="mt-4 pt-3 border-t dark:border-gray-700">
-                <div class="flex items-center justify-between mb-2">
-                    <h3 class="text-sm font-semibold">Üye Tipi Fiyatları (1–20)</h3>
-                    <label class="flex items-center gap-2 cursor-pointer text-xs text-gray-600 dark:text-gray-400">
-                        <input type="checkbox" wire:model.live="fields.uye_tipi_fiyat" class="rounded">
-                        <span>Hepsini birden seç</span>
-                    </label>
-                </div>
-                <div class="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-10 gap-1 text-xs">
-                    @for($i = 1; $i <= 20; $i++)
-                        <label class="flex items-center gap-1 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 px-2 py-1 rounded">
-                            <input type="checkbox" wire:model.live="uyeTipi.{{ $i }}" class="rounded">
-                            <span>Fiyat {{ $i }}</span>
-                        </label>
-                    @endfor
-                </div>
-            </div>
-            <div class="mt-4 pt-3 border-t dark:border-gray-700 flex flex-wrap justify-between gap-2">
+            <div class="flex flex-wrap justify-between gap-2">
                 {{-- Secimden bagimsiz: listedeki tum urunleri tarayip yeni olanlari aktar --}}
                 <button type="button"
                         wire:click="yeniUrunleriAktar" wire:loading.attr="disabled" wire:target="yeniUrunleriAktar"
