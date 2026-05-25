@@ -3,7 +3,9 @@
 namespace App\Livewire;
 
 use App\Jobs\ManuelUrunAktarJob;
+use App\Models\ProductMapping;
 use App\Models\SyncJob;
+use App\Models\SyncLog;
 use App\Services\Ticimax\ProductService;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
@@ -193,9 +195,10 @@ class ProductPicker extends Component
     /**
      * Sadece yeni ürünleri aktar (seçim YOK).
      *
-     * Önce product_mappings tablosunu kontrol eder: bayi_product_id dolu = zaten aktarılmış.
-     * Sadece mapping'de olmayan ürünleri job'a gönderir; hiç aday yoksa bilgi mesajı verir.
-     * İşlemi arka plan job'una devreder — HTTP timeout riski ortadan kalkar.
+     * 1. product_mappings'i toplu sorgular → zaten eşleşmiş ürünleri SOAP'sız eler.
+     * 2. Kalan adaylar için dispatchSync ile AYNI REQUEST'TE çalıştırır (kuyruk worker
+     *    gerekmez, sonuçlar anında ekranda görünür).
+     * 3. Ön-filtreleme sayesinde gerçekten yeni olan ürünler az olur → hızlı.
      */
     public function yeniUrunleriAktar(): void
     {
@@ -208,7 +211,7 @@ class ProductPicker extends Component
             return;
         }
 
-        // urun_karti_id bazında grupla (her kart için bir temsilci)
+        // urun_karti_id bazında grupla — her kart için bir temsilci satır
         $byUrunKarti = [];
         foreach ($this->products as $r) {
             $uid = (int) $r['urun_karti_id'];
@@ -217,28 +220,27 @@ class ProductPicker extends Component
             }
         }
 
-        // product_mappings'te bayi_product_id dolu olanları tek sorguda bul → zaten aktarılmış
-        $stokKodulari  = array_filter(array_column(array_values($byUrunKarti), 'stok_kodu'));
-        $mevcutMapping = \App\Models\ProductMapping::whereIn('stok_kodu', $stokKodulari)
-            ->whereNotNull('bayi_product_id')
-            ->pluck('stok_kodu')
-            ->all();
-        $mevcutSet = array_flip($mevcutMapping);
+        // product_mappings'te bayi_product_id dolu = zaten aktarılmış → çıkar
+        $stokKodulari = array_filter(array_column(array_values($byUrunKarti), 'stok_kodu'));
+        $mevcutSet    = array_flip(
+            ProductMapping::whereIn('stok_kodu', $stokKodulari)
+                ->whereNotNull('bayi_product_id')
+                ->pluck('stok_kodu')
+                ->all()
+        );
 
-        // Sadece mapping'de olmayan adaylar
-        $adaylar = array_values(array_filter(
+        $adaylar      = array_values(array_filter(
             $byUrunKarti,
             fn ($r) => ! isset($mevcutSet[$r['stok_kodu'] ?? ''])
         ));
-
         $mevcutSayisi = count($byUrunKarti) - count($adaylar);
 
         if (empty($adaylar)) {
-            $this->status = 'Listede ' . count($byUrunKarti) . ' ürün kart var, hepsi zaten bayide mevcut. Aktarılacak yeni ürün yok.';
+            $this->status = 'Listede ' . count($byUrunKarti) . ' ürün kartı var — hepsi zaten bayide mevcut. Aktarılacak yeni ürün yok.';
             return;
         }
 
-        // _raw alanını çıkar — job payload'ı küçük tutmak için Ana'dan yeniden çeker
+        // _raw alanını çıkar — job Ana'dan yeniden çeker
         $compactRows = array_map(fn ($r) => array_diff_key($r, ['_raw' => true]), $adaylar);
 
         $job = SyncJob::create([
@@ -247,11 +249,42 @@ class ProductPicker extends Component
             'started_at' => null,
         ]);
 
-        ManuelUrunAktarJob::dispatch('yeni_urun', $compactRows, [], $job->id);
+        // dispatchSync → aynı request'te çalışır, worker beklenmez
+        set_time_limit(300);
+        ManuelUrunAktarJob::dispatchSync('yeni_urun', $compactRows, [], $job->id);
 
-        $this->status = count($compactRows) . ' yeni ürün kuyruğa alındı'
-            . ($mevcutSayisi > 0 ? " ({$mevcutSayisi} tanesi zaten bayide, atlandı)" : '')
-            . ' — İş #' . $job->id . '. İlerlemeyi Loglar sayfasından takip edebilirsin.';
+        // Sonuçları sync_logs'tan oku ve ekrana yansıt
+        $job->refresh();
+        $logs = SyncLog::where('job_id', $job->id)->get();
+        foreach ($logs as $log) {
+            if (! $log->stok_kodu) {
+                continue; // genel mesaj satırı
+            }
+            $this->results[] = [
+                'stok_kodu' => $log->stok_kodu  ?? '',
+                'urun_adi'  => $log->urun_adi   ?? '',
+                'durum'     => $log->status      === 'success'  ? 'olusturuldu'
+                            : ($log->status      === 'skipped'  ? 'atlandi'
+                            :                                     'hata'),
+                'mesaj'     => $log->message     ?? '',
+            ];
+        }
+
+        $yeni    = $job->success_count ?? 0;
+        $atlandi = $logs->where('status', 'skipped')->count();
+        $hata    = $job->error_count   ?? 0;
+
+        $this->status = $mevcutSayisi > 0
+            ? "{$mevcutSayisi} ürün zaten bayide (mapping'den tespit edildi, atlandı). "
+            : '';
+
+        if ($yeni === 0 && $hata === 0) {
+            $this->status .= count($adaylar) . ' aday Bayi\'de de mevcuttu — aktarılacak gerçek yeni ürün yok.';
+        } else {
+            $this->status .= "Aktarım tamamlandı: {$yeni} yeni eklendi"
+                . ($atlandi ? ", {$atlandi} atlandı (bayi'de mevcuttu)" : '')
+                . ($hata    ? ", {$hata} hata"                          : '') . '.';
+        }
     }
 
     /**
