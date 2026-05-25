@@ -7,6 +7,7 @@ use App\Models\ProductMapping;
 use App\Models\SyncJob;
 use App\Models\SyncLog;
 use App\Services\Ticimax\ProductService;
+use Livewire\Attributes\Computed;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Attributes\Url;
@@ -33,6 +34,13 @@ class ProductPicker extends Component
     public int $page = 1;
     public int $perPage = 100;
     public bool $hasMore = false;
+
+    /* ---------------------------------------------------------------------
+     |  Tablo içi filtreler (liste yüklendikten sonra anlık daraltma)
+     * --------------------------------------------------------------------- */
+    public string $filterStokKodu = '';
+    public string $filterBarkod   = '';
+    public string $filterUrunAdi  = '';
 
     /** UI durumu */
     public bool $hasSearched = false;
@@ -99,6 +107,10 @@ class ProductPicker extends Component
         $this->resultCount = 0;
         $this->hasMore = false;
         $this->hasSearched = true;
+        // Tablo içi filtreleri sıfırla
+        $this->filterStokKodu = '';
+        $this->filterBarkod   = '';
+        $this->filterUrunAdi  = '';
         // Yeni listede sayfa 1'den başla
         $this->page = 1;
         $this->loadPage();
@@ -395,6 +407,40 @@ class ProductPicker extends Component
             }
         }
         return $rows;
+    }
+
+    /**
+     * Tablo içi filtreleri uygular; $products array'i değiştirmez.
+     * Livewire 3 Computed: her render'da lazy hesaplanır, ayrı HTTP isteği tetiklemez.
+     */
+    #[Computed]
+    public function displayedProducts(): array
+    {
+        $rows = $this->products;
+
+        if ($this->filterStokKodu !== '') {
+            $q = mb_strtolower($this->filterStokKodu);
+            $rows = array_filter($rows, fn ($r) => str_contains(mb_strtolower($r['stok_kodu']), $q));
+        }
+
+        if ($this->filterBarkod !== '') {
+            $q = mb_strtolower($this->filterBarkod);
+            $rows = array_filter($rows, fn ($r) => str_contains(mb_strtolower($r['barkod']), $q));
+        }
+
+        if ($this->filterUrunAdi !== '') {
+            $q = mb_strtolower($this->filterUrunAdi);
+            $rows = array_filter($rows, fn ($r) => str_contains(mb_strtolower($r['urun_adi']), $q));
+        }
+
+        return array_values($rows);
+    }
+
+    public function filterTemizle(): void
+    {
+        $this->filterStokKodu = '';
+        $this->filterBarkod   = '';
+        $this->filterUrunAdi  = '';
     }
 
     public function render()

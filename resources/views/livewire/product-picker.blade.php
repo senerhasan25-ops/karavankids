@@ -51,6 +51,48 @@
 
     {{-- URUN LISTESI --}}
     @if(! empty($products))
+        {{-- Tablo içi filtreler --}}
+        <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-3 mb-3 flex flex-wrap gap-2 items-end">
+            <div class="flex-1 min-w-[140px]">
+                <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Stok Kodu</label>
+                <input type="text"
+                       wire:model.live.debounce.300ms="filterStokKodu"
+                       placeholder="İçerik ara…"
+                       class="w-full px-2 py-1.5 text-sm border rounded dark:bg-gray-900 dark:border-gray-700">
+            </div>
+            <div class="flex-1 min-w-[140px]">
+                <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Barkod</label>
+                <input type="text"
+                       wire:model.live.debounce.300ms="filterBarkod"
+                       placeholder="İçerik ara…"
+                       class="w-full px-2 py-1.5 text-sm border rounded dark:bg-gray-900 dark:border-gray-700">
+            </div>
+            <div class="flex-[2] min-w-[200px]">
+                <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Ürün Adı</label>
+                <input type="text"
+                       wire:model.live.debounce.300ms="filterUrunAdi"
+                       placeholder="İçerik ara…"
+                       class="w-full px-2 py-1.5 text-sm border rounded dark:bg-gray-900 dark:border-gray-700">
+            </div>
+            @if($filterStokKodu !== '' || $filterBarkod !== '' || $filterUrunAdi !== '')
+                <div class="flex items-end pb-0.5">
+                    <button wire:click="filterTemizle"
+                            class="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 rounded"
+                            title="Filtreleri temizle">
+                        ✕ Temizle
+                    </button>
+                </div>
+            @endif
+            @php $gorünen = count($this->displayedProducts); $toplam = count($products); @endphp
+            <div class="ml-auto self-end text-xs text-gray-500 dark:text-gray-400 pb-0.5 whitespace-nowrap">
+                @if($gorünen < $toplam)
+                    <span class="font-semibold text-blue-600 dark:text-blue-400">{{ $gorünen }}</span> / {{ $toplam }} satır
+                @else
+                    {{ $toplam }} satır
+                @endif
+            </div>
+        </div>
+
         <div class="bg-white dark:bg-gray-800 shadow rounded-lg overflow-hidden mb-4">
             <div class="px-4 py-3 border-b dark:border-gray-700 flex items-center gap-3">
                 <input type="checkbox" wire:model.live="selectAll" id="selAll" class="rounded">
@@ -77,7 +119,7 @@
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
-                        @foreach($products as $row)
+                        @forelse($this->displayedProducts as $row)
                             @php
                                 $isSel = in_array((string) $row['variant_id'], $selected, true);
                             @endphp
@@ -108,7 +150,13 @@
                                     @endif
                                 </td>
                             </tr>
-                        @endforeach
+                        @empty
+                            <tr>
+                                <td colspan="10" class="px-4 py-6 text-center text-sm text-gray-400 dark:text-gray-500">
+                                    Filtre kriterlerine uyan ürün yok.
+                                </td>
+                            </tr>
+                        @endforelse
                     </tbody>
                 </table>
             </div>
