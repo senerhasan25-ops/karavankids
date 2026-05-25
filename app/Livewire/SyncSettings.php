@@ -47,14 +47,28 @@ class SyncSettings extends Component
             ? json_decode($seciliRaw, true)
             : [];
 
-        $this->yukleSiparisDurumlari();
+        // DB'den kaydedilmiş durum listesini yükle — Ticimax çağrısı YOK
+        $listRaw = SyncSetting::get('siparis_durum_listesi', '');
+        $this->siparisDurumlari = ($listRaw && $listRaw !== '[]')
+            ? json_decode($listRaw, true)
+            : [];
     }
 
+    /**
+     * Ticimax'tan sipariş durumlarını çek, DB'ye kaydet.
+     * Sadece "Yenile" butonuna basılınca çağrılır.
+     */
     public function yukleSiparisDurumlari(): void
     {
         try {
-            $this->siparisDurumlari = OrderService::for('bayi')->getOrderStatuses();
-            $this->durumYuklemHata = null;
+            $list = OrderService::for('bayi')->getOrderStatuses();
+            if (! empty($list)) {
+                SyncSetting::put('siparis_durum_listesi', json_encode($list));
+                $this->siparisDurumlari = $list;
+                $this->durumYuklemHata = null;
+            } else {
+                $this->durumYuklemHata = 'Ticimax sıfır kayıt döndürdü. WSDL metodunu kontrol edin.';
+            }
         } catch (\Throwable $e) {
             $this->durumYuklemHata = $e->getMessage();
         }

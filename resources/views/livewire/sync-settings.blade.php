@@ -106,9 +106,8 @@
                         </div>
 
                         @if ($durumYuklemHata)
-                            <div class="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded p-2 mb-2">
-                                Sipariş durumları yüklenemedi: {{ $durumYuklemHata }}
-                                <br>Bağlantıyı kontrol edip "Yenile" butonuna tıklayın.
+                            <div class="text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700 rounded p-2 mb-2">
+                                ⚠️ Ticimax'tan çekilemedi: {{ $durumYuklemHata }}
                             </div>
                         @endif
 
@@ -134,10 +133,14 @@
                                     Seçili: {{ implode(', ', $seciliDurumlar) }} — sadece bu durumdaki siparişler aktarılır.
                                 @endif
                             </p>
-                        @elseif (!$durumYuklemHata)
-                            <div wire:loading class="text-xs text-gray-400 dark:text-gray-500">Yükleniyor...</div>
-                            <div wire:loading.remove class="text-xs text-gray-400 dark:text-gray-500">
-                                Sipariş durumu bulunamadı. "Yenile" butonuna tıklayın.
+                        @else
+                            <div wire:loading.target="yukleSiparisDurumlari" class="text-xs text-gray-400 dark:text-gray-500 italic">
+                                Ticimax'tan çekiliyor...
+                            </div>
+                            <div wire:loading.remove.target="yukleSiparisDurumlari" class="text-xs text-amber-600 dark:text-amber-400">
+                                @if (!$durumYuklemHata)
+                                    Henüz çekilmedi. Sağdaki "Yenile" butonuna tıklayın.
+                                @endif
                             </div>
                         @endif
                     </div>
