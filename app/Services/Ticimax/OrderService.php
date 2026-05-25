@@ -125,68 +125,86 @@ class OrderService
         $son = $son instanceof Carbon ? $son->format('Y-m-d\T23:59:59')
             : (strlen((string) $son) === 10 ? $son . 'T23:59:59' : $son);
 
-        // KRİTİK: Ticimax SiparisDurumu/OdemeDurumu/PaketlemeDurumu dropdown'larında
-        // "Hepsi" diye bir option YOK. Geçerli kodlar:
-        //   SiparisDurumu  : 0-22 (0 = "Sipariş Alındı"!)
-        //   OdemeDurumu    : 0-6  (0 = "Onay Bekliyor")
-        //   PaketlemeDurumu: 1-6  (0 yok)
-        // -1 sahte kodumuz "Hepsi" anlamına gelir → SOAP'a göndermeyiz (Ticimax aksi halde
-        // -1 ile eşleşen sipariş aramaya kalkar ve 0 sonuç döner).
+        // Ticimax SOAP DataContract bu alanları zorunlu kabul ediyor — omit edersek
+        // sessizce boş cevap dönüyor. Alanları HER ZAMAN ekleriz; "Hepsi" için -1 göndeririz
+        // (Ticimax bunu çoğu alanda "ignore" olarak işliyor).
+        //
+        // İSTİSNA: SiparisDurumu için -1 geçerli değil ve Ticimax 0 sonuç döner. Bu yüzden
+        // "Hepsi" seçiliyse 23 durumu döngüye alıp birleştirip dedupe ediyoruz (Hasan'ın
+        // PullBayiOrdersJob.handle() ile aynı yaklaşım).
         $siparisDurumu = $filters['siparis_durumu'] ?? -1;
         $odemeDurumu = $filters['odeme_durumu'] ?? -1;
         $paketlemeDurumu = $filters['paketleme_durumu'] ?? -1;
         $odemeTipi = $filters['odeme_tipi'] ?? -1;
         $aktarildi = $filters['aktarildi'] ?? -1;
 
-        $params = [
-            'UyeKodu' => $this->client->getUyeKodu(),
-            'f' => [
-                'DuzenlemeTarihiBas' => null,
-                'DuzenlemeTarihiSon' => null,
-                'EntegrasyonParams' => ['EntegrasyonParamsAktif' => false],
-                'IptalEdilmisUrunler' => false,
-                'KampanyaGetir' => false,
-                'KargoFirmaID' => 0,
-                'SiparisID' => $filters['siparis_id'] ?? 0,
-                'SiparisKaynagi' => $filters['siparis_kaynagi'] ?? '',
-                'SiparisNo' => $filters['siparis_no'] ?? null,
-                'SiparisTarihiBas' => $bas,
-                'SiparisTarihiSon' => $son,
-                'StrSiparisDurumu' => '',
-                'TedarikciID' => -1,
-                'UrunGetir' => true,
-                'UyeID' => -1,
-                // Ticimax SOAP'ta alıcı adı/mail filtresi yok — bunlar Livewire tarafında
-                // istemci taraflı filtreleniyor. Telefon SOAP filtresi var:
-                'UyeTelefon' => $filters['uye_telefon'] ?? null,
-            ],
-            's' => [
-                'BaslangicIndex' => $startIdx,
-                'KayitSayisi' => $perPage,
-                'SiralamaYonu' => 'DESC',
-            ],
-        ];
+        $buildParams = function (int $siparisDurumuValue) use (
+            $startIdx, $perPage, $bas, $son, $filters,
+            $odemeDurumu, $paketlemeDurumu, $odemeTipi, $aktarildi
+        ): array {
+            return [
+                'UyeKodu' => $this->client->getUyeKodu(),
+                'f' => [
+                    'DuzenlemeTarihiBas' => null,
+                    'DuzenlemeTarihiSon' => null,
+                    'EntegrasyonAktarildi' => $aktarildi,
+                    'EntegrasyonParams' => ['EntegrasyonParamsAktif' => false],
+                    'IptalEdilmisUrunler' => false,
+                    'KampanyaGetir' => false,
+                    'KargoFirmaID' => 0,
+                    'OdemeDurumu' => $odemeDurumu,
+                    'OdemeTipi' => $odemeTipi,
+                    'PaketlemeDurumu' => $paketlemeDurumu,
+                    'SiparisDurumu' => $siparisDurumuValue,
+                    'SiparisID' => $filters['siparis_id'] ?? 0,
+                    'SiparisKaynagi' => $filters['siparis_kaynagi'] ?? '',
+                    'SiparisNo' => $filters['siparis_no'] ?? null,
+                    'SiparisTarihiBas' => $bas,
+                    'SiparisTarihiSon' => $son,
+                    'StrSiparisDurumu' => '',
+                    'TedarikciID' => -1,
+                    'UrunGetir' => true,
+                    'UyeID' => -1,
+                    'UyeTelefon' => $filters['uye_telefon'] ?? null,
+                ],
+                's' => [
+                    'BaslangicIndex' => $startIdx,
+                    'KayitSayisi' => $perPage,
+                    'SiralamaYonu' => 'DESC',
+                ],
+            ];
+        };
 
-        // Şartlı filtre ekleme: -1 = "Hepsi" demek, SOAP'a hiç geçirmeyiz.
-        // Sadece geçerli bir kod seçildiyse parametreyi ekleriz.
+        // TEK STATÜ — direkt SOAP çağrısı
         if ($siparisDurumu >= 0) {
-            $params['f']['SiparisDurumu'] = $siparisDurumu;
+            $resp = $this->client->call('order', $this->method('select'), $buildParams($siparisDurumu));
+            return $this->normalizeList($resp, $this->method('select'));
         }
-        if ($odemeDurumu >= 0) {
-            $params['f']['OdemeDurumu'] = $odemeDurumu;
-        }
-        if ($paketlemeDurumu >= 1) { // paketleme kodları 1'den başlar
-            $params['f']['PaketlemeDurumu'] = $paketlemeDurumu;
-        }
-        if ($odemeTipi >= 0) {
-            $params['f']['OdemeTipi'] = $odemeTipi;
-        }
-        // EntegrasyonAktarildi 0/1/-1 — 0 = sadece aktarılmamış, 1 = sadece aktarılmış,
-        // -1 = filtreleme yapma (hem hem). Her durumda parametreyi geç.
-        $params['f']['EntegrasyonAktarildi'] = $aktarildi;
 
-        $resp = $this->client->call('order', $this->method('select'), $params);
-        return $this->normalizeList($resp, $this->method('select'));
+        // HEPSİ MODU — kullanıcı "Hepsi" seçti, tüm bilinen durumları döngüye al + dedup.
+        // Performans: 23 SOAP çağrısı. Pagination basitleştirildi (her statüden ilk perPage,
+        // birleştir, dedupe, tarihe göre sırala, sayfayı kes).
+        $merged = [];
+        $seen = [];
+        foreach (range(0, 22) as $statusCode) {
+            $resp = $this->client->call('order', $this->method('select'), $buildParams($statusCode));
+            $batch = $this->normalizeList($resp, $this->method('select'));
+            foreach ($batch as $o) {
+                $id = (string) ($o['ID'] ?? $o['SiparisID'] ?? '');
+                if ($id !== '' && ! isset($seen[$id])) {
+                    $seen[$id] = true;
+                    $merged[] = $o;
+                }
+            }
+        }
+        // Tarihe göre DESC sırala
+        usort($merged, function ($a, $b) {
+            return strcmp(
+                (string) ($b['SiparisTarihi'] ?? $b['DuzenlemeTarihi'] ?? ''),
+                (string) ($a['SiparisTarihi'] ?? $a['DuzenlemeTarihi'] ?? '')
+            );
+        });
+        return array_slice($merged, $startIdx, $perPage);
     }
 
     /**
