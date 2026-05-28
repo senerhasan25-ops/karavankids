@@ -29,6 +29,9 @@ class SyncSettings extends Component
     /** Stok/fiyat delta sync checkpoint (SyncStockPriceJob::LAST_RUN_KEY). */
     public ?string $last_stock_price_run_at = null;
 
+    /** Yeni ürün delta sync checkpoint (SyncNewProductsJob::LAST_RUN_KEY). */
+    public ?string $last_new_products_run_at = null;
+
     /** Ticimax'tan çekilen sipariş durumları: [['id' => 1, 'ad' => 'Yeni Sipariş'], ...] */
     public array $siparisDurumlari = [];
     /** Seçili durum ID'leri — boş = tümü */
@@ -44,6 +47,7 @@ class SyncSettings extends Component
         $this->otomatik_siparis = (bool) SyncSetting::get('otomatik_siparis', true);
         $this->last_run_at              = SyncSetting::get('last_run_at') ?: null;
         $this->last_stock_price_run_at  = SyncSetting::get(SyncStockPriceJob::LAST_RUN_KEY) ?: null;
+        $this->last_new_products_run_at = SyncSetting::get(\App\Jobs\SyncNewProductsJob::LAST_RUN_KEY) ?: null;
         $this->siparis_saat_aralik      = (int) SyncSetting::get('siparis_saat_aralik', 24);
 
         $seciliRaw = SyncSetting::get('secili_siparis_durumlari', '');
@@ -162,6 +166,17 @@ class SyncSettings extends Component
         SyncSetting::put(SyncStockPriceJob::LAST_RUN_KEY, '');
         $this->last_stock_price_run_at = null;
         session()->flash('status', 'Stok/fiyat checkpoint sıfırlandı — bir sonraki çalışmada son 24 saatteki tüm değişiklikler taranacak.');
+    }
+
+    /**
+     * Yeni ürün delta checkpoint'ini sıfırla.
+     * Bir sonraki job çalışmasında son 7 güne bakılır (ilk-çalışma davranışı).
+     */
+    public function sifirlaYeniUrunCheckpoint(): void
+    {
+        SyncSetting::put(\App\Jobs\SyncNewProductsJob::LAST_RUN_KEY, '');
+        $this->last_new_products_run_at = null;
+        session()->flash('status', 'Yeni ürün checkpoint sıfırlandı — bir sonraki çalışmada son 7 gün taranacak.');
     }
 
     public function render()

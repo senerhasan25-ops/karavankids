@@ -153,6 +153,18 @@
                     </div>
                     <div class="flex flex-wrap items-center gap-3">
                         <span>
+                            📦 Yeni ürün delta checkpoint:
+                            <strong>{{ $last_new_products_run_at ?: 'Henüz çalışmadı (ilk çalışmada son 7 gün taranır)' }}</strong>
+                        </span>
+                        <button type="button"
+                                wire:click="sifirlaYeniUrunCheckpoint"
+                                wire:confirm="Yeni ürün checkpoint sıfırlanacak — bir sonraki sync'te son 7 günde eklenen tüm ürünler yeniden taranacak. Devam?"
+                                class="text-xs px-2 py-0.5 rounded border border-gray-300 dark:border-gray-600 hover:border-red-400 hover:text-red-600 dark:hover:text-red-400 transition">
+                            ↺ Sıfırla
+                        </button>
+                    </div>
+                    <div class="flex flex-wrap items-center gap-3">
+                        <span>
                             💰 Stok/fiyat delta checkpoint:
                             <strong>{{ $last_stock_price_run_at ?: 'Henüz çalışmadı (ilk çalışmada son 24 saat taranır)' }}</strong>
                         </span>
@@ -164,9 +176,10 @@
                         </button>
                     </div>
                     <p class="text-xs text-gray-400 dark:text-gray-500 leading-relaxed">
-                        Delta mod: Stok/fiyat sync her çalışmada yalnızca son checkpoint'ten beri
-                        Ana mağazada <em>değişiklik olan</em> ürünleri Ticimax'a sorar — değişmeyen ürünler için
-                        SOAP çağrısı yapılmaz. "Sıfırla" butonu ile bir sonraki sync'i zorla tam taramaya alabilirsin.
+                        <strong>Delta mod:</strong> Her sync yalnızca son checkpoint'ten beri <em>değişen</em> ürünleri Ticimax'a sorar — değişmeyen ürünler için SOAP çağrısı yapılmaz.
+                        <br>📦 Yeni ürünler: <code>EklemeTarihiBaslangic</code> filtresi (sadece yeni eklenen kartlar).
+                        <br>💰 Stok/fiyat: <code>FiyatStokGuncellemeTarihiBas</code> filtresi (sadece fiyat veya stok değişen ürünler).
+                        "Sıfırla" butonları ile bir sonraki sync'i zorla geriye dönük taramaya alabilirsin.
                     </p>
                 </div>
 

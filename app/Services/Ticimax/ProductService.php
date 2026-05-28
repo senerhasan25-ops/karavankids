@@ -330,12 +330,46 @@ class ProductService
 
     public function getNewProducts(?Carbon $since = null, int $page = 1, int $perPage = 50, string $sortDir = 'ASC'): array
     {
+        return $this->getProductsByDateFilter('DuzenlemeTarihiBaslangic', 'DuzenlemeTarihiBitis', $since, $page, $perPage, $sortDir);
+    }
+
+    /**
+     * SADECE YENİ EKLENEN ürünleri çek (EklemeTarihiBaslangic filtresi).
+     * Mevcut ürün üzerinde sonradan yapılan düzenleme YAKALANMAZ —
+     * yalnızca o tarihten sonra ilk kez eklenmiş kartlar gelir.
+     *
+     * Kullanım: SyncNewProductsJob (yeni ürünleri ana → bayi mirror).
+     * Avantaj: çok daha dar sonuç → daha az SOAP, çok daha hızlı.
+     */
+    public function getProductsByCreated(?Carbon $since = null, int $page = 1, int $perPage = 50, string $sortDir = 'ASC'): array
+    {
+        return $this->getProductsByDateFilter('EklemeTarihiBaslangic', 'EklemeTarihiBitis', $since, $page, $perPage, $sortDir);
+    }
+
+    /**
+     * Fiyat VEYA stok değişen ürünleri çek (FiyatStokGuncellemeTarihiBas filtresi).
+     * Açıklama, resim, kategori vb. değişiklikleri YAKALANMAZ — sadece fiyat/stok.
+     *
+     * Kullanım: SyncStockPriceJob (delta stok/fiyat sync).
+     * Avantaj: sadece ilgili değişiklikler → DB karşılaştırması da daha az iş.
+     */
+    public function getProductsByStockOrPriceChanged(?Carbon $since = null, int $page = 1, int $perPage = 50, string $sortDir = 'ASC'): array
+    {
+        return $this->getProductsByDateFilter('FiyatStokGuncellemeTarihiBas', 'FiyatStokGuncellemeTarihiSon', $since, $page, $perPage, $sortDir);
+    }
+
+    /**
+     * Tarih filtresi üzerinden ürün çekme — ortak yardımcı.
+     * Filtre adları tipine göre değişir (EklemeTarihi*, FiyatStokGuncellemeTarihi*, vb.).
+     */
+    protected function getProductsByDateFilter(string $startField, string $endField, ?Carbon $since, int $page, int $perPage, string $sortDir): array
+    {
         $startIdx = max(0, ($page - 1) * $perPage);
         $params = [
             'UyeKodu' => $this->client->getUyeKodu(),
             'f' => $this->baseFilter() + [
-                'DuzenlemeTarihiBaslangic' => $since ? $since->format('Y-m-d\TH:i:s') : self::MIN_DATETIME,
-                'DuzenlemeTarihiBitis' => self::MAX_DATETIME,
+                $startField => $since ? $since->format('Y-m-d\TH:i:s') : self::MIN_DATETIME,
+                $endField => self::MAX_DATETIME,
             ],
             's' => [
                 'BaslangicIndex' => $startIdx,

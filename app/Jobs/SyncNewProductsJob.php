@@ -41,6 +41,13 @@ class SyncNewProductsJob implements ShouldQueue
     /** 1000 yeni ürün ~100 dk sürebilir; 3 saat yeterli tampon. */
     public int $timeout = 10800;
 
+    /**
+     * sync_settings anahtarı — yeni ürün sync checkpoint.
+     * SyncStockPriceJob ile aynı pattern: başarılı tamamlama tarihini saklarız,
+     * bir sonraki çalışmada o tarihten sonra EKLENEN ürünleri çekeriz.
+     */
+    public const LAST_RUN_KEY = 'last_new_products_run_at';
+
     public function __construct(public ?Carbon $since = null, public ?Carbon $until = null)
     {
     }
@@ -89,7 +96,18 @@ class SyncNewProductsJob implements ShouldQueue
             // Null = kaydedilmemiş veya boş → mevcut ürünler tam güncellenir.
             $selectedFields = $this->loadSavedSelectedFields();
 
-            $since = $this->since;
+            // ── Checkpoint belirle (delta sync) ──────────────────────────────
+            // Constructor'a $since geçildiyse onu kullan (manuel /urunler ekranından
+            // tarihli aktarım). Yoksa SyncSetting'ten checkpoint oku.
+            // İlk çalışma (checkpoint yok) → son 7 günü güvenli başlangıç olarak al.
+            $startedAt = now();
+            if ($this->since) {
+                $since = $this->since;
+            } else {
+                $raw = SyncSetting::get(self::LAST_RUN_KEY);
+                $since = $raw ? Carbon::parse($raw) : now()->subDays(7);
+            }
+
             $page = 1;
             $perPage = (int) config('ticimax.batch_size', 50);
 
@@ -99,7 +117,10 @@ class SyncNewProductsJob implements ShouldQueue
                     $stoppedEarly = true;
                     break;
                 }
-                $products = $ana->getNewProducts($since, $page, $perPage);
+                // EKLEME tarihi filtresine geçtik — sadece o tarihten sonra
+                // yeni eklenen ürün kartları gelir (mevcut ürünlerin düzenlemeleri
+                // yakalanmaz, onlar SyncStockPriceJob'un işi).
+                $products = $ana->getProductsByCreated($since, $page, $perPage);
                 if (empty($products)) {
                     break;
                 }
@@ -124,6 +145,13 @@ class SyncNewProductsJob implements ShouldQueue
                 'finished_at' => now(),
                 'last_error' => $stoppedEarly ? 'Kullanıcı tarafından manuel durduruldu' : null,
             ]);
+
+            // Başarıyla tamamlandıysa ve constructor'dan ELLE tarih VERİLMEDİYSE
+            // checkpoint'i güncelle. Manuel tarihli çağrıda (ProductManualSync)
+            // bizim otomatik akışı kirletmesin diye dokunmuyoruz.
+            if (! $stoppedEarly && ! $this->since) {
+                SyncSetting::put(self::LAST_RUN_KEY, $startedAt->toIso8601String());
+            }
         } catch (Throwable $e) {
             $job->update([
                 'status' => 'failed',

@@ -115,7 +115,11 @@ class SyncStockPriceJob implements ShouldQueue
                 break;
             }
 
-            $products = $ana->getNewProducts($since, $page, $perPage);
+            // FiyatStokGuncellemeTarihi filtresine geçtik — sadece o tarihten
+            // sonra fiyat veya stok değişen ürünler gelir. Açıklama, resim,
+            // kategori vb. düzenlemeler yakalanmaz (bu job zaten sadece stok/
+            // fiyat ile ilgileniyor) → daha az SOAP + daha az "değişiklik yok atla".
+            $products = $ana->getProductsByStockOrPriceChanged($since, $page, $perPage);
             if (empty($products)) {
                 break;
             }
