@@ -7,6 +7,45 @@ Yeni notları **en üste** ekle. Format: `## YYYY-MM-DD — kısa başlık`.
 
 ---
 
+## 2026-05-28 — İkinci tur: cache, toplu aktarım, eşleşmeyen ürün raporu + canlı SOAP adet geri çekildi
+
+**Commits:** `d2d2b83`, `556fddf`, `4b6dff4`, `343d686`, `7b7c4f1`
+
+### Geri çekildi: SetSiparisUrunDurum (canlıda adet değiştirme)
+
+`a2b2ac8`'de eklenen "🔄 Bayi'de/Ana'da Uygula" özelliği **`d2d2b83` ile revert** edildi. Sebep: sipariş içeriğini Ticimax tarafında canlı manipüle etmek istemiyoruz; sadece **yerel override** (aktarımda uygulanır) bırakıldı. Ürünler modal'ında artık tek "💾 Kaydet" butonu var. `OrderService::updateSiparisUrunAdet()` ve UI'daki `applyLive()` metodları silindi.
+
+### Performans: Hepsi modu + ana durumları cache'lendi (`4b6dff4`)
+
+- `getOrdersByFilter()` Hepsi (-1) seçildiğinde 23 ayrı SOAP çağrısı yapan loop artık **60 saniye TTL cache**'lendi. Aynı filtre + sayfa kombinasyonuyla peş peşe tıklamalarda anında dönüyor.
+- `getOrderByIdCached(int, int=30)` eklendi. `OrderTransferPicker::listele()` içinde her aktarılmış sipariş için yapılan ana durum fetch çağrıları artık bu cached versiyonu kullanıyor (30s TTL). Modal'lar (durum/ürün düzenleme) **kasıtlı olarak** taze veri için `getOrderById`'yi doğrudan çağırmaya devam ediyor.
+
+### Yeni özellik: Toplu (bulk) sipariş aktarımı (`343d686`)
+
+Listede her satırın başında checkbox. Başlıkta `☑` toggle (sadece aktarılmamış olanları tümünü seç/temizle). Seçim yapılınca üstte indigo banner:
+- **🚀 Seçilenleri Aktar** — sırayla `TransferSingleBayiOrderJob::dispatch`
+- **⚠️ Force Aktar** — zaten aktarılmış olsa bile yeniden
+- **Seçimi Temizle**
+
+Sadece `local_status ∈ {null, failed, pending}` olan satırlarda checkbox aktif. Force'suz toplu aktarımda `transferred/queued` olanlar atlanır + skip sayısı bildirilir. Dispatch sonrası UI'da hemen `queued` görünür.
+
+### Yeni özellik: Eşleşmeyen Ürünler Raporu (`7b7c4f1`)
+
+Yeni route: `/eslesmeyen-urunler` (`UnmatchedProductsReport` Livewire). Nav'da "Eşleşmeyen Ürünler" linki.
+
+**Veri kaynağı:** zaten var olan `order_transfers.last_error` kolonu. **Yeni migration yok.** ProductMapper'ın throw ettiği sabit-formatlı hata `"Ana'da bu StokKodu ile aktif ürün bulunamadı: <SK>"` regex ile parse edilip stok koduna göre gruplanıyor.
+
+Tablo: Stok Kodu · Etkilenen Sipariş · İlk/Son Görüldü · 🔁 Tekrar Dene. Satır expand → tüm etkilenen bayi sipariş ID'leri görünür. "Tekrar Dene" tıklanınca o stok koduna ait tüm `failed` siparişler `TransferSingleBayiOrderJob`'a re-dispatch edilir.
+
+**Tipik akış:** Aktarım hata verir → buraya birikir → kullanıcı eksik ürünü ana panelden oluşturur → "🔁 Tekrar Dene" → etkilenen siparişler otomatik geçer.
+
+### Yapılmayacaklar listesinden
+
+- ❌ Satır iptal/iade (`SetSiparisUrunDurum` Islem=1/2) — **pas geçildi**, kullanıcı kararı.
+- ❌ Sipariş durumu modal'ı (`SetSiparisDurum`, `SetSiparisOdemeDurum`, `SetSiparisPaketlemeDurum`) — **KORUNDU**, sadece adet değiştirme geri çekildi.
+
+---
+
 ## 2026-05-28 — Sipariş Aktarım Paneli (`/siparisler`) genişletildi: ürün düzenleme, durum güncelleme, canlı SOAP, dinamik enum, diagnostic
 
 Bu seansın tüm işleri **`OrderTransferPicker` ekranı** etrafında. 12 commit, 4 yeni özellik + 4 kritik bug fix. **Hasan tarafına etki sıfır** — sadece `app/Livewire/OrderTransferPicker.php`, `app/Jobs/TransferSingleBayiOrderJob.php`, `app/Jobs/PullBayiOrdersJob.php`, `app/Services/Ticimax/OrderService.php` ve `app/Services/Ticimax/ProductMapper.php` dokunuldu.
