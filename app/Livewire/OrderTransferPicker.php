@@ -42,6 +42,18 @@ class OrderTransferPicker extends Component
     public ?string $lastError = null;
     public bool $hasSearched = false;
 
+    // === ÜRÜN DÜZENLEME MODAL'I ===
+    // Modal açıkken hangi sipariş düzenleniyor; ürün satırları state'te tutulur.
+    // Kaydet'e basılınca order_transfers.product_overrides'a yazılır,
+    // 'Aktar' job'u bunu okuyup Urunler listesini değiştirir.
+    public ?string $editingBayiOrderId = null;
+    public bool $showEditor = false;
+    public bool $editorLoading = false;
+    public ?string $editorError = null;
+    /** @var array<int, array{stok_kodu:string,urun_adi:string,adet:int,birim_fiyat:float,removed:bool}> */
+    public array $editingLines = [];
+    public bool $hasOverride = false; // bu sipariş için önceden override kaydı var mı?
+
     // Ticimax panel terminolojisi ile birebir aynı etiketler.
     // Numeric kodlar Ticimax SelectSiparis filtresine SOAP üzerinden geçer; sürüme göre
     // değişebilir — etiketler değişirse buradan güncelle.
@@ -173,7 +185,7 @@ class OrderTransferPicker extends Component
                 $raw
             ));
             $localStatus = OrderTransfer::whereIn('bayi_order_id', $bayiIds)
-                ->get(['bayi_order_id', 'ana_order_id', 'status', 'transferred_at', 'last_error'])
+                ->get(['bayi_order_id', 'ana_order_id', 'status', 'transferred_at', 'last_error', 'product_overrides'])
                 ->keyBy('bayi_order_id');
 
             $this->orders = array_map(function ($o) use ($localStatus) {
@@ -195,6 +207,7 @@ class OrderTransferPicker extends Component
                     'local_status' => $local?->status,
                     'local_ana_id' => $local?->ana_order_id,
                     'local_error' => $local?->last_error,
+                    'has_override' => $local && ! empty($local->product_overrides),
                 ];
             }, $raw);
         } catch (Throwable $e) {
@@ -203,6 +216,135 @@ class OrderTransferPicker extends Component
         } finally {
             $this->loading = false;
         }
+    }
+
+    /**
+     * Modal'ı aç → siparişi bayi'den taze çek → ürün satırlarını state'e koy.
+     * Önceden kayıtlı override varsa onu uygula (adet değişiklikleri, silinmişler).
+     */
+    public function openEditor(string $bayiOrderId): void
+    {
+        $this->editingBayiOrderId = $bayiOrderId;
+        $this->showEditor = true;
+        $this->editorLoading = true;
+        $this->editorError = null;
+        $this->editingLines = [];
+        $this->hasOverride = false;
+
+        try {
+            $bayi = OrderService::for('bayi');
+            $o = $bayi->getOrderById((int) $bayiOrderId);
+            if (! $o) {
+                throw new \RuntimeException("Bayi'de #{$bayiOrderId} ID'li sipariş bulunamadı.");
+            }
+
+            // Ürünleri normalize et (flattenOrderLines mantığı)
+            $urunler = $o['Urunler'] ?? [];
+            if (isset($urunler['WebSiparisUrun'])) {
+                $urunler = is_array($urunler['WebSiparisUrun']) && array_is_list($urunler['WebSiparisUrun'])
+                    ? $urunler['WebSiparisUrun']
+                    : [$urunler['WebSiparisUrun']];
+            } elseif (! array_is_list((array) $urunler) && ! empty($urunler)) {
+                $urunler = [$urunler];
+            }
+
+            // Var olan override'ı oku (varsa)
+            $existing = OrderTransfer::where('bayi_order_id', $bayiOrderId)->first();
+            $overrideMap = [];
+            if ($existing && is_array($existing->product_overrides ?? null)) {
+                foreach ($existing->product_overrides['lines'] ?? [] as $ovr) {
+                    $sk = (string) ($ovr['stok_kodu'] ?? '');
+                    if ($sk !== '') {
+                        $overrideMap[$sk] = $ovr;
+                    }
+                }
+                $this->hasOverride = ! empty($overrideMap);
+            }
+
+            foreach ((array) $urunler as $line) {
+                $stokKodu = (string) ($line['StokKodu'] ?? '');
+                if ($stokKodu === '') {
+                    continue;
+                }
+                $ovr = $overrideMap[$stokKodu] ?? null;
+                $this->editingLines[] = [
+                    'stok_kodu' => $stokKodu,
+                    'urun_adi' => (string) ($line['UrunAdi'] ?? $line['Urun']['Adi'] ?? '—'),
+                    'adet' => (int) ($ovr['adet'] ?? $line['Adet'] ?? 1),
+                    'birim_fiyat' => (float) ($line['Tutar'] ?? $line['BirimFiyat'] ?? $line['SatisFiyati'] ?? 0),
+                    'removed' => (bool) ($ovr['removed'] ?? false),
+                ];
+            }
+        } catch (Throwable $e) {
+            $this->editorError = $e->getMessage();
+        } finally {
+            $this->editorLoading = false;
+        }
+    }
+
+    public function closeEditor(): void
+    {
+        $this->editingBayiOrderId = null;
+        $this->showEditor = false;
+        $this->editingLines = [];
+        $this->editorError = null;
+        $this->hasOverride = false;
+    }
+
+    /** Satırı "silinmiş" işaretle — tamamen array'den çıkarmıyoruz ki kullanıcı geri alabilsin. */
+    public function toggleRemoveLine(int $idx): void
+    {
+        if (isset($this->editingLines[$idx])) {
+            $this->editingLines[$idx]['removed'] = ! ($this->editingLines[$idx]['removed'] ?? false);
+        }
+    }
+
+    /** Düzenlemeleri DB'ye kaydet — sadece "değiştirilmiş" satırları override olarak yaz. */
+    public function saveEdits(): void
+    {
+        if (! $this->editingBayiOrderId) {
+            return;
+        }
+
+        // Sadece değişikliği olan satırları override'a kaydet (sapma yoksa kayıt da kalmaz)
+        $overrideLines = [];
+        foreach ($this->editingLines as $line) {
+            // Eğer kullanıcı bir şey değiştirmemişse (orijinal adetle aynı + silinmemiş) → skip
+            // Burada "ne kadar değişti" anlamak için orijinal payload'ı tekrar okumamız gerekir,
+            // basitlik için: kullanıcı bu ekrandan saveEdits'e basıyorsa, ekranda gördüğü her satırı kaydet.
+            // (Override mantığı: stok_kodu = anahtar, adet/removed her zaman uygulanır.)
+            $overrideLines[] = [
+                'stok_kodu' => (string) $line['stok_kodu'],
+                'adet' => max(1, (int) $line['adet']),
+                'removed' => (bool) ($line['removed'] ?? false),
+            ];
+        }
+
+        $transfer = OrderTransfer::firstOrNew(['bayi_order_id' => $this->editingBayiOrderId]);
+        $transfer->product_overrides = ['lines' => $overrideLines, 'edited_at' => now()->toIso8601String()];
+        // Yeni kayıt ise status 'pending' kalsın
+        if (! $transfer->exists) {
+            $transfer->status = 'pending';
+        }
+        $transfer->save();
+
+        session()->flash('status', "#{$this->editingBayiOrderId} için ürün düzenlemeleri kaydedildi. Şimdi 'Aktar' butonuna basabilirsin.");
+        $this->closeEditor();
+    }
+
+    /** Override'ı tamamen sıfırla — orijinal bayi siparişi olduğu gibi aktarılır. */
+    public function clearOverride(): void
+    {
+        if (! $this->editingBayiOrderId) {
+            return;
+        }
+        $transfer = OrderTransfer::where('bayi_order_id', $this->editingBayiOrderId)->first();
+        if ($transfer) {
+            $transfer->product_overrides = null;
+            $transfer->save();
+        }
+        session()->flash('status', "#{$this->editingBayiOrderId} için düzenlemeler temizlendi (orijinal sipariş aktarılacak).");
+        $this->closeEditor();
     }
 
     public function aktar(string $bayiOrderId, bool $force = false): void

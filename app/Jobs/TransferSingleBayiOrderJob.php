@@ -73,6 +73,72 @@ class TransferSingleBayiOrderJob implements ShouldQueue
             $transfer = $existing ?? new OrderTransfer(['bayi_order_id' => $this->bayiOrderId]);
             $transfer->payload_snapshot = $o;
 
+            // === KULLANICI DÜZENLEMELERİ (product_overrides) ===
+            // Eğer kullanıcı modal'dan ürünleri düzenlediyse, bayi'den gelen Urunler listesini
+            // override mantığına göre değiştir:
+            //  - removed=true → satır komple çıkar
+            //  - adet değişmiş → satırın Adet'ini güncelle
+            // Bu sadece ana'ya aktarımı etkiler, bayi'deki orijinal sipariş el değmez.
+            $overrides = $existing?->product_overrides ?? null;
+            if (is_array($overrides) && ! empty($overrides['lines'] ?? [])) {
+                $ovrMap = [];
+                foreach ($overrides['lines'] as $ovr) {
+                    $sk = (string) ($ovr['stok_kodu'] ?? '');
+                    if ($sk !== '') {
+                        $ovrMap[$sk] = $ovr;
+                    }
+                }
+
+                // Bayi ürünlerini normalize et — ProductMapper.flattenOrderLines ile aynı mantık
+                $rawUrunler = $o['Urunler'] ?? [];
+                if (isset($rawUrunler['WebSiparisUrun'])) {
+                    $rawUrunler = is_array($rawUrunler['WebSiparisUrun']) && array_is_list($rawUrunler['WebSiparisUrun'])
+                        ? $rawUrunler['WebSiparisUrun']
+                        : [$rawUrunler['WebSiparisUrun']];
+                } elseif (! array_is_list((array) $rawUrunler) && ! empty($rawUrunler)) {
+                    $rawUrunler = [$rawUrunler];
+                }
+
+                $filtered = [];
+                foreach ((array) $rawUrunler as $line) {
+                    $sk = (string) ($line['StokKodu'] ?? '');
+                    $ovr = $ovrMap[$sk] ?? null;
+                    if ($ovr && ! empty($ovr['removed'])) {
+                        continue; // kullanıcı bu ürünü sildi
+                    }
+                    if ($ovr && isset($ovr['adet'])) {
+                        $line['Adet'] = max(1, (int) $ovr['adet']);
+                    }
+                    $filtered[] = $line;
+                }
+
+                // ProductMapper hem WebSiparisUrun anahtarını hem düz listeyi kabul ediyor,
+                // tutarlı olmak için WebSiparisUrun altına koy
+                $o['Urunler'] = ['WebSiparisUrun' => $filtered];
+
+                // ToplamTutar / ToplamKdv değişebilir — yeniden hesapla (basit yaklaşım: silinen satırların
+                // brüt fiyatlarını çıkar). Mapper zaten satırlardan da fallback hesaplıyor, ama UrunTutariKdvDahil
+                // = ToplamTutar - KargoTutari kullandığından ToplamTutar doğru olmak zorunda.
+                $yeniBrut = 0.0;
+                $yeniKdv = 0.0;
+                foreach ($filtered as $line) {
+                    $bf = (float) ($line['Tutar'] ?? $line['BirimFiyat'] ?? $line['SatisFiyati'] ?? 0);
+                    $adet = (int) ($line['Adet'] ?? 1);
+                    $kdvO = (float) ($line['KdvOrani'] ?? 20);
+                    $satirBrut = $bf * $adet;
+                    $satirKdv = isset($line['KdvTutari'])
+                        ? (float) $line['KdvTutari']
+                        : round($satirBrut * ($kdvO / (100 + $kdvO)), 4);
+                    $yeniBrut += $satirBrut;
+                    $yeniKdv += $satirKdv;
+                }
+                $kargoBrut = (float) ($o['KargoTutari'] ?? 0);
+                $kargoKdv = (float) ($o['KargoKdvTutari'] ?? 0);
+                $o['ToplamTutar'] = round($yeniBrut + $kargoBrut, 4);
+                $o['ToplamKdv'] = round($yeniKdv + $kargoKdv, 4);
+                $o['OdenenTutar'] = $o['ToplamTutar']; // ödenen = yeni toplam (kullanıcı bilerek düzenledi)
+            }
+
             // StokKodu → ana variant resolver (PullBayiOrdersJob ile aynı mantık)
             $variantCache = [];
             $resolver = function (string $stokKodu) use ($anaProduct, &$variantCache): ?int {

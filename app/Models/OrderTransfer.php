@@ -13,11 +13,13 @@ class OrderTransfer extends Model
         'retry_count',
         'last_error',
         'payload_snapshot',
+        'product_overrides',
         'transferred_at',
     ];
 
     protected $casts = [
         'payload_snapshot' => 'array',
+        'product_overrides' => 'array',
         'transferred_at' => 'datetime',
     ];
 }

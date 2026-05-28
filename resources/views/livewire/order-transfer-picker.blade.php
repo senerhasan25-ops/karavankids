@@ -187,6 +187,7 @@
                                     <th class="px-3 py-2 text-right">Tutar</th>
                                     <th class="px-3 py-2 text-left">Ödeme / Durumlar</th>
                                     <th class="px-3 py-2 text-center">Aktarım</th>
+                                    <th class="px-3 py-2 text-center">Ürünler</th>
                                     <th class="px-3 py-2 text-right">İşlem</th>
                                 </tr>
                             </thead>
@@ -255,6 +256,21 @@
                                                 </span>
                                             @endif
                                         </td>
+                                        <td class="px-3 py-2 text-center">
+                                            <button wire:click="openEditor('{{ $o['id'] }}')"
+                                                    class="px-2 py-1 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700"
+                                                    title="Siparişteki ürünleri görüntüle / düzenle">
+                                                📦 Ürünler
+                                            </button>
+                                            @if (! empty($o['has_override']))
+                                                <div class="mt-1">
+                                                    <span class="inline-block px-1.5 py-0.5 text-[10px] bg-purple-100 text-purple-800 rounded"
+                                                          title="Bu siparişte ürün düzenlemesi yapılmış">
+                                                        ✏️ Düzenlendi
+                                                    </span>
+                                                </div>
+                                            @endif
+                                        </td>
                                         <td class="px-3 py-2 text-right">
                                             @if ($o['local_status'] === 'transferred')
                                                 <button wire:click="aktar('{{ $o['id'] }}', true)"
@@ -284,4 +300,143 @@
             </div>{{-- /flex container --}}
         </div>
     </div>
+
+    {{-- ÜRÜN DÜZENLEME MODAL'I --}}
+    @if ($showEditor)
+        <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60"
+             wire:click.self="closeEditor"
+             x-data x-on:keydown.escape.window="$wire.closeEditor()">
+
+            <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col">
+
+                {{-- Modal header --}}
+                <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+                    <h3 class="text-lg font-semibold text-gray-800 dark:text-gray-200">
+                        📦 Sipariş #{{ $editingBayiOrderId }} — Ürünler
+                        @if ($hasOverride)
+                            <span class="ms-2 text-xs px-2 py-0.5 bg-purple-100 text-purple-800 rounded align-middle">
+                                ✏️ Önceden düzenlenmiş
+                            </span>
+                        @endif
+                    </h3>
+                    <button wire:click="closeEditor"
+                            class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-2xl leading-none">
+                        ×
+                    </button>
+                </div>
+
+                {{-- Modal body --}}
+                <div class="px-6 py-4 overflow-y-auto flex-1">
+                    @if ($editorLoading)
+                        <div class="p-8 text-center text-gray-500">
+                            <div class="inline-block animate-spin rounded-full h-8 w-8 border-2 border-blue-500 border-t-transparent"></div>
+                            <p class="mt-2 text-sm">Sipariş ürünleri yükleniyor...</p>
+                        </div>
+                    @elseif ($editorError)
+                        <div class="bg-red-100 border border-red-300 text-red-800 px-4 py-2 rounded text-sm">
+                            <strong>Hata:</strong> {{ $editorError }}
+                        </div>
+                    @elseif (empty($editingLines))
+                        <div class="p-8 text-center text-gray-500 text-sm">Bu siparişte ürün bulunamadı.</div>
+                    @else
+                        <div class="text-xs text-gray-500 dark:text-gray-400 mb-3">
+                            ℹ️ Burada yaptığın değişiklikler sadece ana mağazaya aktarımı etkiler.
+                            Bayi'deki orijinal sipariş dokunulmadan kalır.
+                        </div>
+
+                        <div class="overflow-x-auto border border-gray-200 dark:border-gray-700 rounded">
+                            <table class="w-full text-sm">
+                                <thead class="bg-gray-50 dark:bg-gray-900 text-xs uppercase text-gray-500">
+                                    <tr>
+                                        <th class="px-3 py-2 text-left">Stok Kodu</th>
+                                        <th class="px-3 py-2 text-left">Ürün Adı</th>
+                                        <th class="px-3 py-2 text-center w-24">Adet</th>
+                                        <th class="px-3 py-2 text-right">Birim Fiyat</th>
+                                        <th class="px-3 py-2 text-right">Satır Toplam</th>
+                                        <th class="px-3 py-2 text-center w-20">Sil</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
+                                    @foreach ($editingLines as $idx => $line)
+                                        <tr class="{{ ! empty($line['removed']) ? 'opacity-50 bg-red-50 dark:bg-red-900/20' : '' }}">
+                                            <td class="px-3 py-2 font-mono text-xs">{{ $line['stok_kodu'] }}</td>
+                                            <td class="px-3 py-2">
+                                                <span class="{{ ! empty($line['removed']) ? 'line-through' : '' }}">
+                                                    {{ $line['urun_adi'] }}
+                                                </span>
+                                            </td>
+                                            <td class="px-3 py-2 text-center">
+                                                <input type="number" min="1"
+                                                       wire:model="editingLines.{{ $idx }}.adet"
+                                                       @disabled(! empty($line['removed']))
+                                                       class="w-20 text-center text-sm rounded border-gray-300 dark:bg-gray-900 dark:border-gray-700 dark:text-gray-200">
+                                            </td>
+                                            <td class="px-3 py-2 text-right font-mono">
+                                                ₺{{ number_format($line['birim_fiyat'], 2, ',', '.') }}
+                                            </td>
+                                            <td class="px-3 py-2 text-right font-mono font-semibold">
+                                                ₺{{ number_format($line['birim_fiyat'] * (int) $line['adet'], 2, ',', '.') }}
+                                            </td>
+                                            <td class="px-3 py-2 text-center">
+                                                @if (! empty($line['removed']))
+                                                    <button wire:click="toggleRemoveLine({{ $idx }})"
+                                                            class="px-2 py-1 text-xs bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded hover:bg-gray-300">
+                                                        ↺ Geri al
+                                                    </button>
+                                                @else
+                                                    <button wire:click="toggleRemoveLine({{ $idx }})"
+                                                            class="px-2 py-1 text-xs bg-red-500 text-white rounded hover:bg-red-600">
+                                                        🗑 Sil
+                                                    </button>
+                                                @endif
+                                            </td>
+                                        </tr>
+                                    @endforeach
+                                </tbody>
+                            </table>
+                        </div>
+
+                        {{-- Toplam (silinen satırlar hariç) --}}
+                        @php
+                            $modalToplam = 0;
+                            foreach ($editingLines as $l) {
+                                if (! empty($l['removed'])) continue;
+                                $modalToplam += $l['birim_fiyat'] * (int) $l['adet'];
+                            }
+                        @endphp
+                        <div class="mt-3 text-right text-sm text-gray-700 dark:text-gray-300">
+                            Ürün Ara Toplam:
+                            <span class="font-mono font-semibold">₺{{ number_format($modalToplam, 2, ',', '.') }}</span>
+                            <span class="text-xs text-gray-500">(kargo hariç)</span>
+                        </div>
+                    @endif
+                </div>
+
+                {{-- Modal footer --}}
+                <div class="px-6 py-4 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
+                    @if ($hasOverride)
+                        <button wire:click="clearOverride"
+                                wire:confirm="Bu siparişin tüm ürün düzenlemeleri silinecek ve orijinal bayi siparişi aktarılacak. Devam edilsin mi?"
+                                class="px-3 py-2 text-sm text-red-600 hover:text-red-800 hover:underline">
+                            ↺ Düzenlemeleri sıfırla
+                        </button>
+                    @else
+                        <span></span>
+                    @endif
+
+                    <div class="flex gap-2">
+                        <button wire:click="closeEditor"
+                                class="px-4 py-2 text-sm bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded hover:bg-gray-300">
+                            İptal
+                        </button>
+                        <button wire:click="saveEdits"
+                                @disabled($editorLoading || ! empty($editorError) || empty($editingLines))
+                                class="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50">
+                            💾 Kaydet
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    @endif
 </div>
