@@ -297,9 +297,68 @@ class OrderService
      * Burada ikisini de destekliyoruz: önce SetSiparisAktarildi dene, yoksa paketleme.
      */
     /**
+     * Bu mağazanın WSDL'inde tanımlı WebSiparisDurumlari enum değerlerini dön.
+     * Sonuç int index → enum string. Sıra Ticimax HTML panelindeki dropdown ile aynı.
+     * Her mağazaya göre farklı olabilir (eski WSDL 19, yeni WSDL 23 değer içerir).
+     * 1 gün cache'lenir.
+     */
+    public function getSupportedSiparisDurumEnums(): array
+    {
+        return $this->fetchEnumFromWsdl('WebSiparisDurumlari');
+    }
+
+    /** Aynı şekilde ödeme durumları (WebOdemeDurumlari). */
+    public function getSupportedOdemeDurumEnums(): array
+    {
+        return $this->fetchEnumFromWsdl('WebOdemeDurumlari');
+    }
+
+    /**
+     * Sipariş servisinin XSD'lerini taraşı, belirtilen enum tipinin değerlerini index'li array
+     * olarak dön: [0 => 'OnSiparis', 1 => 'OnayBekliyor', ...]. 1 gün cache.
+     */
+    protected function fetchEnumFromWsdl(string $enumType): array
+    {
+        $cred = $this->client->getCredential();
+        $wsdlPath = $cred->wsdl_path_order ?: config('ticimax.wsdl_paths.order');
+        $endpoint = preg_match('#^https?://#i', (string) $wsdlPath)
+            ? $wsdlPath
+            : rtrim($cred->endpoint_url, '/') . '/' . ltrim($wsdlPath, '/');
+        $base = preg_replace('/\?wsdl$/i', '', $endpoint);
+        $cacheKey = "ticimax.enum.{$cred->store_key}.{$enumType}";
+
+        return \Illuminate\Support\Facades\Cache::remember($cacheKey, now()->addDay(), function () use ($base, $enumType) {
+            // Ticimax XSD'leri xsd0, xsd1, ... olarak parçalı dağıtıyor — en fazla 10'a kadar deneriz
+            for ($i = 0; $i < 10; $i++) {
+                $xml = @file_get_contents($base . '?xsd=xsd' . $i);
+                if (! $xml || strpos($xml, '"' . $enumType . '"') === false) {
+                    continue;
+                }
+                // simpleType[name=$enumType] içindeki enumeration value'larını çek
+                $doc = new \DOMDocument();
+                @$doc->loadXML($xml);
+                $xp = new \DOMXPath($doc);
+                $xp->registerNamespace('xs', 'http://www.w3.org/2001/XMLSchema');
+                $nodes = $xp->query("//xs:simpleType[@name='{$enumType}']//xs:enumeration");
+                if ($nodes && $nodes->length > 0) {
+                    $result = [];
+                    foreach ($nodes as $idx => $node) {
+                        $result[$idx] = $node->getAttribute('value');
+                    }
+                    return $result;
+                }
+            }
+            return [];
+        });
+    }
+
+    /**
      * Ticimax WSDL enum WebSiparisDurumlari — int index → enum string.
      * Bu mapping XSD'den birebir çekildi (digitalsupport.ticimaxtest.com).
      * 19+ indexli durumlar bu enum'da yok; istersen Ticimax hata döner.
+     *
+     * NOT: Bu fallback const'tur. Runtime'da getSupportedSiparisDurumEnums() çağrısı
+     * canlı WSDL'den çekip cache'ler — yeni Ticimax sürümlerini de destekler.
      */
     public const SIPARIS_DURUM_ENUM = [
         0 => 'OnSiparis',
@@ -339,10 +398,12 @@ class OrderService
      */
     public function updateSiparisDurum(int $siparisId, int $durumKodu, string $siparisNo = ''): array
     {
-        // Ticimax WebSiparisDurumlari ENUM ister (numeric değil) — mapping uygula
-        $durumEnum = self::SIPARIS_DURUM_ENUM[$durumKodu] ?? null;
+        // Ticimax WebSiparisDurumlari ENUM ister (numeric değil) — önce LIVE WSDL'den çek
+        // (yeni Ticimax sürümlerinde ekstra durumlar var), bulunamazsa eski sabit liste fallback.
+        $live = $this->getSupportedSiparisDurumEnums();
+        $durumEnum = $live[$durumKodu] ?? self::SIPARIS_DURUM_ENUM[$durumKodu] ?? null;
         if ($durumEnum === null) {
-            throw new \RuntimeException("Geçersiz sipariş durumu kodu: {$durumKodu} (WSDL'de tanımlı değil).");
+            throw new \RuntimeException("Geçersiz sipariş durumu kodu: {$durumKodu} (bu mağazanın WSDL'inde tanımlı değil).");
         }
 
         $params = [
@@ -401,10 +462,11 @@ class OrderService
             }
         }
 
-        // Ticimax WebOdemeDurumlari ENUM ister — mapping uygula
-        $odemeDurumEnum = self::ODEME_DURUM_ENUM[$odemeDurumKodu] ?? null;
+        // Ticimax WebOdemeDurumlari ENUM ister — önce live WSDL, sonra const fallback
+        $live = $this->getSupportedOdemeDurumEnums();
+        $odemeDurumEnum = $live[$odemeDurumKodu] ?? self::ODEME_DURUM_ENUM[$odemeDurumKodu] ?? null;
         if ($odemeDurumEnum === null) {
-            throw new \RuntimeException("Geçersiz ödeme durumu kodu: {$odemeDurumKodu} (WSDL'de tanımlı değil).");
+            throw new \RuntimeException("Geçersiz ödeme durumu kodu: {$odemeDurumKodu} (bu mağazanın WSDL'inde tanımlı değil).");
         }
 
         $params = [

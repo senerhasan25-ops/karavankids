@@ -506,6 +506,11 @@
                         "Değiştirme" seçili kalan alanlar dokunulmadan bırakılır.
                     </div>
 
+                    @php
+                        $activeSiparisCodes = $statusEditTarget === 'bayi' ? $bayiSupportedSiparisCodes : $anaSupportedSiparisCodes;
+                        $activeOdemeCodes = $statusEditTarget === 'bayi' ? $bayiSupportedOdemeCodes : $anaSupportedOdemeCodes;
+                    @endphp
+
                     {{-- Sipariş Durumu --}}
                     <div>
                         <label class="block text-xs text-gray-500 dark:text-gray-400 mb-1">Sipariş Durumu</label>
@@ -514,7 +519,11 @@
                             <option value="-1">— Değiştirme —</option>
                             @foreach ($siparisDurumlari as $key => $label)
                                 @if ($key !== -1)
-                                    <option value="{{ $key }}">{{ $label }}</option>
+                                    @if (in_array($key, $activeSiparisCodes, true))
+                                        <option value="{{ $key }}">{{ $label }}</option>
+                                    @else
+                                        <option value="{{ $key }}" disabled>{{ $label }} (bu mağazada yok)</option>
+                                    @endif
                                 @endif
                             @endforeach
                         </select>
@@ -528,7 +537,11 @@
                             <option value="-1">— Değiştirme —</option>
                             @foreach ($odemeDurumlari as $key => $label)
                                 @if ($key !== -1)
-                                    <option value="{{ $key }}">{{ $label }}</option>
+                                    @if (in_array($key, $activeOdemeCodes, true))
+                                        <option value="{{ $key }}">{{ $label }}</option>
+                                    @else
+                                        <option value="{{ $key }}" disabled>{{ $label }} (SOAP'ta yok)</option>
+                                    @endif
                                 @endif
                             @endforeach
                         </select>

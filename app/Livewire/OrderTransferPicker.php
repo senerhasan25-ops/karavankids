@@ -74,6 +74,12 @@ class OrderTransferPicker extends Component
     public int $editPaketlemeDurumu = -1;
     public string $editSiparisNo = '';
 
+    // Hangi durum kodları HANGİ tarafta destekleniyor (WSDL'den dinamik çekilir, cache'lenir)
+    public array $bayiSupportedSiparisCodes = [];
+    public array $anaSupportedSiparisCodes = [];
+    public array $bayiSupportedOdemeCodes = [];
+    public array $anaSupportedOdemeCodes = [];
+
     // Ticimax panel terminolojisi ile birebir aynı etiketler.
     // Numeric kodlar Ticimax SelectSiparis filtresine SOAP üzerinden geçer; sürüme göre
     // değişebilir — etiketler değişirse buradan güncelle.
@@ -394,6 +400,25 @@ class OrderTransferPicker extends Component
                 $this->statusEditAnaOrderId = $o['local_ana_id'] ?? null;
                 break;
             }
+        }
+
+        // Her iki mağazanın WSDL'inden desteklenen enum kodlarını çek (cache'li, 1 günlük)
+        try {
+            $bayi = OrderService::for('bayi');
+            $this->bayiSupportedSiparisCodes = array_keys($bayi->getSupportedSiparisDurumEnums());
+            $this->bayiSupportedOdemeCodes = array_keys($bayi->getSupportedOdemeDurumEnums());
+        } catch (Throwable $e) {
+            // sessiz geç — fallback const her zaman çalışır
+            $this->bayiSupportedSiparisCodes = array_keys(\App\Services\Ticimax\OrderService::SIPARIS_DURUM_ENUM);
+            $this->bayiSupportedOdemeCodes = array_keys(\App\Services\Ticimax\OrderService::ODEME_DURUM_ENUM);
+        }
+        try {
+            $ana = OrderService::for('ana');
+            $this->anaSupportedSiparisCodes = array_keys($ana->getSupportedSiparisDurumEnums());
+            $this->anaSupportedOdemeCodes = array_keys($ana->getSupportedOdemeDurumEnums());
+        } catch (Throwable $e) {
+            $this->anaSupportedSiparisCodes = array_keys(\App\Services\Ticimax\OrderService::SIPARIS_DURUM_ENUM);
+            $this->anaSupportedOdemeCodes = array_keys(\App\Services\Ticimax\OrderService::ODEME_DURUM_ENUM);
         }
     }
 
