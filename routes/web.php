@@ -8,7 +8,6 @@ use App\Livewire\ProductManualSync;
 use App\Livewire\ProductPicker;
 use App\Livewire\SyncLogs;
 use App\Livewire\SyncSettings;
-use App\Livewire\UnmatchedProductsReport;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
@@ -24,7 +23,6 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/urunler/listele', ProductPicker::class)->name('urunler.listele');
     // Siparişler = manuel sipariş aktarım paneli (eski /siparisler list view kaldırıldı)
     Route::get('/siparisler', OrderTransferPicker::class)->name('siparisler');
-    Route::get('/eslesmeyen-urunler', UnmatchedProductsReport::class)->name('eslesmeyen-urunler');
     Route::get('/loglar', SyncLogs::class)->name('loglar');
 });
 
