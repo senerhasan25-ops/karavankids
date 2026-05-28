@@ -214,7 +214,9 @@
                                         <td class="px-3 py-2 text-xs leading-tight">
                                             {{-- 🏪 BAYİ bloğu --}}
                                             <div class="border-l-2 border-blue-400 pl-2">
-                                                <div class="text-[10px] uppercase text-blue-600 dark:text-blue-400 font-semibold tracking-wide">🏪 Bayi</div>
+                                                <div class="text-[10px] uppercase text-blue-600 dark:text-blue-400 font-semibold tracking-wide">
+                                                    🏪 Bayi <span class="text-gray-400 normal-case">#{{ $o['id'] }}</span>
+                                                </div>
                                                 <div class="text-gray-700 dark:text-gray-300">
                                                     💳 {{ $odemeTipleri[(int) $o['odeme_tipi']] ?? $o['odeme_tipi'] }}
                                                 </div>
