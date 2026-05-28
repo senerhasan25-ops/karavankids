@@ -54,6 +54,26 @@ class OrderTransferPicker extends Component
     public array $editingLines = [];
     public bool $hasOverride = false; // bu sipariş için önceden override kaydı var mı?
 
+    // === DURUM GÜNCELLEME MODAL'I ===
+    // Bayi VEYA ana'da siparişin Sipariş/Ödeme/Paketleme durumunu değiştirmek için.
+    // Her tarafa ayrı dropdown seti (Bayi tab'ı her zaman aktif; Ana sadece aktarılmışsa).
+    public ?string $statusEditingBayiOrderId = null;
+    public bool $showStatusEditor = false;
+    public ?string $statusEditorError = null;
+    public ?string $statusEditorSuccess = null;
+    public bool $statusSaving = false;
+
+    // Hangi tarafı düzenliyoruz: 'bayi' veya 'ana'
+    public string $statusEditTarget = 'bayi';
+    // Ana'da düzenleme için aktarım sırasında alınan ana_order_id (yoksa null)
+    public ?string $statusEditAnaOrderId = null;
+
+    // Dropdown değerleri (kullanıcı modal'da seçer); -1 = "Değiştirme"
+    public int $editSiparisDurumu = -1;
+    public int $editOdemeDurumu = -1;
+    public int $editPaketlemeDurumu = -1;
+    public string $editSiparisNo = '';
+
     // Ticimax panel terminolojisi ile birebir aynı etiketler.
     // Numeric kodlar Ticimax SelectSiparis filtresine SOAP üzerinden geçer; sürüme göre
     // değişebilir — etiketler değişirse buradan güncelle.
@@ -345,6 +365,108 @@ class OrderTransferPicker extends Component
         }
         session()->flash('status', "#{$this->editingBayiOrderId} için düzenlemeler temizlendi (orijinal sipariş aktarılacak).");
         $this->closeEditor();
+    }
+
+    /**
+     * Durum güncelleme modal'ını aç. Mevcut durumları $orders state'inden okur
+     * ki kullanıcı önce mevcut değeri görür, sonra değiştirir.
+     */
+    public function openStatusEditor(string $bayiOrderId): void
+    {
+        $this->statusEditingBayiOrderId = $bayiOrderId;
+        $this->showStatusEditor = true;
+        $this->statusEditorError = null;
+        $this->statusEditorSuccess = null;
+        $this->statusEditTarget = 'bayi';
+        $this->statusEditAnaOrderId = null;
+        $this->editSiparisDurumu = -1;
+        $this->editOdemeDurumu = -1;
+        $this->editPaketlemeDurumu = -1;
+        $this->editSiparisNo = '';
+
+        foreach ($this->orders as $o) {
+            if ((string) $o['id'] === (string) $bayiOrderId) {
+                // Mevcut değerleri ön-yükle (kullanıcı sadece değiştireceğini değiştirsin)
+                $this->editSiparisDurumu = $o['siparis_durumu'] !== '' ? (int) $o['siparis_durumu'] : -1;
+                $this->editOdemeDurumu = $o['odeme_durumu'] !== '' ? (int) $o['odeme_durumu'] : -1;
+                $this->editPaketlemeDurumu = $o['paketleme_durumu'] !== '' ? (int) $o['paketleme_durumu'] : -1;
+                $this->editSiparisNo = (string) ($o['siparis_no'] ?? '');
+                $this->statusEditAnaOrderId = $o['local_ana_id'] ?? null;
+                break;
+            }
+        }
+    }
+
+    public function closeStatusEditor(): void
+    {
+        $this->showStatusEditor = false;
+        $this->statusEditingBayiOrderId = null;
+        $this->statusEditorError = null;
+        $this->statusEditorSuccess = null;
+        $this->statusSaving = false;
+    }
+
+    public function setStatusTarget(string $target): void
+    {
+        if (in_array($target, ['bayi', 'ana'], true)) {
+            $this->statusEditTarget = $target;
+            $this->statusEditorError = null;
+            $this->statusEditorSuccess = null;
+        }
+    }
+
+    /**
+     * Modal'daki seçimlere göre SOAP çağrılarını yap. -1 olan alanlar atlanır.
+     * Bayi VEYA ana hedefini günceller — kullanıcı tab'dan seçer, her iki tarafı
+     * tek seferde yapmak istiyorsa iki kere "Kaydet"e basar.
+     */
+    public function saveStatusUpdates(): void
+    {
+        if (! $this->statusEditingBayiOrderId) {
+            return;
+        }
+        $this->statusEditorError = null;
+        $this->statusEditorSuccess = null;
+        $this->statusSaving = true;
+
+        try {
+            $service = OrderService::for($this->statusEditTarget);
+
+            $orderId = $this->statusEditTarget === 'bayi'
+                ? (int) $this->statusEditingBayiOrderId
+                : (int) ($this->statusEditAnaOrderId ?? 0);
+
+            if (! $orderId) {
+                throw new \RuntimeException("Ana siparişi henüz aktarılmamış — ana tarafında güncelleme yapılamaz. Önce siparişi aktar.");
+            }
+
+            $updates = [];
+            if ($this->editSiparisDurumu >= 0) {
+                $service->updateSiparisDurum($orderId, $this->editSiparisDurumu, $this->editSiparisNo);
+                $updates[] = "Sipariş Durumu → " . ($this->siparisDurumlari[$this->editSiparisDurumu] ?? $this->editSiparisDurumu);
+            }
+            if ($this->editPaketlemeDurumu >= 1) {
+                $service->updatePaketlemeDurum($orderId, $this->editPaketlemeDurumu);
+                $updates[] = "Paketleme Durumu → " . ($this->paketlemeDurumlari[$this->editPaketlemeDurumu] ?? $this->editPaketlemeDurumu);
+            }
+            if ($this->editOdemeDurumu >= 0) {
+                $service->updateOdemeDurum($orderId, $this->editOdemeDurumu);
+                $updates[] = "Ödeme Durumu → " . ($this->odemeDurumlari[$this->editOdemeDurumu] ?? $this->editOdemeDurumu);
+            }
+
+            if (empty($updates)) {
+                $this->statusEditorError = 'Hiçbir alan değiştirilmedi.';
+            } else {
+                $hedef = $this->statusEditTarget === 'bayi' ? 'Bayi' : 'Ana';
+                $this->statusEditorSuccess = "✓ {$hedef} güncellendi: " . implode(' · ', $updates);
+                // Listeyi tazele (yeni durumlar görünsün)
+                $this->listele();
+            }
+        } catch (Throwable $e) {
+            $this->statusEditorError = $e->getMessage();
+        } finally {
+            $this->statusSaving = false;
+        }
     }
 
     public function aktar(string $bayiOrderId, bool $force = false): void

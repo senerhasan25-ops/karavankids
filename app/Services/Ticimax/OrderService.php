@@ -296,6 +296,99 @@ class OrderService
      * SetSiparisPaketlemeDurum(2) kullanıyor (paketlendi → bir daha çekilmez).
      * Burada ikisini de destekliyoruz: önce SetSiparisAktarildi dene, yoksa paketleme.
      */
+    /**
+     * Siparişin "Sipariş Durumu"nu (SiparisDurumu) güncelle.
+     * Kod listesi: 0=Sipariş Alındı, 1=Onay Bekliyor, 2=Onaylandı, 4=Paketleniyor,
+     *             6=Kargoya Verildi, 7=Teslim Edildi, 8=İptal Edildi vb.
+     */
+    public function updateSiparisDurum(int $siparisId, int $durumKodu, string $siparisNo = ''): array
+    {
+        $params = [
+            'UyeKodu' => $this->client->getUyeKodu(),
+            'request' => [
+                'Durum' => (string) $durumKodu,
+                'KargoTakipLink' => '',
+                'KargoTakipNo' => '',
+                'MailBilgilendir' => false,
+                'PreventStockOperation' => false,
+                'SiparisID' => $siparisId,
+                'SiparisNo' => $siparisNo,
+            ],
+        ];
+        $resp = $this->client->call('order', 'SetSiparisDurum', $params);
+        return $this->normalizeOne($resp) ?? ['method' => 'SetSiparisDurum'];
+    }
+
+    /**
+     * Siparişin "Paketleme Durumu"nu güncelle.
+     * Kod listesi: 1=Beklemede, 2=Paketleniyor, 3=Eksik Ürün, 4=Fatura Bekliyor,
+     *             5=Fatura Kesildi, 6=Eksik Gönderildi.
+     */
+    public function updatePaketlemeDurum(int $siparisId, int $paketlemeKodu): array
+    {
+        $params = [
+            'UyeKodu' => $this->client->getUyeKodu(),
+            'SiparisId' => $siparisId,
+            'PaketlemeDurumId' => $paketlemeKodu,
+        ];
+        $resp = $this->client->call('order', 'SetSiparisPaketlemeDurum', $params);
+        return $this->normalizeOne($resp) ?? ['method' => 'SetSiparisPaketlemeDurum'];
+    }
+
+    /**
+     * Siparişin "Ödeme Durumu"nu güncelle. SetSiparisOdemeDurum OdemeId zorunlu ister;
+     * verilmezse SelectSiparisOdeme ile ilk ödeme kaydını bulup ID'yi çıkartırız.
+     * Kod listesi: 0=Onay Bekliyor, 1=Onaylandı, 2=Hatalı, 3=İade, 4=İptal,
+     *             5=Ödeme Bekliyor, 6=Ödeme Talep Edildi.
+     */
+    public function updateOdemeDurum(int $siparisId, int $odemeDurumKodu, ?int $odemeId = null): array
+    {
+        if (! $odemeId) {
+            // SelectSiparisOdeme: siparisId ile tüm ödemeleri çek, ilkinin ID'sini al
+            $lookup = [
+                'UyeKodu' => $this->client->getUyeKodu(),
+                'siparisId' => $siparisId,
+                'odemeId' => 0,
+                'isAktarildi' => false,
+            ];
+            $odemeResp = $this->client->call('order', 'SelectSiparisOdeme', $lookup);
+            $arr = is_object($odemeResp) ? json_decode(json_encode($odemeResp), true) : (array) $odemeResp;
+            $odemeId = $this->findOdemeId($arr);
+            if (! $odemeId) {
+                throw new \RuntimeException("Sipariş #{$siparisId} için ödeme kaydı bulunamadı (SelectSiparisOdeme boş döndü).");
+            }
+        }
+
+        $params = [
+            'UyeKodu' => $this->client->getUyeKodu(),
+            'request' => [
+                'BilgiMailiGonderme' => false,
+                'OdemeDurum' => (string) $odemeDurumKodu,
+                'OdemeId' => $odemeId,
+                'SiparisId' => $siparisId,
+            ],
+        ];
+        $resp = $this->client->call('order', 'SetSiparisOdemeDurum', $params);
+        return $this->normalizeOne($resp) ?? ['method' => 'SetSiparisOdemeDurum', 'odeme_id' => $odemeId];
+    }
+
+    /** SelectSiparisOdeme yanıtında ilk ödeme kaydının ID'sini bul. */
+    protected function findOdemeId(array $data): ?int
+    {
+        if (isset($data['ID']) && is_numeric($data['ID'])) {
+            return (int) $data['ID'];
+        }
+        foreach ($data as $v) {
+            if (is_array($v)) {
+                $found = $this->findOdemeId($v);
+                if ($found) {
+                    return $found;
+                }
+            }
+        }
+        return null;
+    }
+
     public function markOrderTransferred(string $orderId, ?string $externalRef = null): array
     {
         try {

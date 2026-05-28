@@ -188,6 +188,7 @@
                                     <th class="px-3 py-2 text-left">Ödeme / Durumlar</th>
                                     <th class="px-3 py-2 text-center">Aktarım</th>
                                     <th class="px-3 py-2 text-center">Ürünler</th>
+                                    <th class="px-3 py-2 text-center">Durum</th>
                                     <th class="px-3 py-2 text-right">İşlem</th>
                                 </tr>
                             </thead>
@@ -270,6 +271,13 @@
                                                     </span>
                                                 </div>
                                             @endif
+                                        </td>
+                                        <td class="px-3 py-2 text-center">
+                                            <button wire:click="openStatusEditor('{{ $o['id'] }}')"
+                                                    class="px-2 py-1 text-xs bg-teal-600 text-white rounded hover:bg-teal-700"
+                                                    title="Sipariş / Ödeme / Paketleme durumlarını güncelle">
+                                                ✎ Durumlar
+                                            </button>
                                         </td>
                                         <td class="px-3 py-2 text-right">
                                             @if ($o['local_status'] === 'transferred')
@@ -435,6 +443,125 @@
                             💾 Kaydet
                         </button>
                     </div>
+                </div>
+            </div>
+        </div>
+    @endif
+
+    {{-- DURUM GÜNCELLEME MODAL'I --}}
+    @if ($showStatusEditor)
+        <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60"
+             wire:click.self="closeStatusEditor"
+             x-data x-on:keydown.escape.window="$wire.closeStatusEditor()">
+
+            <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-lg w-full max-h-[90vh] flex flex-col">
+
+                {{-- Modal header --}}
+                <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+                    <h3 class="text-lg font-semibold text-gray-800 dark:text-gray-200">
+                        ✎ Sipariş #{{ $statusEditingBayiOrderId }} — Durumlar
+                    </h3>
+                    <button wire:click="closeStatusEditor"
+                            class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-2xl leading-none">
+                        ×
+                    </button>
+                </div>
+
+                {{-- Modal body --}}
+                <div class="px-6 py-4 overflow-y-auto flex-1 space-y-4">
+
+                    {{-- Hangi taraf? Tab benzeri toggle --}}
+                    <div class="flex border-b border-gray-200 dark:border-gray-700">
+                        <button wire:click="setStatusTarget('bayi')"
+                                class="px-4 py-2 text-sm font-medium border-b-2 -mb-px
+                                       {{ $statusEditTarget === 'bayi' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700' }}">
+                            🏪 Bayi'de
+                        </button>
+                        <button wire:click="setStatusTarget('ana')"
+                                @disabled(! $statusEditAnaOrderId)
+                                title="{{ ! $statusEditAnaOrderId ? 'Sipariş henüz ana\'ya aktarılmamış' : '' }}"
+                                class="px-4 py-2 text-sm font-medium border-b-2 -mb-px
+                                       {{ $statusEditTarget === 'ana' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700' }}
+                                       disabled:opacity-40 disabled:cursor-not-allowed">
+                            🏢 Ana'da
+                            @if ($statusEditAnaOrderId)
+                                <span class="text-xs text-gray-400">(#{{ $statusEditAnaOrderId }})</span>
+                            @endif
+                        </button>
+                    </div>
+
+                    @if ($statusEditorSuccess)
+                        <div class="bg-green-100 border border-green-300 text-green-800 px-3 py-2 rounded text-sm">
+                            {{ $statusEditorSuccess }}
+                        </div>
+                    @endif
+                    @if ($statusEditorError)
+                        <div class="bg-red-100 border border-red-300 text-red-800 px-3 py-2 rounded text-sm">
+                            <strong>Hata:</strong> {{ $statusEditorError }}
+                        </div>
+                    @endif
+
+                    <div class="text-xs text-gray-500 dark:text-gray-400">
+                        ℹ️ Sadece <strong>değiştirmek istediğin</strong> alanları seç.
+                        "Değiştirme" seçili kalan alanlar dokunulmadan bırakılır.
+                    </div>
+
+                    {{-- Sipariş Durumu --}}
+                    <div>
+                        <label class="block text-xs text-gray-500 dark:text-gray-400 mb-1">Sipariş Durumu</label>
+                        <select wire:model="editSiparisDurumu"
+                                class="w-full text-sm rounded border-gray-300 dark:bg-gray-900 dark:border-gray-700 dark:text-gray-200">
+                            <option value="-1">— Değiştirme —</option>
+                            @foreach ($siparisDurumlari as $key => $label)
+                                @if ($key !== -1)
+                                    <option value="{{ $key }}">{{ $label }}</option>
+                                @endif
+                            @endforeach
+                        </select>
+                    </div>
+
+                    {{-- Ödeme Durumu --}}
+                    <div>
+                        <label class="block text-xs text-gray-500 dark:text-gray-400 mb-1">Ödeme Durumu</label>
+                        <select wire:model="editOdemeDurumu"
+                                class="w-full text-sm rounded border-gray-300 dark:bg-gray-900 dark:border-gray-700 dark:text-gray-200">
+                            <option value="-1">— Değiştirme —</option>
+                            @foreach ($odemeDurumlari as $key => $label)
+                                @if ($key !== -1)
+                                    <option value="{{ $key }}">{{ $label }}</option>
+                                @endif
+                            @endforeach
+                        </select>
+                    </div>
+
+                    {{-- Paketleme Durumu --}}
+                    <div>
+                        <label class="block text-xs text-gray-500 dark:text-gray-400 mb-1">Paketleme Durumu</label>
+                        <select wire:model="editPaketlemeDurumu"
+                                class="w-full text-sm rounded border-gray-300 dark:bg-gray-900 dark:border-gray-700 dark:text-gray-200">
+                            <option value="-1">— Değiştirme —</option>
+                            @foreach ($paketlemeDurumlari as $key => $label)
+                                @if ($key !== -1)
+                                    <option value="{{ $key }}">{{ $label }}</option>
+                                @endif
+                            @endforeach
+                        </select>
+                    </div>
+                </div>
+
+                {{-- Modal footer --}}
+                <div class="px-6 py-4 border-t border-gray-200 dark:border-gray-700 flex items-center justify-end gap-2">
+                    <button wire:click="closeStatusEditor"
+                            class="px-4 py-2 text-sm bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded hover:bg-gray-300">
+                        Kapat
+                    </button>
+                    <button wire:click="saveStatusUpdates" wire:loading.attr="disabled" wire:target="saveStatusUpdates"
+                            class="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50">
+                        <span wire:loading.remove wire:target="saveStatusUpdates">
+                            💾 {{ $statusEditTarget === 'bayi' ? 'Bayi\'de' : 'Ana\'da' }} Kaydet
+                        </span>
+                        <span wire:loading wire:target="saveStatusUpdates">⏳ Güncelleniyor...</span>
+                    </button>
                 </div>
             </div>
         </div>
