@@ -379,20 +379,29 @@ class ProductService
                 'SiralamaYonu' => $sortDir,
             ],
         ];
-        try {
-            $resp = $this->client->call('product', $this->method('select'), $params);
-        } catch (\Throwable $e) {
-            // Ticimax sunucusu, pagination boş veri tarafına geçince LINQ tarafından
-            // "Value cannot be null. Parameter name: source" fırlatıyor. Bu pratikte
-            // "bu sayfanın ötesinde sonuç yok" demek — sessiz boş liste döner,
-            // job temiz biter ve checkpoint kaydedilir.
-            $msg = (string) $e->getMessage();
-            if (stripos($msg, 'Value cannot be null') !== false && stripos($msg, 'source') !== false) {
-                return [];
-            }
-            throw $e;
-        }
+        $resp = $this->client->call('product', $this->method('select'), $params);
         return $this->normalizeList($resp, $this->method('select'), 'UrunKarti');
+    }
+
+    /**
+     * Ticimax SelectUrun pagination'da belirli BaslangicIndex aralıklarında
+     * "Value cannot be null. Parameter name: source" fırlatıyor (Ticimax kendi
+     * LINQ'inde null dereference). Test edildi: 1950, 2000 patlar; 2050 normal
+     * 100 ürün döner, ÖTESİ devam eder. Yani bu "veri sonu" DEĞİL, geçici bug.
+     *
+     * Bu yardımcı, Ticimax bug'ı tetiklendiğinde bu hatayı yakalayıp:
+     *   - true  döner (skip & continue — pagination loop bir sonraki sayfaya geçsin)
+     *   - false döner (gerçek hata — throw edilsin)
+     *
+     * Job loop'u bunu görüp `$page++` yapar, `continue` eder; veri kaybı
+     * sadece bu spesifik sayfa kadar olur (~50 ürün), ÖTESİNDEKİ binlerce
+     * ürünü kaçırmaz.
+     */
+    public function isTicimaxPaginationBug(\Throwable $e): bool
+    {
+        $msg = (string) $e->getMessage();
+        return stripos($msg, 'Value cannot be null') !== false
+            && stripos($msg, 'source') !== false;
     }
 
     /**

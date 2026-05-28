@@ -109,17 +109,37 @@ class SyncStockPriceJob implements ShouldQueue
             ->keyBy('stok_kodu');
 
         // ── Ana'dan değişen ürünleri sayfa sayfa çek ────────────────────────
+        $consecutiveErrors = 0;
+        $maxConsecutiveErrors = 10;
         while (true) {
             if (QueueControl::isStopRequested($job->id)) {
                 $stoppedEarly = true;
                 break;
             }
 
-            // FiyatStokGuncellemeTarihi filtresine geçtik — sadece o tarihten
-            // sonra fiyat veya stok değişen ürünler gelir. Açıklama, resim,
-            // kategori vb. düzenlemeler yakalanmaz (bu job zaten sadece stok/
-            // fiyat ile ilgileniyor) → daha az SOAP + daha az "değişiklik yok atla".
-            $products = $ana->getProductsByStockOrPriceChanged($since, $page, $perPage);
+            try {
+                // FiyatStokGuncellemeTarihi filtresine geçtik — sadece o tarihten
+                // sonra fiyat veya stok değişen ürünler gelir.
+                $products = $ana->getProductsByStockOrPriceChanged($since, $page, $perPage);
+                $consecutiveErrors = 0;
+            } catch (Throwable $e) {
+                if ($ana->isTicimaxPaginationBug($e)) {
+                    // Ticimax pagination bug — sayfayı atla, devam et.
+                    // (Detaylı açıklama: SyncNewProductsJob içinde aynı pattern.)
+                    SyncLog::create([
+                        'job_id' => $job->id,
+                        'status' => 'warning',
+                        'message' => "Ticimax SOAP page bug — sayfa #{$page} atlandı, ~{$perPage} ürün kaçırılmış olabilir.",
+                    ]);
+                    $consecutiveErrors++;
+                    if ($consecutiveErrors >= $maxConsecutiveErrors) {
+                        break;
+                    }
+                    $page++;
+                    continue;
+                }
+                throw $e;
+            }
             if (empty($products)) {
                 break;
             }

@@ -112,15 +112,41 @@ class SyncNewProductsJob implements ShouldQueue
             $perPage = (int) config('ticimax.batch_size', 50);
 
             $stoppedEarly = false;
+            $consecutiveErrors = 0;       // ardışık Ticimax pagination bug sayacı
+            $skippedPages = 0;            // bilgi: kaç sayfayı atladık (rapor için)
+            $maxConsecutiveErrors = 10;   // bu kadar üst üste bug = gerçekten veri bitti varsay
             while (true) {
                 if (QueueControl::isStopRequested($job->id)) {
                     $stoppedEarly = true;
                     break;
                 }
-                // EKLEME tarihi filtresine geçtik — sadece o tarihten sonra
-                // yeni eklenen ürün kartları gelir (mevcut ürünlerin düzenlemeleri
-                // yakalanmaz, onlar SyncStockPriceJob'un işi).
-                $products = $ana->getProductsByCreated($since, $page, $perPage);
+                try {
+                    // EKLEME tarihi filtresine geçtik — sadece o tarihten sonra
+                    // yeni eklenen ürün kartları gelir.
+                    $products = $ana->getProductsByCreated($since, $page, $perPage);
+                    $consecutiveErrors = 0; // başarı → sayacı sıfırla
+                } catch (Throwable $e) {
+                    if ($ana->isTicimaxPaginationBug($e)) {
+                        // Ticimax SOAP'ında belli BaslangicIndex aralıklarında null
+                        // hatası fırlıyor (örn. 1940-2030 arası, test ile doğrulandı).
+                        // Bu "veri sonu" DEĞİL — sayfayı atlayıp devam edersek
+                        // ötesindeki ürünleri yakalarız. Skip et, log'a yaz.
+                        $skippedPages++;
+                        $consecutiveErrors++;
+                        SyncLog::create([
+                            'job_id' => $job->id,
+                            'status' => 'warning',
+                            'message' => "Ticimax SOAP page bug (Value cannot be null/source) — sayfa #{$page} atlandı, " . $perPage . " ürün kaçırılmış olabilir. Devam ediliyor.",
+                        ]);
+                        if ($consecutiveErrors >= $maxConsecutiveErrors) {
+                            // Bu kadar ardışık hata muhtemelen gerçek veri sonu
+                            break;
+                        }
+                        $page++;
+                        continue;
+                    }
+                    throw $e; // başka bir SOAP hatası → normal patlasın
+                }
                 if (empty($products)) {
                     break;
                 }
