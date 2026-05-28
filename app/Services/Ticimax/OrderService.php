@@ -3,6 +3,7 @@
 namespace App\Services\Ticimax;
 
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 
 class OrderService
 {
@@ -182,29 +183,58 @@ class OrderService
         }
 
         // HEPSİ MODU — kullanıcı "Hepsi" seçti, tüm bilinen durumları döngüye al + dedup.
-        // Performans: 23 SOAP çağrısı. Pagination basitleştirildi (her statüden ilk perPage,
-        // birleştir, dedupe, tarihe göre sırala, sayfayı kes).
-        $merged = [];
-        $seen = [];
-        foreach (range(0, 22) as $statusCode) {
-            $resp = $this->client->call('order', $this->method('select'), $buildParams($statusCode));
-            $batch = $this->normalizeList($resp, $this->method('select'));
-            foreach ($batch as $o) {
-                $id = (string) ($o['ID'] ?? $o['SiparisID'] ?? '');
-                if ($id !== '' && ! isset($seen[$id])) {
-                    $seen[$id] = true;
-                    $merged[] = $o;
+        // Performans: 23 SOAP çağrısı. Aynı filtreyle peş peşe tıklamalarda (sayfa
+        // değiştir / geri dön) tekrar 23 çağrı yapılmaması için kısa-süreli cache:
+        // 60 saniye boyunca aynı (filtre+sayfa+perPage) kombinasyonu cache'ten döner.
+        // Cache key: store_key + tüm filtre + page bilgisini içeren hash.
+        $storeKey = $this->client->getCredential()->store_key ?? 'unknown';
+        $cacheKey = 'ticimax.orders.hepsi.' . $storeKey . '.' . md5(json_encode([
+            $bas, $son, $odemeDurumu, $paketlemeDurumu, $odemeTipi, $aktarildi,
+            $filters['siparis_id'] ?? 0,
+            $filters['siparis_no'] ?? null,
+            $filters['siparis_kaynagi'] ?? '',
+            $filters['uye_telefon'] ?? null,
+            $startIdx, $perPage,
+        ]));
+
+        return Cache::remember($cacheKey, now()->addSeconds(60), function () use ($buildParams, $startIdx, $perPage) {
+            $merged = [];
+            $seen = [];
+            foreach (range(0, 22) as $statusCode) {
+                $resp = $this->client->call('order', $this->method('select'), $buildParams($statusCode));
+                $batch = $this->normalizeList($resp, $this->method('select'));
+                foreach ($batch as $o) {
+                    $id = (string) ($o['ID'] ?? $o['SiparisID'] ?? '');
+                    if ($id !== '' && ! isset($seen[$id])) {
+                        $seen[$id] = true;
+                        $merged[] = $o;
+                    }
                 }
             }
-        }
-        // Tarihe göre DESC sırala
-        usort($merged, function ($a, $b) {
-            return strcmp(
-                (string) ($b['SiparisTarihi'] ?? $b['DuzenlemeTarihi'] ?? ''),
-                (string) ($a['SiparisTarihi'] ?? $a['DuzenlemeTarihi'] ?? '')
-            );
+            // Tarihe göre DESC sırala
+            usort($merged, function ($a, $b) {
+                return strcmp(
+                    (string) ($b['SiparisTarihi'] ?? $b['DuzenlemeTarihi'] ?? ''),
+                    (string) ($a['SiparisTarihi'] ?? $a['DuzenlemeTarihi'] ?? '')
+                );
+            });
+            return array_slice($merged, $startIdx, $perPage);
         });
-        return array_slice($merged, $startIdx, $perPage);
+    }
+
+    /**
+     * Listede ana durumlarını göstermek için kısa-süreli cache'li `getOrderById`.
+     * 30 saniye TTL — kullanıcı listede sayfa değiştirip dönerse her seferde
+     * yeniden SOAP gitmesin. Modal'lar (durum/ürün edit) her zaman taze veri
+     * istediğinden onlar `getOrderById`'yi doğrudan çağırmaya devam etsin.
+     */
+    public function getOrderByIdCached(int $siparisId, int $ttlSeconds = 30): ?array
+    {
+        $storeKey = $this->client->getCredential()->store_key ?? 'unknown';
+        $cacheKey = "ticimax.order.byid.{$storeKey}.{$siparisId}";
+        return Cache::remember($cacheKey, now()->addSeconds($ttlSeconds), function () use ($siparisId) {
+            return $this->getOrderById($siparisId);
+        });
     }
 
     /**

@@ -280,7 +280,9 @@ class OrderTransferPicker extends Component
                             continue;
                         }
                         try {
-                            $anaO = $anaService->getOrderById((int) $row['local_ana_id']);
+                            // Cache'li çağrı — listede gezinirken her sayfa değişiminde
+                            // tekrar SOAP yapılmasın (30sn TTL).
+                            $anaO = $anaService->getOrderByIdCached((int) $row['local_ana_id']);
                             if (! $anaO) {
                                 continue;
                             }
