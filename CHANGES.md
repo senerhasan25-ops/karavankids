@@ -7,6 +7,135 @@ Yeni notları **en üste** ekle. Format: `## YYYY-MM-DD — kısa başlık`.
 
 ---
 
+## 2026-05-28 — Sipariş Aktarım Paneli (`/siparisler`) genişletildi: ürün düzenleme, durum güncelleme, canlı SOAP, dinamik enum, diagnostic
+
+Bu seansın tüm işleri **`OrderTransferPicker` ekranı** etrafında. 12 commit, 4 yeni özellik + 4 kritik bug fix. **Hasan tarafına etki sıfır** — sadece `app/Livewire/OrderTransferPicker.php`, `app/Jobs/TransferSingleBayiOrderJob.php`, `app/Jobs/PullBayiOrdersJob.php`, `app/Services/Ticimax/OrderService.php` ve `app/Services/Ticimax/ProductMapper.php` dokunuldu.
+
+### A) Yeni özellik: Sipariş içi ürün düzenleme (`product_overrides`)
+
+**Commits:** `a321b53`, `a2b2ac8`
+**Migration:** `2026_05_28_100000_add_product_overrides_to_order_transfers.php` — `order_transfers.product_overrides` JSON nullable kolon.
+
+`📦 Ürünler` butonu → modal açılır → her satırın adetini değiştir veya sil → iki ayrı kaydetme yolu:
+
+1. **`💾 Kaydet (sadece aktarımda)`** — `order_transfers.product_overrides` JSON kolonuna yazar. `TransferSingleBayiOrderJob` aktarımdan ÖNCE bayi snapshot'ına bunu uygular (silinmiş satırları çıkarır, adetleri değiştirir, `ToplamTutar`/`ToplamKdv`/`OdenenTutar`'ı yeniden hesaplar). **Bayi'deki orijinal siparişe DOKUNMAZ.**
+2. **`🔄 Bayi'de Uygula` / `🔄 Ana'da Uygula`** — Ticimax SOAP `SetSiparisUrunDurum` çağırır (Islem=0 normal güncelleme), gerçekten siparişin satır adetini değiştirir. Ana tarafında satır ID'leri farklı olduğundan StokKodu→ID eşleştirmesi yapılır (taze ana fetch).
+
+### B) Yeni özellik: Sipariş/Ödeme/Paketleme durumu güncelleme
+
+**Commits:** `881bea9`, `88cc6db`, `5d41677`
+
+`✎ Durumlar` butonu → modal'da Bayi/Ana tab toggle → 3 dropdown (Sipariş Durumu / Ödeme Durumu / Paketleme Durumu) → "— Değiştirme —" opsiyonuyla sadece istediğini gönder.
+
+**Yeni SOAP wrapper'ları (`OrderService`):**
+- `updateSiparisDurum(int $siparisId, int $durumKodu, string $siparisNo)` → `SetSiparisDurum`
+- `updateOdemeDurum(int $siparisId, int $odemeDurumKodu, ?int $odemeId)` → `SetSiparisOdemeDurum`. `$odemeId` verilmediyse önce `getOrderById` ile snapshot'tan `Odemeler.WebSiparisOdeme.ID` çekilir, bulunamazsa `SelectSiparisOdeme` fallback.
+- `updatePaketlemeDurum(int $siparisId, int $paketlemeKodu)` → `SetSiparisPaketlemeDurum`
+
+**Kritik öğrendiklerimiz:**
+- `WebSiparisDurumlari` ve `WebOdemeDurumlari` **WSDL enum tipidir** — sayısal değil string ister (`"Onaylandi"`, `"KargoyaVerildi"`). Sayı gönderirsen `Invalid enum value '2' cannot be deserialized` hatası.
+- Mapping XSD'den birebir çekildi → const `OrderService::SIPARIS_DURUM_ENUM` (0-18) ve `OrderService::ODEME_DURUM_ENUM` (0-4) fallback olarak kalıyor.
+- **Bayi ile ana WSDL farklı**: bayi 19 sipariş durumu (`OnSiparis..TeslimEdilemedi`), ana 23 (`+MagazayaGonderildi, MagazayaUlasti, MagazadaTeslimBekliyor, CuzdanaIade`). Ödeme durumu her ikisinde de 5 (`OnayBekliyor..IptalEdilmis`).
+- Bu yüzden **dinamik enum çekme**: `getSupportedSiparisDurumEnums()` ve `getSupportedOdemeDurumEnums()` → XSD'yi `?xsd=xsd0..9` üzerinden parse, Laravel `Cache::remember` 1 günlük. Modal seçili tab'a (bayi/ana) göre dropdown opsiyonlarını disabled yapar (`X durumu (bu mağazada yok)`).
+- Ödeme Durumu kodları **5 (Ödeme Bekliyor)** ve **6 (Ödeme Talep Edildi)** Ticimax web panelinde var ama **SOAP enum'da yok** (her iki mağazada da). Bu sebeple bu iki kod ile API'den güncelleme yapılamaz — modal'da `(SOAP'ta yok)` etiketiyle disabled.
+
+### C) "Bu Sipariş Numarasına Ait Kayıt Bulunmaktadır" → otomatik eşleştirme
+
+**Commits:** `8f8f087`, `2c98dc3`
+
+Ana'da aynı `SiparisNo` ile sipariş zaten varsa `SaveSiparis` bunu hata olarak döner. Önceden `failed` damgalayıp kullanıcıyı yanıltıyorduk (aslında ana'da sipariş VARDI).
+
+**Yeni davranış (hem `TransferSingleBayiOrderJob` hem `PullBayiOrdersJob`):**
+1. Hata mesajında `"Bu Sipariş Numarasına Ait Kayıt"` görürse:
+2. Ana'da `getOrdersByFilter(['siparis_no' => ...])` ile arar
+3. Bulduğu `ana_order_id`'yi `OrderTransfer` kaydına yazar → `status='transferred'`
+4. Bayi'de `SetSiparisAktarildi` ile damgalar
+5. Log'a `Ana #X olarak eşleştirildi` yazar
+
+**Retroaktif eşleştirme yapıldı (tek seferlik):**
+| Bayi | Ana | SiparisNo |
+|---|---|---|
+| #83 | #72 | 675HO2985M |
+| #84 | #69 | 939GE9612N |
+| #85 | #70 | 541WC8426P |
+| #86 | #71 | 969CE2944V |
+
+### D) Display bug fix: Ticimax SOAP iki ayrı alan dönüyor (METİN + SAYI)
+
+**Commit:** `24eb591`
+
+`SelectSiparis` yanıtında:
+- `SiparisDurumu` = METİN (`"Onaylandı"`, `"Siparişiniz Alındı"`)
+- `Durum` = SAYI (2, 0)
+- `PaketlemeDurumu` = METİN, `PaketlemeDurumuID` = SAYI
+
+Biz metin alanını okuyup `(int) "Onaylandı" = 0` yapıyorduk → her sipariş "Sipariş Alındı" görünüyordu. Aslında güncellemeler doğru çalışıyordu, sadece liste yanlış gösteriyordu.
+
+**Fix:** `OrderTransferPicker::listele()` artık `Durum` (sayı) öncelikli okur, `SiparisDurumu` (metin) fallback. `PaketlemeDurumuID` için aynı düzeltme. Aynı sorun benzer projelerde tekrarlanabilir — METİN alanına `(int)` cast yapmadan önce `is_numeric()` kontrol et.
+
+### E) Display bug fix: Ödeme tipi yanlış path → "Kredi Kartı" her satırda
+
+**Commit:** `8b9642f`
+
+Ticimax SOAP ödeme verisi gerçek path: `$o['Odemeler']['WebSiparisOdeme']` (tek ödeme = obje, çoklu = array). Biz `$o['Odeme']['OdemeTipi']` veya `$o['OdemeTipi']` okuyorduk → her ikisi de `null` → default `''` → `(int) '' = 0` → `odemeTipleri[0] = "Kredi Kartı"` her satırda yanlış görünüyordu.
+
+**Aynı bug `ProductMapper`'da da vardı**: ana'ya `OdemeTipi='10'` (Diğer) gönderiyorduk, bayi'de aslında 2 (Kapıda Nakit Ödeme) idi.
+
+**Fix:**
+- `OrderTransferPicker::extractFirstOdeme()` helper — tek/çoklu obje handle eder
+- Hem panel hem ana aktarımı doğru path'tan okur (`OdemeTipi`, `OdemeSecenekID`, `KapidaOdemeTutari`, `TaksitSayisi` hepsi)
+- `OdemeDurumu` metni gelmiyor — Ticimax `Onaylandi: 0/1` bool döner. `Onaylandi=1` → "Onaylandı" göster (kod 1), aksi takdirde boş. Sipariş durumlarının aksine ödeme durumu metni SOAP yanıtında yok.
+
+### F) Bayi/Ana ayrı görüntü + Bayi ID gösterimi
+
+**Commits:** `24eb591`, `df03402`
+
+"Ödeme / Durumlar" kolonu artık iki blok gösterir:
+```
+🏪 BAYI #86 (mavi sol bar)
+  💳 Kapıda Nakit Ödeme
+  📋 Onaylandı
+  📦 Beklemede
+
+🏢 ANA #71 (yeşil sol bar, sadece aktarılmışsa)
+  💳 Kapıda Nakit Ödeme
+  📋 Sipariş Alındı
+  📦 Beklemede
+```
+
+Aktarılmış siparişler için ana mağazadan durumlar `listele()` içinde N ekstra SOAP çağrısıyla çekilir (`getOrderById($ana_order_id)` per row, try/catch per-row). Performans: 4 aktarılmış sipariş için ~3-5 saniye ekleyebilir.
+
+### G) Yeni: Diagnostic (Aktarım Detayı) Modal'ı
+
+**Commit:** `436bc72`
+
+`✓ Aktarıldı` / `✗ Başarısız` badge'ler **tıklanabilir** — modal'da son 5 `SyncLog` kaydı (action: `transfer_order`, `transfer_order_manual`, `mark_order`):
+- Status badge (yeşil/kırmızı), zaman, mesaj/hata + stack trace
+- Expandable `<details>`: SOAP Request (bayi raw JSON + ana payload JSON + SOAP XML)
+- Expandable `<details>`: SOAP Response (Ticimax cevabı XML)
+- "Tüm logları görüntüle" → `/loglar?search=<bayiId>` link
+
+**ÖNEMLİ:** `TransferSingleBayiOrderJob` artık **başarılı path'i de** `raw_request`/`raw_response` yazar (önceden sadece error path). Audit + "ne gönderdik?" sorusunun cevabı.
+
+### H) `OrderTransferPicker` mevcut state (referans)
+
+10 filtre (alıcı adı, e-mail, telefon, sipariş no, tarih aralığı, ödeme tipi, ödeme durumu, sipariş durumu, paketleme durumu, aktarılma durumu) + sayfalama + 4 işlem butonu per row:
+
+| Buton | Ne yapar |
+|---|---|
+| `🚀 Aktar` / `↻ Zorla` | Tek sipariş aktarımı (`TransferSingleBayiOrderJob`) |
+| `📦 Ürünler` | Ürün düzenleme modal'ı (override + canlı SOAP) |
+| `✎ Durumlar` | Durum güncelleme modal'ı (bayi/ana tab) |
+| `✓/✗ badge` | Diagnostic modal (SOAP request/response) |
+
+### I) Hasan tarafına etki
+
+**Sıfır.** Bu seansta `ProductService`, `ProductMapper` (sadece `Odeme` bloğu), `ProductPicker`, `ProductManualSync`, `SyncNewProductsJob`, `SyncStockPriceJob`, `ProductMapping` dosyalarına dokunulmadı.
+
+**ProductMapper'daki tek değişiklik:** Bayi'den ana'ya sipariş aktarırken `Odeme` payload'ı artık `$bayiOrder['Odemeler']['WebSiparisOdeme']` path'inden çekiliyor (önceden `$bayiOrder['Odeme']`'den çekiyor ama orası boştu → her zaman default fallback değerleri gidiyordu). Bu Hasan'ın test ettiği ürün senkronu/sipariş aktarımı testlerini etkilemez, sadece sipariş aktarımının doğruluğunu artırır.
+
+---
+
 ## 2026-05-24 (Akşam) — Lokal-öncelikli mapping + per-job kuyruk denetimi + UI sadeleştirmesi
 
 Bu seansta birbirine bağlı 9 büyük değişiklik yapıldı. Aşağıda ilgili commit'ler ve sebepleriyle. **Hasan tarafı için yapılan değişikliklerden hangileri tarafımı etkiler diye baktığında bu bölümü okumak yeterli.**
