@@ -574,6 +574,64 @@ class OrderTransferPicker extends Component
         }
     }
 
+    // === TOPLU AKTARIM ===
+    // Kullanıcı checkbox'larla birden fazla siparişi seçip tek butonla aktarabilir.
+    // Her seçili sipariş için ayrı bir job dispatch edilir (paralel çalışma — kuyruk worker'ı kadar).
+    public array $selectedBayiIds = [];
+
+    /** "Tümünü seç" toggle — sadece "aktarılmamış" siparişleri seçer (transferred/queued olanlar atlanır). */
+    public function toggleSelectAll(): void
+    {
+        $eligible = array_values(array_filter(array_map(
+            fn ($o) => in_array($o['local_status'], [null, 'failed', 'pending'], true) ? (string) $o['id'] : null,
+            $this->orders
+        )));
+        // Hepsi zaten seçiliyse temizle, değilse tümünü seç
+        $allSelected = ! empty($eligible) && empty(array_diff($eligible, $this->selectedBayiIds));
+        $this->selectedBayiIds = $allSelected ? [] : $eligible;
+    }
+
+    public function clearSelection(): void
+    {
+        $this->selectedBayiIds = [];
+    }
+
+    /** Seçilenleri sırayla kuyruğa al. Worker birden fazla iş paralel çalıştırırsa otomatik paralelleşir. */
+    public function topluAktar(bool $force = false): void
+    {
+        $count = 0;
+        $skipped = 0;
+        foreach ($this->selectedBayiIds as $bayiOrderId) {
+            // Sadece henüz aktarılmamış olanları kuyruğa al — yanlışlıkla zaten 'transferred' olanları
+            // tekrar dispatch etmeyelim (yine de force ile geçilebilsin).
+            $row = null;
+            foreach ($this->orders as $o) {
+                if ((string) $o['id'] === (string) $bayiOrderId) {
+                    $row = $o;
+                    break;
+                }
+            }
+            if ($row && in_array($row['local_status'], ['transferred', 'queued'], true) && ! $force) {
+                $skipped++;
+                continue;
+            }
+            TransferSingleBayiOrderJob::dispatch((string) $bayiOrderId, $force);
+            $count++;
+            // UI'da hemen "queued" görünsün ki kullanıcı tekrar bekliyor mu diye merak etmesin
+            foreach ($this->orders as $i => $o) {
+                if ((string) $o['id'] === (string) $bayiOrderId) {
+                    $this->orders[$i]['local_status'] = 'queued';
+                }
+            }
+        }
+        $msg = "{$count} sipariş aktarım kuyruğuna alındı.";
+        if ($skipped > 0) {
+            $msg .= " ({$skipped} sipariş zaten aktarılmış/kuyrukta olduğundan atlandı.)";
+        }
+        session()->flash('status', $msg);
+        $this->selectedBayiIds = [];
+    }
+
     public function sayfaSonraki(): void
     {
         $this->page++;

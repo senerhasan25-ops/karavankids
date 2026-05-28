@@ -175,10 +175,42 @@
                         Bu filtreyle eşleşen sipariş bulunamadı.
                     </div>
                 @else
+                    {{-- Toplu aktarım çubuğu — seçim varsa görünür --}}
+                    @if (count($selectedBayiIds) > 0)
+                        <div class="px-4 py-3 bg-indigo-50 dark:bg-indigo-900/30 border-b border-indigo-200 dark:border-indigo-800 flex items-center justify-between gap-3">
+                            <div class="text-sm text-indigo-900 dark:text-indigo-200">
+                                <strong>{{ count($selectedBayiIds) }}</strong> sipariş seçildi.
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <button wire:click="topluAktar"
+                                    wire:confirm="Seçili {{ count($selectedBayiIds) }} sipariş aktarılacak. Devam edilsin mi?"
+                                    class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs rounded-md font-semibold">
+                                    🚀 Seçilenleri Aktar
+                                </button>
+                                <button wire:click="topluAktar(true)"
+                                    wire:confirm="Seçili {{ count($selectedBayiIds) }} sipariş FORCE ile (zaten aktarılmış olsa bile) tekrar aktarılacak. Devam edilsin mi?"
+                                    class="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs rounded-md">
+                                    ⚠️ Force Aktar
+                                </button>
+                                <button wire:click="clearSelection"
+                                    class="px-3 py-1.5 border border-gray-300 dark:border-gray-600 text-xs rounded-md text-gray-700 dark:text-gray-300 hover:bg-white dark:hover:bg-gray-800">
+                                    Seçimi Temizle
+                                </button>
+                            </div>
+                        </div>
+                    @endif
+
                     <div class="overflow-x-auto">
                         <table class="w-full text-sm">
                             <thead class="bg-gray-50 dark:bg-gray-900 text-xs uppercase text-gray-500 dark:text-gray-400">
                                 <tr>
+                                    <th class="px-3 py-2 text-center w-10">
+                                        <button type="button" wire:click="toggleSelectAll"
+                                            title="Aktarılmamış siparişlerin hepsini seç / temizle"
+                                            class="text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 text-sm">
+                                            ☑
+                                        </button>
+                                    </th>
                                     <th class="px-3 py-2 text-left">Bayi ID</th>
                                     <th class="px-3 py-2 text-left">Sipariş No</th>
                                     <th class="px-3 py-2 text-left">Tarih</th>
@@ -194,7 +226,18 @@
                             </thead>
                             <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
                                 @foreach ($orders as $o)
-                                    <tr class="hover:bg-gray-50 dark:hover:bg-gray-900/50">
+                                    <tr class="hover:bg-gray-50 dark:hover:bg-gray-900/50 {{ in_array((string) $o['id'], $selectedBayiIds, true) ? 'bg-indigo-50/40 dark:bg-indigo-900/20' : '' }}">
+                                        <td class="px-3 py-2 text-center">
+                                            {{-- Sadece henüz aktarılmamış (veya başarısız) siparişler için checkbox aktif --}}
+                                            @if (in_array($o['local_status'], [null, 'failed', 'pending'], true))
+                                                <input type="checkbox"
+                                                    wire:model.live="selectedBayiIds"
+                                                    value="{{ $o['id'] }}"
+                                                    class="rounded border-gray-300 dark:border-gray-600 text-indigo-600 focus:ring-indigo-500" />
+                                            @else
+                                                <span class="text-gray-300 dark:text-gray-700" title="Zaten aktarılmış / kuyrukta">—</span>
+                                            @endif
+                                        </td>
                                         <td class="px-3 py-2 font-mono text-xs text-gray-600 dark:text-gray-400">{{ $o['id'] }}</td>
                                         <td class="px-3 py-2 font-mono">{{ $o['siparis_no'] ?: '—' }}</td>
                                         <td class="px-3 py-2 text-xs text-gray-600 dark:text-gray-400">
