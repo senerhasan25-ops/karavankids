@@ -498,6 +498,45 @@ class OrderService
         return $this->normalizeOne($resp) ?? ['method' => 'SetSiparisOdemeDurum', 'odeme_id' => $odemeId, 'durum' => $odemeDurumEnum];
     }
 
+    /**
+     * Sipariş içindeki bir ürün satırının ADETİNİ canlıda günceller.
+     * SetSiparisUrunDurum SOAP'ı; Islem=0 (normal güncelleme), DurumID=0 (durum değiştirme),
+     * sadece Adet'i değiştirir. Mağaza buna stok hareketi yapar (eski adet - yeni adet farkı).
+     *
+     * @param int $siparisId       sipariş ID
+     * @param int $siparisUrunId   satır ID (WebSiparisUrun.ID)
+     * @param float $yeniAdet      hedef adet (en az 1 — 0 yapmak için iptal/iade kullanılmalı)
+     */
+    public function updateSiparisUrunAdet(int $siparisId, int $siparisUrunId, float $yeniAdet): array
+    {
+        if ($yeniAdet < 1) {
+            throw new \RuntimeException('Adet en az 1 olmalı. Satırı tamamen kaldırmak için iptal/iade kullan.');
+        }
+
+        $params = [
+            'UyeKodu' => $this->client->getUyeKodu(),
+            'request' => [
+                'Adet' => $yeniAdet,
+                'BankaKomisyonuIade' => false,
+                'DurumID' => 0,           // 0 = durumu değiştirme
+                'IadeNedenID' => 0,
+                'Islem' => 0,             // 0 = normal güncelleme (iptal/iade DEĞİL)
+                'KargoTutariIade' => false,
+                'KartaIadeYap' => false,
+                'MailGonder' => false,
+                'SiparisID' => $siparisId,
+                'SiparisUrunID' => $siparisUrunId,
+            ],
+        ];
+        $resp = $this->client->call('order', 'SetSiparisUrunDurum', $params);
+        return $this->normalizeOne($resp) ?? [
+            'method' => 'SetSiparisUrunDurum',
+            'siparis_id' => $siparisId,
+            'satir_id' => $siparisUrunId,
+            'yeni_adet' => $yeniAdet,
+        ];
+    }
+
     /** SelectSiparisOdeme yanıtında ilk ödeme kaydının ID'sini bul. */
     protected function findOdemeId(array $data): ?int
     {
