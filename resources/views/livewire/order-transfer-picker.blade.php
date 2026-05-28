@@ -460,49 +460,6 @@
                     @endif
                 </div>
 
-                {{-- Canlıya Uygulama (Bayi/Ana SOAP) — gerçekten Ticimax sipariş satırlarını günceller --}}
-                @if (! $editorLoading && empty($editorError) && ! empty($editingLines))
-                    <div class="px-6 py-3 border-t border-gray-200 dark:border-gray-700 bg-amber-50 dark:bg-amber-900/10">
-                        @if ($liveApplyMessage)
-                            <div class="bg-green-100 border border-green-300 text-green-800 px-3 py-2 rounded text-sm mb-2">
-                                {{ $liveApplyMessage }}
-                            </div>
-                        @endif
-                        @if ($liveApplyError)
-                            <div class="bg-red-100 border border-red-300 text-red-800 px-3 py-2 rounded text-sm mb-2">
-                                <strong>Hata:</strong> {{ $liveApplyError }}
-                            </div>
-                        @endif
-
-                        <div class="flex items-center justify-between gap-3">
-                            <div class="text-xs text-amber-700 dark:text-amber-300 flex-1">
-                                ⚠️ <strong>Canlıya Uygula:</strong> Bayi veya ana sipariş satırlarındaki adetleri gerçekten değiştirir
-                                (Ticimax SOAP). Stok hareketi otomatik yapılır. Geri alınamaz.
-                            </div>
-                            <div class="flex gap-2 shrink-0">
-                                <button wire:click="applyLive('bayi')"
-                                        wire:loading.attr="disabled"
-                                        wire:target="applyLive"
-                                        wire:confirm="Bayi'deki sipariş satırlarının adetleri Ticimax'ta güncellenecek. Geri alınamaz. Devam?"
-                                        class="px-3 py-1.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50">
-                                    <span wire:loading.remove wire:target="applyLive">🔄 Bayi'de Uygula</span>
-                                    <span wire:loading wire:target="applyLive">⏳ ...</span>
-                                </button>
-                                @if ($editingAnaOrderId)
-                                    <button wire:click="applyLive('ana')"
-                                            wire:loading.attr="disabled"
-                                            wire:target="applyLive"
-                                            wire:confirm="Ana mağazadaki sipariş satırlarının adetleri güncellenecek. Geri alınamaz. Devam?"
-                                            class="px-3 py-1.5 text-xs bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:opacity-50">
-                                        <span wire:loading.remove wire:target="applyLive">🔄 Ana'da Uygula (#{{ $editingAnaOrderId }})</span>
-                                        <span wire:loading wire:target="applyLive">⏳ ...</span>
-                                    </button>
-                                @endif
-                            </div>
-                        </div>
-                    </div>
-                @endif
-
                 {{-- Modal footer --}}
                 <div class="px-6 py-4 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
                     @if ($hasOverride)
@@ -518,13 +475,12 @@
                     <div class="flex gap-2">
                         <button wire:click="closeEditor"
                                 class="px-4 py-2 text-sm bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded hover:bg-gray-300">
-                            Kapat
+                            İptal
                         </button>
                         <button wire:click="saveEdits"
                                 @disabled($editorLoading || ! empty($editorError) || empty($editingLines))
-                                class="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
-                                title="Sadece bizim panelimize kaydeder; aktarımda kullanılır (Canlıya yansıtmaz)">
-                            💾 Kaydet (sadece aktarımda)
+                                class="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50">
+                            💾 Kaydet
                         </button>
                     </div>
                 </div>

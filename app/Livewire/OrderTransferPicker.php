@@ -50,13 +50,9 @@ class OrderTransferPicker extends Component
     public bool $showEditor = false;
     public bool $editorLoading = false;
     public ?string $editorError = null;
-    /** @var array<int, array{id:int,stok_kodu:string,urun_adi:string,adet:int,original_adet:int,birim_fiyat:float,removed:bool}> */
+    /** @var array<int, array{stok_kodu:string,urun_adi:string,adet:int,birim_fiyat:float,removed:bool}> */
     public array $editingLines = [];
     public bool $hasOverride = false; // bu sipariş için önceden override kaydı var mı?
-    public ?string $liveApplyMessage = null;
-    public ?string $liveApplyError = null;
-    public bool $liveApplying = false;
-    public ?string $editingAnaOrderId = null; // ürün modal'ı içinde ana'ya uygulayabilmek için
 
     // === DURUM GÜNCELLEME MODAL'I ===
     // Bayi VEYA ana'da siparişin Sipariş/Ödeme/Paketleme durumunu değiştirmek için.
@@ -362,20 +358,14 @@ class OrderTransferPicker extends Component
                     continue;
                 }
                 $ovr = $overrideMap[$stokKodu] ?? null;
-                $origAdet = (int) ($line['Adet'] ?? 1);
                 $this->editingLines[] = [
-                    'id' => (int) ($line['ID'] ?? 0), // SiparisUrunID — canlı SOAP güncellemesi için
                     'stok_kodu' => $stokKodu,
                     'urun_adi' => (string) ($line['UrunAdi'] ?? $line['Urun']['Adi'] ?? '—'),
-                    'adet' => (int) ($ovr['adet'] ?? $origAdet),
-                    'original_adet' => $origAdet, // bayi'deki gerçek adet (canlı uygula referansı)
+                    'adet' => (int) ($ovr['adet'] ?? $line['Adet'] ?? 1),
                     'birim_fiyat' => (float) ($line['Tutar'] ?? $line['BirimFiyat'] ?? $line['SatisFiyati'] ?? 0),
                     'removed' => (bool) ($ovr['removed'] ?? false),
                 ];
             }
-
-            // Modal içinden ana'da uygulayabilelim diye OrderTransfer'dan ana ID'yi çek
-            $this->editingAnaOrderId = $existing?->ana_order_id;
         } catch (Throwable $e) {
             $this->editorError = $e->getMessage();
         } finally {
@@ -390,101 +380,6 @@ class OrderTransferPicker extends Component
         $this->editingLines = [];
         $this->editorError = null;
         $this->hasOverride = false;
-        $this->liveApplyMessage = null;
-        $this->liveApplyError = null;
-        $this->liveApplying = false;
-        $this->editingAnaOrderId = null;
-    }
-
-    /**
-     * Modal'daki adet değişikliklerini CANLI olarak SOAP ile bayi VEYA ana'ya uygular.
-     * Sadece adet değişen satırları gönderir; silinmiş satırlar buradan İPTAL edilmez
-     * (iptal/iade ayrı bir özellik — kullanıcı kasten yanlış basmasın diye).
-     */
-    public function applyLive(string $target): void
-    {
-        if (! in_array($target, ['bayi', 'ana'], true)) {
-            return;
-        }
-        if (! $this->editingBayiOrderId) {
-            return;
-        }
-        $this->liveApplyMessage = null;
-        $this->liveApplyError = null;
-        $this->liveApplying = true;
-
-        try {
-            $service = OrderService::for($target);
-            $orderId = $target === 'bayi' ? (int) $this->editingBayiOrderId : (int) ($this->editingAnaOrderId ?? 0);
-            if (! $orderId) {
-                throw new \RuntimeException("Sipariş henüz ana'ya aktarılmamış — ana'da canlı güncelleme yapılamaz.");
-            }
-
-            // ANA tarafı için satır ID'leri farklıdır — ana'dan taze satırlar çekip StokKodu eşleştirmesi yap
-            $anaLineMap = [];
-            if ($target === 'ana') {
-                $anaO = $service->getOrderById($orderId);
-                if (! $anaO) {
-                    throw new \RuntimeException("Ana sipariş #{$orderId} bulunamadı.");
-                }
-                $anaUrunler = $anaO['Urunler']['WebSiparisUrun'] ?? [];
-                if (isset($anaUrunler['StokKodu'])) {
-                    $anaUrunler = [$anaUrunler];
-                }
-                if (is_array($anaUrunler) && ! array_is_list($anaUrunler)) {
-                    $anaUrunler = [$anaUrunler];
-                }
-                foreach ((array) $anaUrunler as $aLine) {
-                    $sk = (string) ($aLine['StokKodu'] ?? '');
-                    if ($sk !== '' && isset($aLine['ID'])) {
-                        $anaLineMap[$sk] = (int) $aLine['ID'];
-                    }
-                }
-            }
-
-            $updated = [];
-            $skipped = 0;
-            foreach ($this->editingLines as $line) {
-                if (! empty($line['removed'])) {
-                    $skipped++;
-                    continue;
-                }
-                $newAdet = max(1, (int) $line['adet']);
-                $origAdet = (int) ($line['original_adet'] ?? 0);
-                if ($newAdet === $origAdet && $target === 'bayi') {
-                    continue; // bayi'de değişiklik yok
-                }
-
-                $lineId = $target === 'bayi'
-                    ? (int) ($line['id'] ?? 0)
-                    : (int) ($anaLineMap[$line['stok_kodu']] ?? 0);
-
-                if (! $lineId) {
-                    $skipped++;
-                    continue;
-                }
-
-                $service->updateSiparisUrunAdet($orderId, $lineId, (float) $newAdet);
-                $updated[] = "{$line['stok_kodu']}: {$origAdet}→{$newAdet}";
-            }
-
-            if (empty($updated)) {
-                $this->liveApplyError = 'Değiştirilecek bir satır bulunmadı (orijinal adetlerle aynı veya silinmiş).';
-            } else {
-                $hedef = $target === 'bayi' ? 'Bayi' : 'Ana';
-                $this->liveApplyMessage = "✓ {$hedef}'de güncellendi: " . implode(' · ', $updated)
-                    . ($skipped > 0 ? " ({$skipped} satır atlandı)" : '');
-                // editingLines'da original_adet'leri tazele ki tekrar uygulanmasın
-                foreach ($this->editingLines as $i => $l) {
-                    if (! empty($l['removed'])) continue;
-                    $this->editingLines[$i]['original_adet'] = (int) $l['adet'];
-                }
-            }
-        } catch (Throwable $e) {
-            $this->liveApplyError = $e->getMessage();
-        } finally {
-            $this->liveApplying = false;
-        }
     }
 
     /** Satırı "silinmiş" işaretle — tamamen array'den çıkarmıyoruz ki kullanıcı geri alabilsin. */
