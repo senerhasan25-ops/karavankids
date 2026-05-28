@@ -297,16 +297,58 @@ class OrderService
      * Burada ikisini de destekliyoruz: önce SetSiparisAktarildi dene, yoksa paketleme.
      */
     /**
+     * Ticimax WSDL enum WebSiparisDurumlari — int index → enum string.
+     * Bu mapping XSD'den birebir çekildi (digitalsupport.ticimaxtest.com).
+     * 19+ indexli durumlar bu enum'da yok; istersen Ticimax hata döner.
+     */
+    public const SIPARIS_DURUM_ENUM = [
+        0 => 'OnSiparis',
+        1 => 'OnayBekliyor',
+        2 => 'Onaylandi',
+        3 => 'OdemeBekliyor',
+        4 => 'Paketleniyor',
+        5 => 'TedarikEdiliyor',
+        6 => 'KargoyaVerildi',
+        7 => 'TeslimEdildi',
+        8 => 'Iptal',
+        9 => 'Iade',
+        10 => 'Silinmis',
+        11 => 'IadeTalepAlindi',
+        12 => 'IadeUlastiOdemeYapilacak',
+        13 => 'IadeOdemeYapildi',
+        14 => 'TeslimOncesiIptal',
+        15 => 'IptalTalebi',
+        16 => 'KismiIadeTalebi',
+        17 => 'KismiIadeYapildi',
+        18 => 'TeslimEdilemedi',
+    ];
+
+    /** Ticimax WSDL enum WebOdemeDurumlari — int index → enum string. */
+    public const ODEME_DURUM_ENUM = [
+        0 => 'OnayBekliyor',
+        1 => 'Onaylandi',
+        2 => 'Hatali',
+        3 => 'IadeEdilmis',
+        4 => 'IptalEdilmis',
+    ];
+
+    /**
      * Siparişin "Sipariş Durumu"nu (SiparisDurumu) güncelle.
      * Kod listesi: 0=Sipariş Alındı, 1=Onay Bekliyor, 2=Onaylandı, 4=Paketleniyor,
      *             6=Kargoya Verildi, 7=Teslim Edildi, 8=İptal Edildi vb.
      */
     public function updateSiparisDurum(int $siparisId, int $durumKodu, string $siparisNo = ''): array
     {
+        // Ticimax WebSiparisDurumlari ENUM ister (numeric değil) — mapping uygula
+        $durumEnum = self::SIPARIS_DURUM_ENUM[$durumKodu] ?? null;
+        if ($durumEnum === null) {
+            throw new \RuntimeException("Geçersiz sipariş durumu kodu: {$durumKodu} (WSDL'de tanımlı değil).");
+        }
+
         $params = [
             'UyeKodu' => $this->client->getUyeKodu(),
             'request' => [
-                'Durum' => (string) $durumKodu,
+                'Durum' => $durumEnum,
                 'KargoTakipLink' => '',
                 'KargoTakipNo' => '',
                 'MailBilgilendir' => false,
@@ -316,7 +358,7 @@ class OrderService
             ],
         ];
         $resp = $this->client->call('order', 'SetSiparisDurum', $params);
-        return $this->normalizeOne($resp) ?? ['method' => 'SetSiparisDurum'];
+        return $this->normalizeOne($resp) ?? ['method' => 'SetSiparisDurum', 'durum' => $durumEnum];
     }
 
     /**
@@ -359,17 +401,23 @@ class OrderService
             }
         }
 
+        // Ticimax WebOdemeDurumlari ENUM ister — mapping uygula
+        $odemeDurumEnum = self::ODEME_DURUM_ENUM[$odemeDurumKodu] ?? null;
+        if ($odemeDurumEnum === null) {
+            throw new \RuntimeException("Geçersiz ödeme durumu kodu: {$odemeDurumKodu} (WSDL'de tanımlı değil).");
+        }
+
         $params = [
             'UyeKodu' => $this->client->getUyeKodu(),
             'request' => [
                 'BilgiMailiGonderme' => false,
-                'OdemeDurum' => (string) $odemeDurumKodu,
+                'OdemeDurum' => $odemeDurumEnum,
                 'OdemeId' => $odemeId,
                 'SiparisId' => $siparisId,
             ],
         ];
         $resp = $this->client->call('order', 'SetSiparisOdemeDurum', $params);
-        return $this->normalizeOne($resp) ?? ['method' => 'SetSiparisOdemeDurum', 'odeme_id' => $odemeId];
+        return $this->normalizeOne($resp) ?? ['method' => 'SetSiparisOdemeDurum', 'odeme_id' => $odemeId, 'durum' => $odemeDurumEnum];
     }
 
     /** SelectSiparisOdeme yanıtında ilk ödeme kaydının ID'sini bul. */
