@@ -13,13 +13,14 @@ Bu seansın tüm işleri **`OrderTransferPicker` ekranı** etrafında. 12 commit
 
 ### A) Yeni özellik: Sipariş içi ürün düzenleme (`product_overrides`)
 
-**Commits:** `a321b53`, `a2b2ac8`
+**Commits:** `a321b53` (canlı SOAP adet uygulama özelliği `a2b2ac8` eklendi, sonra `d2d2b83` ile geri çekildi — bkz. aşağıdaki not)
 **Migration:** `2026_05_28_100000_add_product_overrides_to_order_transfers.php` — `order_transfers.product_overrides` JSON nullable kolon.
 
-`📦 Ürünler` butonu → modal açılır → her satırın adetini değiştir veya sil → iki ayrı kaydetme yolu:
+`📦 Ürünler` butonu → modal açılır → her satırın adetini değiştir veya sil → tek kaydetme yolu:
 
-1. **`💾 Kaydet (sadece aktarımda)`** — `order_transfers.product_overrides` JSON kolonuna yazar. `TransferSingleBayiOrderJob` aktarımdan ÖNCE bayi snapshot'ına bunu uygular (silinmiş satırları çıkarır, adetleri değiştirir, `ToplamTutar`/`ToplamKdv`/`OdenenTutar`'ı yeniden hesaplar). **Bayi'deki orijinal siparişe DOKUNMAZ.**
-2. **`🔄 Bayi'de Uygula` / `🔄 Ana'da Uygula`** — Ticimax SOAP `SetSiparisUrunDurum` çağırır (Islem=0 normal güncelleme), gerçekten siparişin satır adetini değiştirir. Ana tarafında satır ID'leri farklı olduğundan StokKodu→ID eşleştirmesi yapılır (taze ana fetch).
+- **`💾 Kaydet`** — `order_transfers.product_overrides` JSON kolonuna yazar. `TransferSingleBayiOrderJob` aktarımdan ÖNCE bayi snapshot'ına bunu uygular (silinmiş satırları çıkarır, adetleri değiştirir, `ToplamTutar`/`ToplamKdv`/`OdenenTutar`'ı yeniden hesaplar). **Bayi'deki orijinal siparişe DOKUNMAZ, sadece ana'ya aktarılan kopyayı etkiler.**
+
+> **Not (revert `d2d2b83`):** `SetSiparisUrunDurum` (Islem=0) ile bayi/ana'da satır adetini canlıda değiştiren özellik geri çekildi. Karar: sipariş içeriğini Ticimax tarafında manipüle etmek istemediğimiz için sadece **yerel override** (aktarımda uygulanır) bırakıldı.
 
 ### B) Yeni özellik: Sipariş/Ödeme/Paketleme durumu güncelleme
 
