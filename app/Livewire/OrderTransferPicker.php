@@ -221,9 +221,11 @@ class OrderTransferPicker extends Component
             $this->orders = array_map(function ($o) use ($localStatus) {
                 $id = (string) ($o['ID'] ?? $o['SiparisID'] ?? '');
                 $local = $localStatus->get($id);
-                // Ödeme durumu — bazı siparişlerde top-level OdemeDurumu yok, fallback "Onaylandi" varsayımı yok;
-                // sadece varsa göster.
-                $odemeDurumuVal = $o['Odeme']['OdemeDurumu'] ?? $o['OdemeDurumu'] ?? '';
+                // Ticimax ödeme verisi gerçek path: $o['Odemeler']['WebSiparisOdeme']
+                // Bu array (multi-payment) veya tek obje olabilir — ilk kaydı al.
+                $ode = $this->extractFirstOdeme($o);
+                // OdemeDurumu metni gelmeyebilir; Onaylandi=1 ise "Onaylandı" (kod 1), aksi takdirde boş bırak.
+                $odemeDurumuKod = isset($ode['Onaylandi']) && (int) $ode['Onaylandi'] === 1 ? '1' : '';
                 return [
                     'id' => $id,
                     'siparis_no' => (string) ($o['SiparisNo'] ?? $o['SiparisKodu'] ?? ''),
@@ -232,8 +234,8 @@ class OrderTransferPicker extends Component
                     'mail' => (string) ($o['Mail'] ?? $o['UyeMail'] ?? ''),
                     'telefon' => (string) ($o['Telefon'] ?? $o['UyeCep'] ?? ''),
                     'tutar' => (float) ($o['OdenenTutar'] ?? $o['SiparisToplamTutari'] ?? 0),
-                    'odeme_tipi' => (string) ($o['Odeme']['OdemeTipi'] ?? $o['OdemeTipi'] ?? ''),
-                    'odeme_durumu' => is_numeric($odemeDurumuVal) ? (string) $odemeDurumuVal : '',
+                    'odeme_tipi' => isset($ode['OdemeTipi']) && is_numeric($ode['OdemeTipi']) ? (string) $ode['OdemeTipi'] : '',
+                    'odeme_durumu' => $odemeDurumuKod,
                     // SAYISAL Durum'u öncelikle al — SiparisDurumu metin gelir ve (int)'den 0 olur (display bug'ı kaynağı)
                     'siparis_durumu' => isset($o['Durum']) && is_numeric($o['Durum'])
                         ? (string) $o['Durum']
@@ -275,9 +277,9 @@ class OrderTransferPicker extends Component
                             if (! $anaO) {
                                 continue;
                             }
-                            $anaOdeme = $anaO['Odeme']['OdemeDurumu'] ?? $anaO['OdemeDurumu'] ?? '';
-                            $this->orders[$i]['ana_odeme_tipi'] = (string) ($anaO['Odeme']['OdemeTipi'] ?? $anaO['OdemeTipi'] ?? '');
-                            $this->orders[$i]['ana_odeme_durumu'] = is_numeric($anaOdeme) ? (string) $anaOdeme : '';
+                            $anaOde = $this->extractFirstOdeme($anaO);
+                            $this->orders[$i]['ana_odeme_tipi'] = isset($anaOde['OdemeTipi']) && is_numeric($anaOde['OdemeTipi']) ? (string) $anaOde['OdemeTipi'] : '';
+                            $this->orders[$i]['ana_odeme_durumu'] = isset($anaOde['Onaylandi']) && (int) $anaOde['Onaylandi'] === 1 ? '1' : '';
                             $this->orders[$i]['ana_siparis_durumu'] = isset($anaO['Durum']) && is_numeric($anaO['Durum'])
                                 ? (string) $anaO['Durum']
                                 : '';
@@ -593,6 +595,23 @@ class OrderTransferPicker extends Component
         $this->page = 1;
         $this->orders = [];
         $this->hasSearched = false;
+    }
+
+    /**
+     * Ticimax SOAP yanıtında ödeme bilgisi $o['Odemeler']['WebSiparisOdeme'] altında.
+     * Tek ödeme varsa direkt obje, birden fazla varsa array of objects.
+     * İlk (veya tek) ödeme kaydını dön, yoksa [] dön.
+     */
+    protected function extractFirstOdeme(array $o): array
+    {
+        $ode = $o['Odemeler']['WebSiparisOdeme'] ?? null;
+        if (! $ode) {
+            return [];
+        }
+        if (is_array($ode) && array_is_list($ode)) {
+            return is_array($ode[0] ?? null) ? $ode[0] : [];
+        }
+        return is_array($ode) ? $ode : [];
     }
 
     public function render()

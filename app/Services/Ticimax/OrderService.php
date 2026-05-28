@@ -447,18 +447,34 @@ class OrderService
     public function updateOdemeDurum(int $siparisId, int $odemeDurumKodu, ?int $odemeId = null): array
     {
         if (! $odemeId) {
-            // SelectSiparisOdeme: siparisId ile tüm ödemeleri çek, ilkinin ID'sini al
-            $lookup = [
-                'UyeKodu' => $this->client->getUyeKodu(),
-                'siparisId' => $siparisId,
-                'odemeId' => 0,
-                'isAktarildi' => false,
-            ];
-            $odemeResp = $this->client->call('order', 'SelectSiparisOdeme', $lookup);
-            $arr = is_object($odemeResp) ? json_decode(json_encode($odemeResp), true) : (array) $odemeResp;
-            $odemeId = $this->findOdemeId($arr);
+            // Önce hızlı yol: siparişi getOrderById ile çek, Odemeler.WebSiparisOdeme.ID oku.
+            // Bulamazsak SelectSiparisOdeme'a düş.
+            $siparis = $this->getOrderById($siparisId);
+            if ($siparis) {
+                $ode = $siparis['Odemeler']['WebSiparisOdeme'] ?? null;
+                if (is_array($ode) && array_is_list($ode)) {
+                    $ode = $ode[0] ?? null;
+                }
+                if (is_array($ode) && isset($ode['ID']) && is_numeric($ode['ID'])) {
+                    $odemeId = (int) $ode['ID'];
+                }
+            }
+
             if (! $odemeId) {
-                throw new \RuntimeException("Sipariş #{$siparisId} için ödeme kaydı bulunamadı (SelectSiparisOdeme boş döndü).");
+                // SelectSiparisOdeme fallback
+                $lookup = [
+                    'UyeKodu' => $this->client->getUyeKodu(),
+                    'siparisId' => $siparisId,
+                    'odemeId' => 0,
+                    'isAktarildi' => false,
+                ];
+                $odemeResp = $this->client->call('order', 'SelectSiparisOdeme', $lookup);
+                $arr = is_object($odemeResp) ? json_decode(json_encode($odemeResp), true) : (array) $odemeResp;
+                $odemeId = $this->findOdemeId($arr);
+            }
+
+            if (! $odemeId) {
+                throw new \RuntimeException("Sipariş #{$siparisId} için ödeme kaydı bulunamadı (OdemeId alınamadı).");
             }
         }
 

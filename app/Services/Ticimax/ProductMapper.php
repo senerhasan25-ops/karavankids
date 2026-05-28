@@ -366,18 +366,34 @@ class ProductMapper
             'KdvOraniniSiparisUrundenAl' => false,
             'MarketPlaceOdemeAlindi' => true,
             'MarketplaceKampanyaKodu' => '',
-            'Odeme' => [
-                'BankaKomisyonu' => 0,
-                'HavaleHesapID' => 0,
-                'KapidaOdemeTutari' => 0,
-                'OdemeDurumu' => $this->s($bayiOrder['Odeme']['OdemeDurumu'] ?? $bayiOrder['OdemeDurumu'] ?? null, '1'),
-                'OdemeIndirimi' => 0,
-                'OdemeSecenekID' => 0,
-                'OdemeTipi' => $this->s($bayiOrder['Odeme']['OdemeTipi'] ?? $bayiOrder['OdemeTipi'] ?? null, '10'),
-                'TaksitSayisi' => 0,
-                'Tarih' => $tarih,
-                'Tutar' => $genelToplam,
-            ],
+            // Ödeme bilgisi bayi'de $bayiOrder['Odemeler']['WebSiparisOdeme'] altında
+            // (tek ödeme = obje, çoklu = array). İlk kaydı çekelim, yoksa varsayılan değerler.
+            'Odeme' => (function () use ($bayiOrder, $tarih, $genelToplam) {
+                $src = $bayiOrder['Odemeler']['WebSiparisOdeme'] ?? null;
+                if (is_array($src) && array_is_list($src)) {
+                    $src = $src[0] ?? [];
+                }
+                $src = is_array($src) ? $src : [];
+
+                $odemeTipi = isset($src['OdemeTipi']) && is_numeric($src['OdemeTipi'])
+                    ? (string) (int) $src['OdemeTipi']
+                    : '10'; // 10 = Diğer (fallback)
+                // OdemeDurumu: Onaylandi=1 ise '1' (Onaylandi), yoksa '0' (Onay Bekliyor)
+                $odemeDurumu = isset($src['Onaylandi']) && (int) $src['Onaylandi'] === 1 ? '1' : '0';
+
+                return [
+                    'BankaKomisyonu' => 0,
+                    'HavaleHesapID' => (int) ($src['HavaleHesapID'] ?? 0),
+                    'KapidaOdemeTutari' => (float) ($src['KapidaOdemeTutari'] ?? 0),
+                    'OdemeDurumu' => $odemeDurumu,
+                    'OdemeIndirimi' => (float) ($src['OdemeIndirimi'] ?? 0),
+                    'OdemeSecenekID' => (int) ($src['OdemeSecenekID'] ?? 0),
+                    'OdemeTipi' => $odemeTipi,
+                    'TaksitSayisi' => (int) ($src['TaksitSayisi'] ?? 0),
+                    'Tarih' => $tarih,
+                    'Tutar' => $genelToplam,
+                ];
+            })(),
             'OzelAlan3' => '',
             'ParaBirimi' => 'TRY',
             'PazaryeriButikId' => 0,
