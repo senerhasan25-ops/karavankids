@@ -214,9 +214,16 @@ class OrderTransferPicker extends Component
                 ->get(['bayi_order_id', 'ana_order_id', 'status', 'transferred_at', 'last_error', 'product_overrides'])
                 ->keyBy('bayi_order_id');
 
+            // Ticimax SOAP iki ayrı alan dönüyor:
+            //   SiparisDurumu / PaketlemeDurumu = METİN ("Onaylandı")
+            //   Durum / PaketlemeDurumuID       = SAYI (2, 1)
+            // Görüntülemek için SAYIYI istiyoruz (siparisDurumlari lookup map'ine girer).
             $this->orders = array_map(function ($o) use ($localStatus) {
                 $id = (string) ($o['ID'] ?? $o['SiparisID'] ?? '');
                 $local = $localStatus->get($id);
+                // Ödeme durumu — bazı siparişlerde top-level OdemeDurumu yok, fallback "Onaylandi" varsayımı yok;
+                // sadece varsa göster.
+                $odemeDurumuVal = $o['Odeme']['OdemeDurumu'] ?? $o['OdemeDurumu'] ?? '';
                 return [
                     'id' => $id,
                     'siparis_no' => (string) ($o['SiparisNo'] ?? $o['SiparisKodu'] ?? ''),
@@ -226,16 +233,65 @@ class OrderTransferPicker extends Component
                     'telefon' => (string) ($o['Telefon'] ?? $o['UyeCep'] ?? ''),
                     'tutar' => (float) ($o['OdenenTutar'] ?? $o['SiparisToplamTutari'] ?? 0),
                     'odeme_tipi' => (string) ($o['Odeme']['OdemeTipi'] ?? $o['OdemeTipi'] ?? ''),
-                    'odeme_durumu' => (string) ($o['Odeme']['OdemeDurumu'] ?? $o['OdemeDurumu'] ?? ''),
-                    'siparis_durumu' => (string) ($o['SiparisDurumu'] ?? $o['Durum'] ?? ''),
-                    'paketleme_durumu' => (string) ($o['PaketlemeDurumu'] ?? $o['PaketlemeDurumuId'] ?? ''),
+                    'odeme_durumu' => is_numeric($odemeDurumuVal) ? (string) $odemeDurumuVal : '',
+                    // SAYISAL Durum'u öncelikle al — SiparisDurumu metin gelir ve (int)'den 0 olur (display bug'ı kaynağı)
+                    'siparis_durumu' => isset($o['Durum']) && is_numeric($o['Durum'])
+                        ? (string) $o['Durum']
+                        : (is_numeric($o['SiparisDurumu'] ?? null) ? (string) $o['SiparisDurumu'] : ''),
+                    'paketleme_durumu' => isset($o['PaketlemeDurumuID']) && is_numeric($o['PaketlemeDurumuID'])
+                        ? (string) $o['PaketlemeDurumuID']
+                        : (isset($o['PaketlemeDurumuId']) && is_numeric($o['PaketlemeDurumuId']) ? (string) $o['PaketlemeDurumuId'] : ''),
                     'entegrasyon_aktarildi' => (bool) ($o['EntegrasyonAktarildi'] ?? false),
                     'local_status' => $local?->status,
                     'local_ana_id' => $local?->ana_order_id,
                     'local_error' => $local?->last_error,
                     'has_override' => $local && ! empty($local->product_overrides),
+                    // ANA durumları aşağıda dolduracağız
+                    'ana_odeme_tipi' => null,
+                    'ana_odeme_durumu' => null,
+                    'ana_siparis_durumu' => null,
+                    'ana_paketleme_durumu' => null,
                 ];
             }, $raw);
+
+            // Aktarılmış siparişler için ANA mağazadan durumları da çek
+            // (sadece transferred + ana_order_id'si olanlar — performans için ek SOAP zorunlu).
+            $transferredAnaIds = array_filter(array_map(
+                fn ($o) => $o['local_status'] === 'transferred' && $o['local_ana_id']
+                    ? (int) $o['local_ana_id']
+                    : null,
+                $this->orders
+            ));
+
+            if (! empty($transferredAnaIds)) {
+                try {
+                    $anaService = OrderService::for('ana');
+                    foreach ($this->orders as $i => $row) {
+                        if (! $row['local_ana_id'] || $row['local_status'] !== 'transferred') {
+                            continue;
+                        }
+                        try {
+                            $anaO = $anaService->getOrderById((int) $row['local_ana_id']);
+                            if (! $anaO) {
+                                continue;
+                            }
+                            $anaOdeme = $anaO['Odeme']['OdemeDurumu'] ?? $anaO['OdemeDurumu'] ?? '';
+                            $this->orders[$i]['ana_odeme_tipi'] = (string) ($anaO['Odeme']['OdemeTipi'] ?? $anaO['OdemeTipi'] ?? '');
+                            $this->orders[$i]['ana_odeme_durumu'] = is_numeric($anaOdeme) ? (string) $anaOdeme : '';
+                            $this->orders[$i]['ana_siparis_durumu'] = isset($anaO['Durum']) && is_numeric($anaO['Durum'])
+                                ? (string) $anaO['Durum']
+                                : '';
+                            $this->orders[$i]['ana_paketleme_durumu'] = isset($anaO['PaketlemeDurumuID']) && is_numeric($anaO['PaketlemeDurumuID'])
+                                ? (string) $anaO['PaketlemeDurumuID']
+                                : '';
+                        } catch (Throwable $e) {
+                            // tek sipariş patlarsa diğerleri devam etsin
+                        }
+                    }
+                } catch (Throwable $e) {
+                    // Ana mağaza servisi hiç ayağa kalkmazsa sessiz geç (bayi listesi yine görünür)
+                }
+            }
         } catch (Throwable $e) {
             $this->lastError = $e->getMessage();
             $this->orders = [];

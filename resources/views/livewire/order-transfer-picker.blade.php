@@ -185,7 +185,7 @@
                                     <th class="px-3 py-2 text-left">Alıcı</th>
                                     <th class="px-3 py-2 text-left">İletişim</th>
                                     <th class="px-3 py-2 text-right">Tutar</th>
-                                    <th class="px-3 py-2 text-left">Ödeme / Durumlar</th>
+                                    <th class="px-3 py-2 text-left">Ödeme / Durumlar (Bayi · Ana)</th>
                                     <th class="px-3 py-2 text-center">Aktarım</th>
                                     <th class="px-3 py-2 text-center">Ürünler</th>
                                     <th class="px-3 py-2 text-center">Durum</th>
@@ -212,22 +212,58 @@
                                         </td>
                                         <td class="px-3 py-2 text-right font-mono">₺{{ number_format($o['tutar'], 2, ',', '.') }}</td>
                                         <td class="px-3 py-2 text-xs leading-tight">
-                                            <div class="text-gray-700 dark:text-gray-300">
-                                                💳 {{ $odemeTipleri[(int) $o['odeme_tipi']] ?? $o['odeme_tipi'] }}
+                                            {{-- 🏪 BAYİ bloğu --}}
+                                            <div class="border-l-2 border-blue-400 pl-2">
+                                                <div class="text-[10px] uppercase text-blue-600 dark:text-blue-400 font-semibold tracking-wide">🏪 Bayi</div>
+                                                <div class="text-gray-700 dark:text-gray-300">
+                                                    💳 {{ $odemeTipleri[(int) $o['odeme_tipi']] ?? $o['odeme_tipi'] }}
+                                                </div>
+                                                @if ($o['siparis_durumu'] !== '')
+                                                    <div class="text-gray-500">
+                                                        📋 {{ $siparisDurumlari[(int) $o['siparis_durumu']] ?? $o['siparis_durumu'] }}
+                                                    </div>
+                                                @endif
+                                                @if ($o['odeme_durumu'] !== '')
+                                                    <div class="text-gray-500">
+                                                        💰 {{ $odemeDurumlari[(int) $o['odeme_durumu']] ?? $o['odeme_durumu'] }}
+                                                    </div>
+                                                @endif
+                                                @if ($o['paketleme_durumu'] !== '')
+                                                    <div class="text-gray-500">
+                                                        📦 {{ $paketlemeDurumlari[(int) $o['paketleme_durumu']] ?? $o['paketleme_durumu'] }}
+                                                    </div>
+                                                @endif
                                             </div>
-                                            @if ($o['odeme_durumu'] !== '')
-                                                <div class="text-gray-500">
-                                                    💰 {{ $odemeDurumlari[(int) $o['odeme_durumu']] ?? $o['odeme_durumu'] }}
-                                                </div>
-                                            @endif
-                                            @if ($o['siparis_durumu'] !== '')
-                                                <div class="text-gray-500">
-                                                    📋 {{ $siparisDurumlari[(int) $o['siparis_durumu']] ?? $o['siparis_durumu'] }}
-                                                </div>
-                                            @endif
-                                            @if ($o['paketleme_durumu'] !== '')
-                                                <div class="text-gray-500">
-                                                    📦 {{ $paketlemeDurumlari[(int) $o['paketleme_durumu']] ?? $o['paketleme_durumu'] }}
+
+                                            {{-- 🏢 ANA bloğu (sadece aktarılmışsa) --}}
+                                            @if ($o['local_status'] === 'transferred' && $o['local_ana_id'])
+                                                <div class="border-l-2 border-emerald-400 pl-2 mt-1.5">
+                                                    <div class="text-[10px] uppercase text-emerald-600 dark:text-emerald-400 font-semibold tracking-wide">
+                                                        🏢 Ana <span class="text-gray-400">#{{ $o['local_ana_id'] }}</span>
+                                                    </div>
+                                                    @if ($o['ana_odeme_tipi'])
+                                                        <div class="text-gray-700 dark:text-gray-300">
+                                                            💳 {{ $odemeTipleri[(int) $o['ana_odeme_tipi']] ?? $o['ana_odeme_tipi'] }}
+                                                        </div>
+                                                    @endif
+                                                    @if ($o['ana_siparis_durumu'] !== null && $o['ana_siparis_durumu'] !== '')
+                                                        <div class="text-gray-500">
+                                                            📋 {{ $siparisDurumlari[(int) $o['ana_siparis_durumu']] ?? $o['ana_siparis_durumu'] }}
+                                                        </div>
+                                                    @endif
+                                                    @if ($o['ana_odeme_durumu'] !== null && $o['ana_odeme_durumu'] !== '')
+                                                        <div class="text-gray-500">
+                                                            💰 {{ $odemeDurumlari[(int) $o['ana_odeme_durumu']] ?? $o['ana_odeme_durumu'] }}
+                                                        </div>
+                                                    @endif
+                                                    @if ($o['ana_paketleme_durumu'] !== null && $o['ana_paketleme_durumu'] !== '')
+                                                        <div class="text-gray-500">
+                                                            📦 {{ $paketlemeDurumlari[(int) $o['ana_paketleme_durumu']] ?? $o['ana_paketleme_durumu'] }}
+                                                        </div>
+                                                    @endif
+                                                    @if (! $o['ana_siparis_durumu'] && ! $o['ana_odeme_durumu'] && ! $o['ana_paketleme_durumu'])
+                                                        <div class="text-gray-400 italic">— veri çekilemedi —</div>
+                                                    @endif
                                                 </div>
                                             @endif
                                         </td>
