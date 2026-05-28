@@ -214,7 +214,20 @@ class TransferSingleBayiOrderJob implements ShouldQueue
                     ]);
                 }
 
-                $this->log($job, $context, 'success', "Ana #{$anaOrderId} (manuel aktarım)");
+                // Başarılı aktarımda da SOAP diagnostic'i logla — kullanıcı detay modal'ından
+                // ne gönderdiğimizi / ne aldığımızı görebilsin (debug + audit).
+                $client = $ana->getClient();
+                $successDiagRequest = "=== BAYI ORDER (ham) ===\n"
+                    . json_encode($o, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE)
+                    . "\n\n=== ANA PAYLOAD (mapper çıktısı) ===\n"
+                    . json_encode($anaPayload, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+                $lastReqOk = $client->getLastRequestXml();
+                if ($lastReqOk) {
+                    $successDiagRequest .= "\n\n=== SOAP REQUEST XML ===\n" . $lastReqOk;
+                }
+                $this->log($job, $context, 'success', "Ana #{$anaOrderId} (manuel aktarım)",
+                    $successDiagRequest,
+                    $client->getLastResponseXml());
                 $job->update(['status' => 'completed', 'finished_at' => now()]);
             } catch (Throwable $e) {
                 // ÖZEL DURUM: "Bu Sipariş Numarasına Ait Kayıt Bulunmaktadır" hatası

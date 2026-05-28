@@ -80,6 +80,13 @@ class OrderTransferPicker extends Component
     public array $bayiSupportedOdemeCodes = [];
     public array $anaSupportedOdemeCodes = [];
 
+    // === DIAGNOSTIC (Aktarım Detayı) MODAL'I ===
+    // Aktarım başarılı veya başarısız olsun, SyncLog'tan kayıtları çekip
+    // SOAP request/response XML'i + hata trace'i kullanıcıya gösterir.
+    public ?string $diagBayiOrderId = null;
+    public bool $showDiagnostics = false;
+    public array $diagLogs = []; // [{status, message, raw_request, raw_response, created_at, action}]
+
     // Ticimax panel terminolojisi ile birebir aynı etiketler.
     // Numeric kodlar Ticimax SelectSiparis filtresine SOAP üzerinden geçer; sürüme göre
     // değişebilir — etiketler değişirse buradan güncelle.
@@ -595,6 +602,40 @@ class OrderTransferPicker extends Component
         $this->page = 1;
         $this->orders = [];
         $this->hasSearched = false;
+    }
+
+    /**
+     * Aktarım detay modal'ını aç — bu bayi siparişine ait son SyncLog kayıtlarını yükler.
+     * Hem başarılı (action=transfer_order_manual/transfer_order, status=success) hem
+     * başarısız (status=error) kayıtları gösterir.
+     */
+    public function openDiagnostics(string $bayiOrderId): void
+    {
+        $this->diagBayiOrderId = $bayiOrderId;
+        $this->showDiagnostics = true;
+
+        $logs = \App\Models\SyncLog::where('bayi_id', $bayiOrderId)
+            ->whereIn('action', ['transfer_order', 'transfer_order_manual', 'mark_order'])
+            ->latest('id')
+            ->take(5)
+            ->get(['id', 'action', 'status', 'message', 'raw_request', 'raw_response', 'created_at']);
+
+        $this->diagLogs = $logs->map(fn ($l) => [
+            'id' => $l->id,
+            'action' => $l->action,
+            'status' => $l->status,
+            'message' => $l->message,
+            'raw_request' => $l->raw_request,
+            'raw_response' => $l->raw_response,
+            'created_at' => $l->created_at?->format('Y-m-d H:i:s'),
+        ])->toArray();
+    }
+
+    public function closeDiagnostics(): void
+    {
+        $this->showDiagnostics = false;
+        $this->diagBayiOrderId = null;
+        $this->diagLogs = [];
     }
 
     /**

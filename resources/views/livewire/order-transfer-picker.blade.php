@@ -269,15 +269,17 @@
                                         </td>
                                         <td class="px-3 py-2 text-center">
                                             @if ($o['local_status'] === 'transferred')
-                                                <span class="inline-block px-2 py-0.5 rounded bg-green-100 text-green-800 text-xs"
-                                                      title="Ana #{{ $o['local_ana_id'] }}">
+                                                <button wire:click="openDiagnostics('{{ $o['id'] }}')"
+                                                        class="inline-block px-2 py-0.5 rounded bg-green-100 text-green-800 hover:bg-green-200 text-xs cursor-pointer"
+                                                        title="SOAP detayı için tıkla">
                                                     ✓ Aktarıldı
-                                                </span>
+                                                </button>
                                             @elseif ($o['local_status'] === 'failed')
-                                                <span class="inline-block px-2 py-0.5 rounded bg-red-100 text-red-800 text-xs"
-                                                      title="{{ \Illuminate\Support\Str::limit($o['local_error'] ?? '', 200) }}">
+                                                <button wire:click="openDiagnostics('{{ $o['id'] }}')"
+                                                        class="inline-block px-2 py-0.5 rounded bg-red-100 text-red-800 hover:bg-red-200 text-xs cursor-pointer"
+                                                        title="Hata detayı + SOAP için tıkla">
                                                     ✗ Başarısız
-                                                </span>
+                                                </button>
                                             @elseif ($o['local_status'] === 'queued')
                                                 <span class="inline-block px-2 py-0.5 rounded bg-amber-100 text-amber-800 text-xs">
                                                     ⏳ Kuyrukta
@@ -610,6 +612,102 @@
                             💾 {{ $statusEditTarget === 'bayi' ? 'Bayi\'de' : 'Ana\'da' }} Kaydet
                         </span>
                         <span wire:loading wire:target="saveStatusUpdates">⏳ Güncelleniyor...</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    @endif
+
+    {{-- AKTARIM DETAY MODAL'I (SOAP request/response + hata) --}}
+    @if ($showDiagnostics)
+        <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60"
+             wire:click.self="closeDiagnostics"
+             x-data x-on:keydown.escape.window="$wire.closeDiagnostics()">
+
+            <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-5xl w-full max-h-[90vh] flex flex-col">
+
+                {{-- Modal header --}}
+                <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+                    <h3 class="text-lg font-semibold text-gray-800 dark:text-gray-200">
+                        🔍 Sipariş #{{ $diagBayiOrderId }} — Aktarım Detayı
+                    </h3>
+                    <button wire:click="closeDiagnostics"
+                            class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-2xl leading-none">
+                        ×
+                    </button>
+                </div>
+
+                {{-- Modal body --}}
+                <div class="px-6 py-4 overflow-y-auto flex-1 space-y-4">
+                    @if (empty($diagLogs))
+                        <div class="p-8 text-center text-gray-500 text-sm">
+                            Bu sipariş için aktarım kaydı henüz yok.
+                            <br><span class="text-xs">İlk aktarım denenince burada SOAP request/response detayı görünecek.</span>
+                        </div>
+                    @else
+                        <div class="text-xs text-gray-500 dark:text-gray-400">
+                            En son {{ count($diagLogs) }} aktarım denemesi gösteriliyor (yeniden eskiye).
+                        </div>
+
+                        @foreach ($diagLogs as $log)
+                            <div class="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+                                {{-- Log header --}}
+                                <div class="px-4 py-2 flex items-center justify-between
+                                            {{ $log['status'] === 'success' ? 'bg-green-50 dark:bg-green-900/20' : 'bg-red-50 dark:bg-red-900/20' }}">
+                                    <div class="flex items-center gap-3">
+                                        <span class="px-2 py-0.5 rounded text-xs font-semibold
+                                                     {{ $log['status'] === 'success' ? 'bg-green-200 text-green-800' : 'bg-red-200 text-red-800' }}">
+                                            {{ $log['status'] === 'success' ? '✓ Başarılı' : '✗ Hata' }}
+                                        </span>
+                                        <span class="text-xs text-gray-600 dark:text-gray-400 font-mono">
+                                            {{ $log['action'] }}
+                                        </span>
+                                        <span class="text-xs text-gray-500">{{ $log['created_at'] }}</span>
+                                    </div>
+                                    <span class="text-xs text-gray-400">Log #{{ $log['id'] }}</span>
+                                </div>
+
+                                {{-- Mesaj --}}
+                                @if (! empty($log['message']))
+                                    <div class="px-4 py-3 border-t border-gray-200 dark:border-gray-700">
+                                        <div class="text-xs uppercase text-gray-500 mb-1">Mesaj / Hata</div>
+                                        <pre class="text-xs text-gray-800 dark:text-gray-200 whitespace-pre-wrap break-words font-mono bg-gray-50 dark:bg-gray-900 p-2 rounded max-h-48 overflow-y-auto">{{ $log['message'] }}</pre>
+                                    </div>
+                                @endif
+
+                                {{-- SOAP Request --}}
+                                @if (! empty($log['raw_request']))
+                                    <details class="border-t border-gray-200 dark:border-gray-700">
+                                        <summary class="px-4 py-2 cursor-pointer text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-900/50">
+                                            📤 SOAP Request (Bayi/Ana payload + XML) — tıkla aç/kapat
+                                        </summary>
+                                        <pre class="text-[10px] font-mono bg-gray-50 dark:bg-gray-900 text-gray-700 dark:text-gray-300 p-3 max-h-96 overflow-auto whitespace-pre-wrap break-words">{{ $log['raw_request'] }}</pre>
+                                    </details>
+                                @endif
+
+                                {{-- SOAP Response --}}
+                                @if (! empty($log['raw_response']))
+                                    <details class="border-t border-gray-200 dark:border-gray-700">
+                                        <summary class="px-4 py-2 cursor-pointer text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-900/50">
+                                            📥 SOAP Response (Ticimax cevabı) — tıkla aç/kapat
+                                        </summary>
+                                        <pre class="text-[10px] font-mono bg-gray-50 dark:bg-gray-900 text-gray-700 dark:text-gray-300 p-3 max-h-96 overflow-auto whitespace-pre-wrap break-words">{{ $log['raw_response'] }}</pre>
+                                    </details>
+                                @endif
+                            </div>
+                        @endforeach
+                    @endif
+                </div>
+
+                {{-- Modal footer --}}
+                <div class="px-6 py-4 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
+                    <a href="{{ route('loglar') }}?search={{ $diagBayiOrderId }}"
+                       class="text-sm text-blue-600 hover:underline">
+                        Tüm logları görüntüle →
+                    </a>
+                    <button wire:click="closeDiagnostics"
+                            class="px-4 py-2 text-sm bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded hover:bg-gray-300">
+                        Kapat
                     </button>
                 </div>
             </div>
