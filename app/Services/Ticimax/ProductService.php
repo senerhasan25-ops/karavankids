@@ -379,7 +379,19 @@ class ProductService
                 'SiralamaYonu' => $sortDir,
             ],
         ];
-        $resp = $this->client->call('product', $this->method('select'), $params);
+        try {
+            $resp = $this->client->call('product', $this->method('select'), $params);
+        } catch (\Throwable $e) {
+            // Ticimax sunucusu, pagination boş veri tarafına geçince LINQ tarafından
+            // "Value cannot be null. Parameter name: source" fırlatıyor. Bu pratikte
+            // "bu sayfanın ötesinde sonuç yok" demek — sessiz boş liste döner,
+            // job temiz biter ve checkpoint kaydedilir.
+            $msg = (string) $e->getMessage();
+            if (stripos($msg, 'Value cannot be null') !== false && stripos($msg, 'source') !== false) {
+                return [];
+            }
+            throw $e;
+        }
         return $this->normalizeList($resp, $this->method('select'), 'UrunKarti');
     }
 
