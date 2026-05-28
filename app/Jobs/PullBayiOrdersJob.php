@@ -192,6 +192,52 @@ class PullBayiOrdersJob implements ShouldQueue
 
                     $this->log($job, $context, 'success', "Ana #{$anaOrderId}");
                 } catch (Throwable $e) {
+                    // ÖZEL DURUM: "Bu Sipariş Numarasına Ait Kayıt Bulunmaktadır" → sipariş ana'da zaten var.
+                    // Bayi+ana eşleştirmesini otomatik yap; failed yapma, başarı say.
+                    $errMsg = $e->getMessage();
+                    $zatenVar = stripos($errMsg, 'Bu Sipariş Numarasına Ait Kayıt') !== false
+                        || stripos($errMsg, 'Bu Siparis Numarasina Ait Kayit') !== false;
+
+                    if ($zatenVar) {
+                        $bayiSiparisNo = (string) ($o['SiparisNo'] ?? $o['SiparisKodu'] ?? '');
+                        $existingAnaId = null;
+                        try {
+                            $hits = $ana->getOrdersByFilter([
+                                'siparis_no' => $bayiSiparisNo,
+                                'date_from'  => \Illuminate\Support\Carbon::now()->subYear()->format('Y-m-d\T00:00:00'),
+                                'date_to'    => \Illuminate\Support\Carbon::now()->format('Y-m-d\T23:59:59'),
+                            ], 1, 5);
+                            if (! empty($hits)) {
+                                $existingAnaId = (string) ($hits[0]['ID'] ?? $hits[0]['SiparisID'] ?? '');
+                            }
+                        } catch (Throwable $lookupEx) {
+                            // sessiz geç — yine de transferred işaretle
+                        }
+
+                        $context['ana_id'] = $existingAnaId ?: null;
+                        $transfer->fill([
+                            'ana_order_id'   => $existingAnaId ?: ($transfer->ana_order_id ?? null),
+                            'status'         => 'transferred',
+                            'transferred_at' => now(),
+                            'last_error'     => null,
+                        ])->save();
+
+                        try {
+                            $bayi->markOrderTransferred(
+                                $bayiOrderId,
+                                $existingAnaId ? "Ana #{$existingAnaId} (zaten mevcuttu, otomatik eşleştirildi)" : 'Ana sitede zaten mevcut'
+                            );
+                        } catch (Throwable $markEx) {
+                            // sessiz
+                        }
+
+                        $msg = $existingAnaId
+                            ? "Sipariş ana sitede zaten mevcut → Ana #{$existingAnaId} olarak eşleştirildi (SiparisNo={$bayiSiparisNo})"
+                            : 'Sipariş ana sitede zaten mevcut (SiparisNo ile bulunamadı, "transferred" işaretlendi)';
+                        $this->log($job, $context, 'success', $msg);
+                        continue; // success path
+                    }
+
                     $transfer->fill([
                         'status'      => 'failed',
                         'retry_count' => ($transfer->retry_count ?? 0) + 1,
