@@ -20,8 +20,10 @@ use Throwable;
 /**
  * Ana → Bayi stok/fiyat delta sync (DEĞİŞİKLİK BAZLI).
  *
- * Tam tarama yerine sadece son checkpoint'ten beri Ana'da DuzenlemeTarihi
- * güncellenen ürünleri çeker. Değişiklik yoksa SOAP çağrısı yapılmaz.
+ * Tam tarama yerine sadece son checkpoint'ten beri Ana'da FİYAT VEYA STOK
+ * değişen ürünleri çeker (FiyatStokGuncellemeTarihi filtresi —
+ * getProductsByStockOrPriceChanged). Açıklama/resim/kategori gibi alanların
+ * değişimi bu job'u tetiklemez. Değişiklik yoksa Bayi'ye SOAP çağrısı yapılmaz.
  *
  * Checkpoint: sync_settings.'last_stock_price_run_at'
  *   - İlk çalışmada değer yoksa son 24 saate bakılır (güvenli başlangıç).
@@ -29,8 +31,10 @@ use Throwable;
  *   - Başarısız / durdurulursa checkpoint güncellenmez → bir sonraki çalışmada
  *     yeniden tarananır.
  *
- * Bayi güncelleme: updateStockBatch + updatePriceBatch (tek SOAP çağrısı).
- * Çok sayıda ürün değişmişse sayfalı çekilir (batch_size = 50).
+ * Pagination: Ticimax bug'ına karşı fetchProductPageRecovering kullanılır
+ * (bug sayfası dilimlenerek kurtarılır, #2). Sayfa boyutu config('ticimax.batch_size').
+ * Bayi güncelleme: updateStockBatch + updatePriceBatch (sayfa başına tek SOAP).
+ * DB yazımı tamponlanır (BuffersSyncWrites, #4).
  */
 class SyncStockPriceJob implements ShouldQueue
 {
@@ -211,7 +215,7 @@ class SyncStockPriceJob implements ShouldQueue
                 $priceChanged = $m->last_price === null || abs((float) $m->last_price - $price) > 0.01;
 
                 if (! $stockChanged && ! $priceChanged) {
-                    continue; // DuzenlemeTarihi güncellendi ama stok/fiyat aynı (başka alan değişti)
+                    continue; // FiyatStokGuncellemeTarihi tetiklendi ama DB'deki değerle aynı (yuvarlama/no-op)
                 }
 
                 // total sayımı bufferLog içinde yapılır (her success/error += 1).
