@@ -123,45 +123,36 @@ class SyncNewProductsJob implements ShouldQueue
             $perPage = (int) config('ticimax.batch_size', 50);
 
             $stoppedEarly = false;
-            $consecutiveErrors = 0;       // ardışık Ticimax pagination bug sayacı
-            $skippedPages = 0;            // bilgi: kaç sayfayı atladık (rapor için)
-            $maxConsecutiveErrors = 10;   // bu kadar üst üste bug = gerçekten veri bitti varsay
+            $consecutiveBugPages = 0;     // ardışık bug sayfası (sonsuz döngü güvenliği)
+            $maxConsecutiveBugPages = 10;  // bu kadar üst üste bug = gerçekten veri bitti varsay
             while (true) {
                 if (QueueControl::isStopRequested($job->id)) {
                     $stoppedEarly = true;
                     break;
                 }
-                try {
-                    // EKLEME tarihi filtresine geçtik — sadece o tarihten sonra
-                    // yeni eklenen ürün kartları gelir.
-                    $products = $ana->getProductsByCreated($since, $page, $perPage);
-                    $consecutiveErrors = 0; // başarı → sayacı sıfırla
-                } catch (Throwable $e) {
-                    if ($ana->isTicimaxPaginationBug($e)) {
-                        // Ticimax SOAP'ında belli BaslangicIndex aralıklarında null
-                        // hatası fırlıyor (örn. 1940-2030 arası, test ile doğrulandı).
-                        // Bu "veri sonu" DEĞİL — sayfayı atlayıp devam edersek
-                        // ötesindeki ürünleri yakalarız. Skip et, log'a yaz.
-                        $skippedPages++;
-                        $consecutiveErrors++;
-                        SyncLog::create([
-                            'job_id' => $job->id,
-                            'action' => 'create_product',
-                            'direction' => 'ana_to_bayi',
-                            'status' => 'warning',
-                            'message' => "Ticimax SOAP page bug (Value cannot be null/source) — sayfa #{$page} atlandı, " . $perPage . " ürün kaçırılmış olabilir. Devam ediliyor.",
-                        ]);
-                        if ($consecutiveErrors >= $maxConsecutiveErrors) {
-                            // Bu kadar ardışık hata muhtemelen gerçek veri sonu
-                            break;
-                        }
-                        $page++;
-                        continue;
+
+                // EKLEME tarihi filtresi + recovery: bug sayfasına denk gelirse
+                // sayfa küçük dilimlere bölünüp kurtarılır (#2, sıfır-kayıp hedefi).
+                $result = $ana->fetchProductPageRecovering('created', $since, $page, $perPage);
+                $products = $result['products'];
+
+                if ($result['bug']) {
+                    $consecutiveBugPages++;
+                    SyncLog::create([
+                        'job_id' => $job->id,
+                        'action' => 'create_product',
+                        'direction' => 'ana_to_bayi',
+                        'status' => 'warning',
+                        'message' => "Ticimax SOAP page bug — sayfa #{$page}: {$result['recovered']} ürün kurtarıldı, ~{$result['lost']} ürün kaçırıldı. Devam ediliyor.",
+                    ]);
+                    if (empty($products) && $consecutiveBugPages >= $maxConsecutiveBugPages) {
+                        break; // muhtemelen gerçek veri sonu
                     }
-                    throw $e; // başka bir SOAP hatası → normal patlasın
-                }
-                if (empty($products)) {
-                    break;
+                } else {
+                    $consecutiveBugPages = 0;
+                    if (empty($products)) {
+                        break; // gerçek veri sonu
+                    }
                 }
 
                 foreach ($products as $urunKarti) {
@@ -173,7 +164,9 @@ class SyncNewProductsJob implements ShouldQueue
                     $this->processOne($job, $urunKarti, $bayi, $mapper, $selectedFields);
                 }
 
-                if (count($products) < $perPage) {
+                // Normal (bug olmayan) sayfada tam dolmamışsa son sayfadayız.
+                // Bug sayfasında count<perPage normaldir (dilim kaybı) → devam et.
+                if (! $result['bug'] && count($products) < $perPage) {
                     break;
                 }
                 $page++;

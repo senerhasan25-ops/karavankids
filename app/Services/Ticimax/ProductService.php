@@ -359,12 +359,23 @@ class ProductService
     }
 
     /**
-     * Tarih filtresi üzerinden ürün çekme — ortak yardımcı.
-     * Filtre adları tipine göre değişir (EklemeTarihi*, FiyatStokGuncellemeTarihi*, vb.).
+     * Tarih filtresi → ürün çekme. Filtre tipine göre alan adları belirlenir.
+     *
+     * @param  string  $filterType  'created' | 'stock_price' | 'modified'
      */
     protected function getProductsByDateFilter(string $startField, string $endField, ?Carbon $since, int $page, int $perPage, string $sortDir): array
     {
         $startIdx = max(0, ($page - 1) * $perPage);
+
+        return $this->fetchProductPage($startField, $endField, $since, $startIdx, $perPage, $sortDir);
+    }
+
+    /**
+     * Tek bir ürün sayfasını mutlak offset (BaslangicIndex) ile çek.
+     * Recovery alt-sayfalaması bunu farklı offset/perPage ile defalarca çağırır.
+     */
+    protected function fetchProductPage(string $startField, string $endField, ?Carbon $since, int $startIdx, int $perPage, string $sortDir): array
+    {
         $params = [
             'UyeKodu' => $this->client->getUyeKodu(),
             'f' => $this->baseFilter() + [
@@ -380,7 +391,83 @@ class ProductService
             ],
         ];
         $resp = $this->client->call('product', $this->method('select'), $params);
+
         return $this->normalizeList($resp, $this->method('select'), 'UrunKarti');
+    }
+
+    /** Filtre tipi → [startField, endField] eşlemesi (recovery için tek kaynak). */
+    private const FILTER_FIELDS = [
+        'created' => ['EklemeTarihiBaslangic', 'EklemeTarihiBitis'],
+        'stock_price' => ['FiyatStokGuncellemeTarihiBas', 'FiyatStokGuncellemeTarihiSon'],
+        'modified' => ['DuzenlemeTarihiBaslangic', 'DuzenlemeTarihiBitis'],
+    ];
+
+    /**
+     * Bir ürün sayfasını çek; Ticimax pagination bug'ına denk gelirse SAYFAYI
+     * KÜÇÜK DİLİMLERE bölerek kurtarmaya çalış (sıfır-kayıp hedefi, #2).
+     *
+     * Ticimax SOAP'ı belirli BaslangicIndex aralıklarında (~1940-2030, sabit
+     * pencere) "Value cannot be null. Parameter name: source" fırlatıyor. Bu
+     * "veri sonu" DEĞİL. Düz skip yaparsak o sayfadaki ~100 ürünü tamamen
+     * kaybederiz. Bunun yerine sayfayı $subStep'lik dilimlere ayırıp her dilimi
+     * ayrı offset ile çekeriz: yalnızca offset'i bug penceresine düşen küçük
+     * dilimler kaybolur (~30-40 ürün), gerisi kurtarılır.
+     *
+     * @return array{products: array, bug: bool, recovered: int, lost: int}
+     *   - bug=false → normal sayfa (products dolu) veya gerçek son (products boş)
+     *   - bug=true  → sayfa bug'a denk geldi; products = kurtarılan alt küme,
+     *                 recovered/lost = kurtarılan/kaybedilen tahmini ürün sayısı
+     */
+    public function fetchProductPageRecovering(string $filterType, ?Carbon $since, int $page, int $perPage, string $sortDir = 'ASC', int $subStep = 10): array
+    {
+        [$startField, $endField] = self::FILTER_FIELDS[$filterType]
+            ?? throw new \InvalidArgumentException("Bilinmeyen filtre tipi: {$filterType}");
+
+        $startIdx = max(0, ($page - 1) * $perPage);
+
+        // Önce normal (tam sayfa) dene — mutlu yol, ek SOAP yok.
+        try {
+            $products = $this->fetchProductPage($startField, $endField, $since, $startIdx, $perPage, $sortDir);
+
+            return ['products' => $products, 'bug' => false, 'recovered' => count($products), 'lost' => 0];
+        } catch (\Throwable $e) {
+            if (! $this->isTicimaxPaginationBug($e)) {
+                throw $e; // gerçek hata → çağırana bırak
+            }
+        }
+
+        // Bug penceresine denk geldik → sayfayı $subStep'lik dilimlerle tara.
+        $recovered = [];
+        $seenIds = [];
+        $lostSlices = 0;
+        for ($off = $startIdx; $off < $startIdx + $perPage; $off += $subStep) {
+            try {
+                $slice = $this->fetchProductPage($startField, $endField, $since, $off, $subStep, $sortDir);
+            } catch (\Throwable $e) {
+                if ($this->isTicimaxPaginationBug($e)) {
+                    $lostSlices++; // bu küçük dilim de bug'a düştü, atla
+                    continue;
+                }
+                throw $e;
+            }
+            foreach ($slice as $p) {
+                $id = (string) ($p['ID'] ?? '');
+                if ($id !== '' && isset($seenIds[$id])) {
+                    continue; // güvenlik: çakışma olmaz ama yine de dedupe
+                }
+                if ($id !== '') {
+                    $seenIds[$id] = true;
+                }
+                $recovered[] = $p;
+            }
+        }
+
+        return [
+            'products' => $recovered,
+            'bug' => true,
+            'recovered' => count($recovered),
+            'lost' => $lostSlices * $subStep,
+        ];
     }
 
     /**

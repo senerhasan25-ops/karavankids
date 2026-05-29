@@ -120,46 +120,41 @@ class SyncStockPriceJob implements ShouldQueue
             ->keyBy('stok_kodu');
 
         // ── Ana'dan değişen ürünleri sayfa sayfa çek ────────────────────────
-        $consecutiveErrors = 0;
-        $maxConsecutiveErrors = 10;
+        $consecutiveBugPages = 0;
+        $maxConsecutiveBugPages = 10;
         while (true) {
             if (QueueControl::isStopRequested($job->id)) {
                 $stoppedEarly = true;
                 break;
             }
 
-            try {
-                // FiyatStokGuncellemeTarihi filtresine geçtik — sadece o tarihten
-                // sonra fiyat veya stok değişen ürünler gelir.
-                $products = $ana->getProductsByStockOrPriceChanged($since, $page, $perPage);
-                $consecutiveErrors = 0;
-            } catch (Throwable $e) {
-                if ($ana->isTicimaxPaginationBug($e)) {
-                    // Ticimax pagination bug — sayfayı atla, devam et.
-                    // (Detaylı açıklama: SyncNewProductsJob içinde aynı pattern.)
-                    SyncLog::create([
-                        'job_id' => $job->id,
-                        'action' => 'update_stock_price',
-                        'direction' => 'ana_to_bayi',
-                        'status' => 'warning',
-                        'message' => "Ticimax SOAP page bug — sayfa #{$page} atlandı, ~{$perPage} ürün kaçırılmış olabilir.",
-                    ]);
-                    $consecutiveErrors++;
-                    if ($consecutiveErrors >= $maxConsecutiveErrors) {
-                        break;
-                    }
-                    $page++;
-                    continue;
+            // FiyatStokGuncellemeTarihi filtresi + recovery (#2): bug sayfası
+            // küçük dilimlere bölünüp kurtarılır, tam atlanmaz.
+            $result = $ana->fetchProductPageRecovering('stock_price', $since, $page, $perPage);
+            $products = $result['products'];
+
+            if ($result['bug']) {
+                $consecutiveBugPages++;
+                SyncLog::create([
+                    'job_id' => $job->id,
+                    'action' => 'update_stock_price',
+                    'direction' => 'ana_to_bayi',
+                    'status' => 'warning',
+                    'message' => "Ticimax SOAP page bug — sayfa #{$page}: {$result['recovered']} ürün kurtarıldı, ~{$result['lost']} ürün kaçırıldı.",
+                ]);
+                if (empty($products) && $consecutiveBugPages >= $maxConsecutiveBugPages) {
+                    break;
                 }
-                throw $e;
-            }
-            if (empty($products)) {
-                break;
+            } else {
+                $consecutiveBugPages = 0;
+                if (empty($products)) {
+                    break;
+                }
             }
 
             $this->processPage($job, $bayi, $products, $mappings);
 
-            if (count($products) < $perPage) {
+            if (! $result['bug'] && count($products) < $perPage) {
                 break;
             }
             $page++;
