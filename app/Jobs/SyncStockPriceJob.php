@@ -128,6 +128,8 @@ class SyncStockPriceJob implements ShouldQueue
                     // (Detaylı açıklama: SyncNewProductsJob içinde aynı pattern.)
                     SyncLog::create([
                         'job_id' => $job->id,
+                        'action' => 'update_stock_price',
+                        'direction' => 'ana_to_bayi',
                         'status' => 'warning',
                         'message' => "Ticimax SOAP page bug — sayfa #{$page} atlandı, ~{$perPage} ürün kaçırılmış olabilir.",
                     ]);

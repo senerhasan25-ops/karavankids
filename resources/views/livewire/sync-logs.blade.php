@@ -130,6 +130,8 @@
                                                                     <span class="px-2 py-0.5 bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300 rounded text-[10px]">✓ Aktarıldı</span>
                                                                 @elseif ($log->status === 'error')
                                                                     <span class="px-2 py-0.5 bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300 rounded text-[10px]">✗ Aktarılmadı</span>
+                                                                @elseif ($log->status === 'warning')
+                                                                    <span class="px-2 py-0.5 bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 rounded text-[10px]">⚠ Atlandı</span>
                                                                 @else
                                                                     <span class="text-gray-500">·</span>
                                                                 @endif

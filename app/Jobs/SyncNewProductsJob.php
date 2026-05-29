@@ -135,6 +135,8 @@ class SyncNewProductsJob implements ShouldQueue
                         $consecutiveErrors++;
                         SyncLog::create([
                             'job_id' => $job->id,
+                            'action' => 'create_product',
+                            'direction' => 'ana_to_bayi',
                             'status' => 'warning',
                             'message' => "Ticimax SOAP page bug (Value cannot be null/source) — sayfa #{$page} atlandı, " . $perPage . " ürün kaçırılmış olabilir. Devam ediliyor.",
                         ]);
