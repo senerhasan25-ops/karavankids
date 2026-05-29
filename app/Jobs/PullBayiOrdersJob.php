@@ -15,6 +15,7 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
+use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Carbon;
 use Throwable;
@@ -33,6 +34,20 @@ class PullBayiOrdersJob implements ShouldQueue
     public int $backoff = 30;
     /** Sipariş aktarımı için 1 saat yeterli (çok sayıda sipariş gelse de). */
     public int $timeout = 3600;
+
+    /**
+     * Aynı anda yalnızca BİR PullBayiOrdersJob çalışsın. Scheduler (SyncTick) job
+     * hâlâ çalışırken interval dolunca yenisini dispatch edebiliyor — bu da Ticimax'a
+     * paralel SOAP + çift sipariş aktarımı riski yaratıyor. Overlap kilidi bunu önler.
+     *
+     * dontRelease(): zaten çalışan varken gelen kopya kuyruğa geri atılmaz, sessizce
+     * düşürülür (bir sonraki tick zaten yenisini dener). expireAfter: kilit, timeout +
+     * tampon kadar sonra otomatik düşer (job çökerse kilit takılı kalmasın).
+     */
+    public function middleware(): array
+    {
+        return [(new WithoutOverlapping('pull-bayi-orders'))->dontRelease()->expireAfter(3900)];
+    }
 
     public function handle(): void
     {

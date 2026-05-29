@@ -13,6 +13,7 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
+use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Carbon;
 use Throwable;
@@ -50,6 +51,16 @@ class SyncNewProductsJob implements ShouldQueue
 
     public function __construct(public ?Carbon $since = null, public ?Carbon $until = null)
     {
+    }
+
+    /**
+     * Aynı anda yalnızca BİR ürün-sync job'u çalışsın (overlap kilidi).
+     * Bu job 3 saate kadar sürebiliyor; scheduler interval'i ~15 dk olduğundan
+     * kilit olmadan üst üste binip Ticimax'ı paralel SOAP'la boğardı.
+     */
+    public function middleware(): array
+    {
+        return [(new WithoutOverlapping('sync-new-products'))->dontRelease()->expireAfter(11100)];
     }
 
     public function handle(): void

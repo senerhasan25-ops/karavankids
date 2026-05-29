@@ -12,6 +12,7 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
+use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Carbon;
 use Throwable;
@@ -52,6 +53,16 @@ class SyncStockPriceJob implements ShouldQueue
         public ?string $singleStokKodu = null,
         public ?Carbon $forceSince = null,
     ) {}
+
+    /**
+     * Delta sync uzun sürebiliyor; overlap kilidi ile scheduler'ın üst üste
+     * kopya açması engellenir. singleStokKodu (manuel tek ürün) modunda da aynı
+     * kilit paylaşılır — zaten kısa sürer, çakışma olası değil.
+     */
+    public function middleware(): array
+    {
+        return [(new WithoutOverlapping('sync-stock-price'))->dontRelease()->expireAfter(11100)];
+    }
 
     public function handle(): void
     {
