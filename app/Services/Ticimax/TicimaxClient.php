@@ -79,9 +79,23 @@ class TicimaxClient
             $url = rtrim($this->credential->endpoint_url, '/') . '/' . ltrim($wsdlPath, '/');
         }
 
+        // WSDL disk cache için yazılabilir bir dizin garanti et. PHP'nin varsayılan
+        // soap.wsdl_cache_dir'i Windows'ta /tmp'e bakıyor (yazılamaz → cache sessizce
+        // devre dışı). storage altında kendi dizinimize yönlendiriyoruz. (#5)
+        $soapCacheDir = storage_path('framework/cache/soap');
+        if (! is_dir($soapCacheDir)) {
+            @mkdir($soapCacheDir, 0775, true);
+        }
+        if (is_dir($soapCacheDir) && is_writable($soapCacheDir)) {
+            ini_set('soap.wsdl_cache_dir', $soapCacheDir);
+        }
+
         try {
             $this->clients[$service] = new SoapClient($url, [
-                'cache_wsdl' => WSDL_CACHE_NONE,
+                // WSDL+XSD'ler büyük; her worker process'inde yeniden indirmek yerine
+                // diskte cache'le (TTL = soap.wsdl_cache_ttl, varsayılan 1 gün). WSDL
+                // nadiren değişir; değişirse cache dizini temizlenir. (#5 — job başlangıcı hızlanır.)
+                'cache_wsdl' => WSDL_CACHE_DISK,
                 'trace' => true,
                 'exceptions' => true,
                 'connection_timeout' => config('ticimax.connection_timeout'),
