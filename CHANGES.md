@@ -7,6 +7,72 @@ Yeni notları **en üste** ekle. Format: `## YYYY-MM-DD — kısa başlık`.
 
 ---
 
+## 2026-05-28 — Üçüncü tur: kapsamlı iyileştirme taraması (10 madde)
+
+Tüm kod tabanı taranıp 10 maddelik iyileştirme uygulandı. **Tararken kritik bir
+bug yakalandı:** bir önceki turda eklenen pagination skip-and-continue
+`warning` logları `action`/`direction` (NOT NULL) alanlarını atlıyordu →
+insert patlıyor, job `failed` oluyordu, yani **2000 ürün sorunu aslında hâlâ
+çözülmemişti** (`5b25489` ile düzeltildi + UI'da `⚠ Atlandı` rozeti).
+
+### 1) Eşzamanlı job koruması — `WithoutOverlapping` (`3440a8f`)
+SyncTick ~15 dk'da bir dispatch ediyor ama job'lar 3 saate kadar sürebiliyor →
+önceki bitmeden yenisi başlıyor, Ticimax'a paralel SOAP + çift yazma. Üç
+scheduled job'a (`SyncNewProductsJob`, `SyncStockPriceJob`, `PullBayiOrdersJob`)
+`WithoutOverlapping(...)->dontRelease()->expireAfter(...)` middleware eklendi.
+
+### 2) Sıfıra yakın kayıplı pagination recovery (`cd6e6dd`)
+Ticimax SOAP'ı belirli `BaslangicIndex` aralığında (~1940-2030, sabit pencere)
+`Value cannot be null. Parameter name: source` fırlatıyor — bu **veri sonu
+DEĞİL**, ötesinde binlerce ürün var (test: offset 5000'de gerçek son). Eski
+"tüm sayfayı atla" yaklaşımı 2040+ binlerce ürünü kaçırıyordu. Yeni
+`ProductService::fetchProductPageRecovering()`: bug yakalanınca sayfayı
+`subStep`'lik (10) dilimlere bölüp her dilimi ayrı offset ile çeker. Canlı test:
+offset 2000'de 100 yerine sadece 10 ürün kayıp. Bug-handling artık iki job'da
+duplike değil, tek serviste. Dönüş DTO: `{products, bug, recovered, lost}`.
+
+### 3) `api_credentials.username` şifreleme (`824333e`)
+Yeni Ticimax B2B'de `username` = "Web Servis Yetki Kodu" = asıl gizli anahtar,
+ama düz metin saklanıyordu (sadece `password` encrypted'di). Modele
+`username => 'encrypted'` cast + mevcut satırları şifreleyen idempotent
+migration (`2026_05_28_120000`).
+
+### 4) Satır-başına DB write → topluya (`4cd52e5`)
+Her üründe 3 sorgu (increment×2 + SyncLog::create) → 5000 ürün ≈ 15.000 sorgu.
+Yeni `app/Jobs/Concerns/BuffersSyncWrites` trait'i log'ları + sayaçları bellekte
+biriktirip sayfa başına tek bulk INSERT + tek increment yapar → ~300x az yazma.
+
+### 5) WSDL disk cache (`a4e43f6`)
+`cache_wsdl=WSDL_CACHE_NONE` her process'te WSDL'i yeniden indiriyordu (~1sn).
+`WSDL_CACHE_DISK` + yazılabilir `storage/framework/cache/soap` dizini (PHP
+varsayılanı Windows'ta `/tmp`, yazılamaz). Ölçüm: 993ms → 22ms (~45x).
+
+### 6) `SyncStockPriceJob` docblock güncellendi (`a5141cd`)
+Yorum hâlâ "DuzenlemeTarihi / 24 saat / batch_size=50" diyordu; gerçek akış
+(FiyatStokGuncelleme + recovery + buffer) yansıtıldı.
+
+### 7) Çekirdek iş mantığına testler (`dd066bf`)
+Önce sadece Breeze auth + 2 mapper testi vardı. Eklenenler (11 yeni, 47→58→59):
+`PaginationRecoveryTest` (bug tanıma + dilimleme kurtarma + dedupe),
+`SyncBufferingTest` (toplu yazım + sayaçlar), `ApiCredentialEncryptionTest`
+(şifreleme + forStore cache).
+
+### 8) Laravel Pint (`2a35482`)
+Pint hiç çalıştırılmamıştı; tüm kod tabanı formatlandı (Laravel preset).
+
+### 9) Debug scriptleri düzenlendi + Pint muafiyeti (`04a51ad`)
+19 `debug-*.php` → `scripts/debug/`. **Önemli:** #8'deki Pint, `scripts/`
+altındaki one-off scriptleri bozmuştu (`fully_qualified_strict_types` inline
+`Kernel::class`'ı require'dan sonra gelen bir `use`'a çevirince
+`make('Kernel')` patlıyordu). Tüm scriptler geri yüklendi, `pint.json` ile
+`scripts/` exclude edildi.
+
+### 10) `ApiCredential::forStore()` process-içi cache (`13e88d2`)
+Her TicimaxClient kurulumunda DB sorgusu yapılıyordu; static cache +
+`forgetCache()` (ApiSettings save'de ve TestCase setUp'ta temizlenir).
+
+---
+
 ## 2026-05-28 — İkinci tur: cache, toplu aktarım, eşleşmeyen ürün raporu + canlı SOAP adet geri çekildi
 
 **Commits:** `d2d2b83`, `556fddf`, `4b6dff4`, `343d686`, `7b7c4f1`
