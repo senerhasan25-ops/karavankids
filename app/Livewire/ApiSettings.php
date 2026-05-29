@@ -104,6 +104,9 @@ class ApiSettings extends Component
             );
         }
 
+        // Process-içi forStore cache'ini temizle ki bu istekte güncel değer okunsun (#10).
+        ApiCredential::forgetCache();
+
         session()->flash('status', 'API ayarları kaydedildi.');
     }
 

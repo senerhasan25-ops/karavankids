@@ -51,4 +51,33 @@ class ApiCredentialEncryptionTest extends TestCase
 
         $this->assertNull(ApiCredential::forStore('bayi'));
     }
+
+    public function test_for_store_cache_db_sorgusunu_tekrarlamaz(): void
+    {
+        ApiCredential::create([
+            'store_key' => 'ana',
+            'endpoint_url' => 'https://example.test',
+            'username' => 'U',
+            'password' => '',
+            'is_active' => true,
+        ]);
+
+        DB::enableQueryLog();
+        $first = ApiCredential::forStore('ana');
+        $second = ApiCredential::forStore('ana');
+        $queryCount = count(DB::getQueryLog());
+        DB::disableQueryLog();
+
+        $this->assertNotNull($first);
+        $this->assertSame($first, $second);   // aynı obje (cache'ten)
+        $this->assertSame(1, $queryCount);     // ikinci çağrıda DB'ye gidilmedi
+
+        // forgetCache sonrası tekrar DB'ye gitmeli
+        ApiCredential::forgetCache('ana');
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+        ApiCredential::forStore('ana');
+        $this->assertSame(1, count(DB::getQueryLog()));
+        DB::disableQueryLog();
+    }
 }

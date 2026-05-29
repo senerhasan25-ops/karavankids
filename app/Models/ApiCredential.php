@@ -23,8 +23,37 @@ class ApiCredential extends Model
         'is_active' => 'boolean',
     ];
 
+    /**
+     * Process-içi cache (#10). forStore() bir job süresince TicimaxClient her
+     * kurulduğunda çağrılıyor; aynı store için tekrar tekrar DB'ye gitmeyelim.
+     * Cache process'e özgü olduğundan (her job/web isteği ayrı process) çapraz
+     * bayatlama riski yok; aynı process içinde kayıt güncellenirse forgetCache()
+     * çağrılır (ApiSettings::save).
+     *
+     * @var array<string, self|null>
+     */
+    protected static array $storeCache = [];
+
     public static function forStore(string $storeKey): ?self
     {
-        return static::where('store_key', $storeKey)->where('is_active', true)->first();
+        if (array_key_exists($storeKey, static::$storeCache)) {
+            return static::$storeCache[$storeKey];
+        }
+
+        return static::$storeCache[$storeKey] = static::where('store_key', $storeKey)
+            ->where('is_active', true)
+            ->first();
+    }
+
+    /** Process-içi forStore cache'ini temizle (credential güncellendiğinde). */
+    public static function forgetCache(?string $storeKey = null): void
+    {
+        if ($storeKey === null) {
+            static::$storeCache = [];
+
+            return;
+        }
+
+        unset(static::$storeCache[$storeKey]);
     }
 }
