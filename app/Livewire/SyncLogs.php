@@ -17,11 +17,15 @@ class SyncLogs extends Component
     use WithPagination;
 
     public string $typeFilter = '';
+
     public string $statusFilter = '';
+
     public string $dateFrom = '';
+
     public string $dateTo = '';
 
     public ?int $expandedJobId = null;
+
     public ?int $detailLogId = null;
 
     public function updatingTypeFilter(): void

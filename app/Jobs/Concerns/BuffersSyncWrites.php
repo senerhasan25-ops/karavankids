@@ -24,7 +24,9 @@ trait BuffersSyncWrites
     protected array $logBuffer = [];
 
     protected int $pendingTotal = 0;
+
     protected int $pendingSuccess = 0;
+
     protected int $pendingError = 0;
 
     /**

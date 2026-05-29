@@ -23,20 +23,20 @@ class ProductMapper
     /** TedarikciKodu prefix'i — gelecekte ayrı versiyonlar için tek noktadan değiştirilebilsin. */
     public const TED_KODU_PREFIX = 'SUP2026';
 
-    /** @var callable|null  Marka adı → bayi marka ID'si çözümleyici (opsiyonel) */
+    /** @var callable|null Marka adı → bayi marka ID'si çözümleyici (opsiyonel) */
     protected $brandResolver = null;
 
-    /** @var callable|null  Tedarikçi (ana ID) → bayi tedarikçi ID'si çözümleyici */
+    /** @var callable|null Tedarikçi (ana ID) → bayi tedarikçi ID'si çözümleyici */
     protected $supplierResolver = null;
 
     /** Bayi'nin default kategori ID'si — Kategoriler boş kalmasın diye fallback */
     protected int $defaultCategoryId = 0;
 
     /**
-     * @var callable|null  ana kategori ID → bayi kategori ID cozumleyici.
-     * SyncNewProductsJob job basinda ana getCategoryTree() ile birlikte set eder.
-     * Verilirse anaToBayiCreatePayload AnaKategoriID + Kategoriler[] alanlarini bayinin
-     * gercek ag acindaki karsiliklariyla doldurur (kategori agaci mirror).
+     * @var callable|null ana kategori ID → bayi kategori ID cozumleyici.
+     *                    SyncNewProductsJob job basinda ana getCategoryTree() ile birlikte set eder.
+     *                    Verilirse anaToBayiCreatePayload AnaKategoriID + Kategoriler[] alanlarini bayinin
+     *                    gercek ag acindaki karsiliklariyla doldurur (kategori agaci mirror).
      */
     protected $categoryIdResolver = null;
 
@@ -131,9 +131,13 @@ class ProductMapper
         if ($this->categoryIdResolver !== null && $anaId > 0) {
             try {
                 $bayiId = (int) call_user_func($this->categoryIdResolver, $anaId);
-                if ($bayiId > 0) return $bayiId;
-            } catch (\Throwable) { /* fallback */ }
+                if ($bayiId > 0) {
+                    return $bayiId;
+                }
+            } catch (\Throwable) { /* fallback */
+            }
         }
+
         return $this->defaultCategoryId;
     }
 
@@ -150,14 +154,16 @@ class ProductMapper
         if (! is_array($raw)) {
             $raw = [];
         }
-        $anaIds = array_values(array_filter(array_map(fn($v) => (int) $v, $raw), fn($v) => $v > 0));
+        $anaIds = array_values(array_filter(array_map(fn ($v) => (int) $v, $raw), fn ($v) => $v > 0));
 
         if ($this->categoryIdResolver !== null && ! empty($anaIds)) {
             $bayiIds = [];
             foreach ($anaIds as $aid) {
                 try {
                     $bid = (int) call_user_func($this->categoryIdResolver, $aid);
-                } catch (\Throwable) { $bid = 0; }
+                } catch (\Throwable) {
+                    $bid = 0;
+                }
                 if ($bid > 0 && ! in_array($bid, $bayiIds, true)) {
                     $bayiIds[] = $bid;
                 }
@@ -166,6 +172,7 @@ class ProductMapper
                 return ['int' => $bayiIds];
             }
         }
+
         return $this->defaultCategoryId > 0 ? ['int' => [$this->defaultCategoryId]] : [];
     }
 
@@ -176,7 +183,7 @@ class ProductMapper
      */
     public function buildTedarikciKodu(int $anaVariantId, string $stokKodu): string
     {
-        return self::TED_KODU_PREFIX . '|' . trim($stokKodu) . '|' . $anaVariantId;
+        return self::TED_KODU_PREFIX.'|'.trim($stokKodu).'|'.$anaVariantId;
     }
 
     /**
@@ -193,6 +200,7 @@ class ProductMapper
                 return $id;
             }
         }
+
         return 0;
     }
 
@@ -214,6 +222,7 @@ class ProductMapper
                 return $sk;
             }
         }
+
         return '';
     }
 
@@ -227,6 +236,7 @@ class ProductMapper
                 ? $variations['Varyasyon']
                 : [$variations['Varyasyon']];
         }
+
         return is_array($variations) ? array_values($variations) : [];
     }
 
@@ -238,7 +248,7 @@ class ProductMapper
      * Bayi siparişini ana mağazada SaveSiparis için gerçek WebSiparis envelope'una uygun
      * payload'a çevirir.
      *
-     * @param  array     $bayiOrder  Bayi'den dönen WebSiparis (Urunler altında WebSiparisUrun listesi)
+     * @param  array  $bayiOrder  Bayi'den dönen WebSiparis (Urunler altında WebSiparisUrun listesi)
      * @param  callable  $resolveAnaUrunIdByStokKodu  fn(string $stokKodu): ?int — ana'daki Varyasyon.ID
      *
      * @throws \RuntimeException StokKodu ana'da bulunamazsa
@@ -298,7 +308,7 @@ class ProductMapper
         //   UrunTutari   = ToplamTutar − KargoTutari   (KDV DAHİL ürün toplamı)
         //   UrunTutariKdv= ToplamKdv − KargoKdv        (sadece ürün KDV'si)
         $bayiToplamTutar = (float) ($bayiOrder['ToplamTutar'] ?? 0);
-        $bayiToplamKdv   = (float) ($bayiOrder['ToplamKdv'] ?? 0);
+        $bayiToplamKdv = (float) ($bayiOrder['ToplamKdv'] ?? 0);
 
         $kargoBrut = (float) ($bayiOrder['KargoTutari'] ?? 0);
         if ($kargoBrut <= 0) {
@@ -322,7 +332,7 @@ class ProductMapper
 
         // Hedef için ürün tutarları (kargo hariç) — Python ile birebir
         $urunTutariKdvDahil = round($bayiToplamTutar - $kargoBrut, 4);
-        $urunKdv            = round($bayiToplamKdv - $kargoKdv, 4);
+        $urunKdv = round($bayiToplamKdv - $kargoKdv, 4);
 
         // Genel toplam = OdenenTutar (Python öncelik sırası)
         $genelToplam = (float) ($bayiOrder['OdenenTutar'] ?? $bayiOrder['SiparisToplamTutari'] ?? ($araToplam + $kargoBrut));
@@ -427,6 +437,7 @@ class ProductMapper
         if ($v === null || is_array($v) || is_object($v)) {
             return $default;
         }
+
         return (string) $v;
     }
 
@@ -478,6 +489,7 @@ class ProductMapper
         } elseif (! array_is_list($lines)) {
             $lines = [$lines];
         }
+
         return is_array($lines) ? $lines : [];
     }
 
@@ -510,8 +522,8 @@ class ProductMapper
         // 1) Tehlikeli tag'leri içerikleriyle birlikte sil
         $dangerous = ['script', 'style', 'iframe', 'embed', 'object', 'link', 'meta', 'form', 'input', 'button', 'svg', 'noscript', 'frame', 'frameset', 'applet'];
         foreach ($dangerous as $tag) {
-            $html = preg_replace('#<\s*' . $tag . '\b[^>]*>.*?<\s*/\s*' . $tag . '\s*>#is', '', $html) ?? $html;
-            $html = preg_replace('#<\s*' . $tag . '\b[^>]*/?\s*>#i', '', $html) ?? $html;
+            $html = preg_replace('#<\s*'.$tag.'\b[^>]*>.*?<\s*/\s*'.$tag.'\s*>#is', '', $html) ?? $html;
+            $html = preg_replace('#<\s*'.$tag.'\b[^>]*/?\s*>#i', '', $html) ?? $html;
         }
         // 2) on* event attribute'larını sök (onclick, onload, onerror, ...)
         $html = preg_replace('#\s*on[a-z]+\s*=\s*"[^"]*"#i', '', $html) ?? $html;
@@ -543,6 +555,7 @@ class ProductMapper
         $text = strip_tags($text);
         // \r\n → space (tek satır metinler için)
         $text = preg_replace('#\s+#', ' ', $text) ?? $text;
+
         return trim($text);
     }
 
@@ -554,6 +567,7 @@ class ProductMapper
         if (isset($images['string'])) {
             $images = is_array($images['string']) && array_is_list($images['string']) ? $images['string'] : [$images['string']];
         }
+
         return array_values(array_filter(array_map(function ($img) {
             if (is_string($img)) {
                 return $img;
@@ -561,6 +575,7 @@ class ProductMapper
             if (is_array($img)) {
                 return $img['ResimUrl'] ?? $img['Url'] ?? $img['ResimAdi'] ?? null;
             }
+
             return null;
         }, $images)));
     }
@@ -620,6 +635,7 @@ class ProductMapper
         if (isset($props['VaryasyonOzellik'])) {
             $props = is_array($props['VaryasyonOzellik']) && array_is_list($props['VaryasyonOzellik']) ? $props['VaryasyonOzellik'] : [$props['VaryasyonOzellik']];
         }
+
         return array_map(fn ($p) => [
             'Tanim' => (string) ($p['Tanim'] ?? ''),
             'Deger' => (string) ($p['Deger'] ?? ''),

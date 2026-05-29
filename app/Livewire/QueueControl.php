@@ -6,6 +6,7 @@ use App\Models\SyncJob;
 use App\Models\SyncSetting;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Livewire\Attributes\On;
 use Livewire\Component;
 
@@ -28,9 +29,13 @@ class QueueControl extends Component
     public const STOP_FLAG_JOB_PREFIX = 'sync_stop_job_';
 
     public array $pendingJobs = [];     // [{id, label, queue, attempts, created_at}]
+
     public array $runningJobs = [];     // [{id, type, started_at, success, error, total}]
+
     public bool $stopRequested = false;
+
     public bool $autoSyncEnabled = false;
+
     public ?string $statusMsg = null;
 
     public function mount(): void
@@ -52,6 +57,7 @@ class QueueControl extends Component
                 $payload = json_decode($r->payload ?? '{}', true);
                 $cmdName = $payload['displayName'] ?? ($payload['data']['commandName'] ?? 'Job');
                 $short = class_basename($cmdName);
+
                 return [
                     'id' => (int) $r->id,
                     'label' => $short,
@@ -76,7 +82,7 @@ class QueueControl extends Component
                 'success' => (int) $j->success_count,
                 'error' => (int) $j->error_count,
                 'total' => (int) $j->total,
-                'stop_pending' => (bool) Cache::get(self::STOP_FLAG_JOB_PREFIX . $j->id, false),
+                'stop_pending' => (bool) Cache::get(self::STOP_FLAG_JOB_PREFIX.$j->id, false),
             ])
             ->toArray();
 
@@ -103,7 +109,7 @@ class QueueControl extends Component
     public static function isStopRequested(?int $syncJobId = null): bool
     {
         $globalStop = (bool) Cache::get(self::STOP_FLAG_KEY, false);
-        $perJobStop = $syncJobId !== null && Cache::get(self::STOP_FLAG_JOB_PREFIX . $syncJobId, false);
+        $perJobStop = $syncJobId !== null && Cache::get(self::STOP_FLAG_JOB_PREFIX.$syncJobId, false);
 
         if ($globalStop || $perJobStop) {
             // Worker CMD penceresine net görünür feedback — STDERR Laravel queue:work
@@ -113,13 +119,15 @@ class QueueControl extends Component
                 $ts = now()->format('H:i:s');
                 @fwrite(STDERR, "\n  🛑 [{$ts}] STOP signal alındı ({$kind}) — job nazikçe çıkıyor...\n");
             }
-            \Illuminate\Support\Facades\Log::warning('Sync stop signal detected', [
+            Log::warning('Sync stop signal detected', [
                 'sync_job_id' => $syncJobId,
                 'global' => $globalStop,
                 'per_job' => $perJobStop,
             ]);
+
             return true;
         }
+
         return false;
     }
 
@@ -130,7 +138,7 @@ class QueueControl extends Component
             $deleted = DB::table('jobs')->where('id', $id)->delete();
             $this->statusMsg = $deleted ? "✓ Bekleyen job #{$id} silindi" : "· Job #{$id} bulunamadı (zaten alınmış olabilir)";
         } catch (\Throwable $e) {
-            $this->statusMsg = '✗ ' . $e->getMessage();
+            $this->statusMsg = '✗ '.$e->getMessage();
         }
         $this->refreshCounts();
     }
@@ -139,7 +147,7 @@ class QueueControl extends Component
     public function cancelRunning(int $syncJobId): void
     {
         try {
-            Cache::put(self::STOP_FLAG_JOB_PREFIX . $syncJobId, true, now()->addHour());
+            Cache::put(self::STOP_FLAG_JOB_PREFIX.$syncJobId, true, now()->addHour());
             // UI'da hemen failed görünsün — worker SOAP'ı bitirince zaten kendi de güncelleyecek
             SyncJob::where('id', $syncJobId)->where('status', 'running')->update([
                 'status' => 'failed',
@@ -148,7 +156,7 @@ class QueueControl extends Component
             ]);
             $this->statusMsg = "✓ SyncJob #{$syncJobId} durdur sinyali yollandı (SOAP biter bitmez çıkar)";
         } catch (\Throwable $e) {
-            $this->statusMsg = '✗ ' . $e->getMessage();
+            $this->statusMsg = '✗ '.$e->getMessage();
         }
         $this->refreshCounts();
     }
@@ -161,14 +169,14 @@ class QueueControl extends Component
             Cache::put(self::STOP_FLAG_KEY, true, now()->addHour());
             $log[] = '✓ Global stop flag';
         } catch (\Throwable $e) {
-            $log[] = '✗ ' . $e->getMessage();
+            $log[] = '✗ '.$e->getMessage();
         }
         try {
             $cleared = (int) DB::table('jobs')->count();
             DB::table('jobs')->delete();
             $log[] = "✓ {$cleared} bekleyen silindi";
         } catch (\Throwable $e) {
-            $log[] = '✗ ' . $e->getMessage();
+            $log[] = '✗ '.$e->getMessage();
         }
         try {
             $cancelled = SyncJob::where('status', 'running')->update([
@@ -178,7 +186,7 @@ class QueueControl extends Component
             ]);
             $log[] = "✓ {$cancelled} çalışan → failed";
         } catch (\Throwable $e) {
-            $log[] = '✗ ' . $e->getMessage();
+            $log[] = '✗ '.$e->getMessage();
         }
 
         $this->refreshCounts();

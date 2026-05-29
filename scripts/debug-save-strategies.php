@@ -1,21 +1,22 @@
 <?php
 
-require __DIR__ . '/../vendor/autoload.php';
-$app = require_once __DIR__ . '/../bootstrap/app.php';
-$kernel = $app->make(Illuminate\Contracts\Console\Kernel::class);
+require __DIR__.'/../vendor/autoload.php';
+$app = require_once __DIR__.'/../bootstrap/app.php';
+$kernel = $app->make(Kernel::class);
 $kernel->bootstrap();
 
 use App\Services\Ticimax\ProductMapper;
 use App\Services\Ticimax\ProductService;
-use App\Services\Ticimax\TicimaxClient;
+use Illuminate\Contracts\Console\Kernel;
 
 $ana = ProductService::for('ana');
 $bayi = ProductService::for('bayi');
-$mapper = new ProductMapper();
+$mapper = new ProductMapper;
 $mapper->setBrandResolver(fn (string $name) => $bayi->findOrCreateBrandId($name));
 $anaSupplierIdToName = array_flip($ana->getSupplierMap());
 $mapper->setSupplierResolver(function (int $anaId) use ($anaSupplierIdToName, $bayi) {
     $name = $anaSupplierIdToName[$anaId] ?? '';
+
     return $name ? $bayi->findOrCreateSupplierId($name) : 0;
 });
 
@@ -75,7 +76,7 @@ testSave($bayi, $brandTest, 'WithExistingBrand');
 
 // === STRATEJİ 3: Test barkodu (Ticimax test mağazasında zaten yoktur)
 echo "\n=== Strateji 3: Tamamen yeni barkodlu test ürünü ===\n";
-$newBar = 'TEST-' . date('YmdHis');
+$newBar = 'TEST-'.date('YmdHis');
 $brandTest2 = $brandTest;
 $brandTest2['UrunAdi'] = 'TEST ÜRÜNÜ — Karavankids Sync E2E';
 $brandTest2['Varyasyonlar'][0]['Barkod'] = $newBar;
@@ -98,7 +99,7 @@ function testSave(ProductService $bayi, array $payload, string $name): void
             // Belki SaveUrunResult'da gerçek ID döner
             echo "  ⚠ {$name}: ID=0 ama exception yok (saveBatch'ten ne döndü?)\n";
         }
-    } catch (\Throwable $e) {
+    } catch (Throwable $e) {
         $msg = substr($e->getMessage(), 0, 200);
         echo "  ✗ {$name}: {$msg}\n";
     }

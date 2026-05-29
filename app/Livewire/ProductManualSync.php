@@ -18,11 +18,15 @@ class ProductManualSync extends Component
     use WithPagination;
 
     public string $search = '';
+
     public string $statusFilter = '';
+
     public array $selected = [];
+
     public bool $selectAll = false;
 
     public string $pullSince = '';
+
     public string $pullUntil = '';
 
     public ?int $errorModalId = null;
@@ -79,6 +83,7 @@ class ProductManualSync extends Component
     {
         if (empty($this->selected)) {
             session()->flash('status', 'Hiçbir ürün seçilmedi.');
+
             return;
         }
         foreach (ProductMapping::whereIn('id', $this->selected)->cursor() as $m) {

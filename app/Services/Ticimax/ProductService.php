@@ -6,9 +6,7 @@ use Illuminate\Support\Carbon;
 
 class ProductService
 {
-    public function __construct(protected TicimaxClient $client)
-    {
-    }
+    public function __construct(protected TicimaxClient $client) {}
 
     public static function for(string $storeKey): self
     {
@@ -46,6 +44,7 @@ class ProductService
                 $map[mb_strtolower($name)] = $id;
             }
         }
+
         return $this->brandCache = $map;
     }
 
@@ -74,6 +73,7 @@ class ProductService
                 $map[mb_strtolower($name)] = $id;
             }
         }
+
         return $this->supplierCache = $map;
     }
 
@@ -96,6 +96,7 @@ class ProductService
         if ($newId > 0) {
             $this->supplierCache[$key] = $newId;
         }
+
         return $newId;
     }
 
@@ -105,6 +106,7 @@ class ProductService
     public function getDefaultSupplierId(): int
     {
         $map = $this->getSupplierMap();
+
         return (int) (reset($map) ?: 0);
     }
 
@@ -114,6 +116,7 @@ class ProductService
     public function getDefaultBrandId(): int
     {
         $map = $this->getBrandMap();
+
         return (int) (reset($map) ?: 0);
     }
 
@@ -145,6 +148,7 @@ class ProductService
                 }
             }
             $first = $list[0] ?? null;
+
             return $this->defaultCategoryCache = (int) ($first->ID ?? 0);
         } catch (\Throwable) {
             return $this->defaultCategoryCache = 0;
@@ -181,6 +185,7 @@ class ProductService
                     ];
                 }
             }
+
             return $this->categoryTreeCache = $tree;
         } catch (\Throwable) {
             return $this->categoryTreeCache = [];
@@ -200,7 +205,7 @@ class ProductService
         if ($name === '') {
             return 0;
         }
-        $cacheKey = $bayiParentId . '|' . mb_strtolower($name);
+        $cacheKey = $bayiParentId.'|'.mb_strtolower($name);
         if (isset($this->categoryByNameParentCache[$cacheKey])) {
             return $this->categoryByNameParentCache[$cacheKey];
         }
@@ -234,6 +239,7 @@ class ProductService
                     $this->categoryTreeCache[$newId] = ['ID' => $newId, 'PID' => $bayiParentId, 'Tanim' => $name];
                 }
             }
+
             return $newId;
         } catch (\Throwable) {
             return 0;
@@ -247,9 +253,9 @@ class ProductService
      *  - Son node'un (leaf) bayi ID'sini doner.
      * Performans icin sonuc (ana_cat_id → bayi_cat_id) in-memory cache'lenir.
      *
-     * @param  int    $anaCategoryId  ana magazadaki kategori ID'si
-     * @param  array  $anaTree        ana magazadan getCategoryTree() ciktisi (cagiri tarafindan verilir)
-     * @return int                    bayi'deki karsilik ID, kurulamazsa 0
+     * @param  int  $anaCategoryId  ana magazadaki kategori ID'si
+     * @param  array  $anaTree  ana magazadan getCategoryTree() ciktisi (cagiri tarafindan verilir)
+     * @return int bayi'deki karsilik ID, kurulamazsa 0
      */
     private array $anaToBayiCatCache = [];
 
@@ -282,6 +288,7 @@ class ProductService
             }
             $bayiParent = $bayiId;
         }
+
         return $this->anaToBayiCatCache[$anaCategoryId] = $bayiId;
     }
 
@@ -314,6 +321,7 @@ class ProductService
         if ($newId > 0) {
             $this->brandCache[$key] = $newId;
         }
+
         return $newId;
     }
 
@@ -326,6 +334,7 @@ class ProductService
      * Bu, "filtre uygulama" anlamına gelir.
      */
     private const MIN_DATETIME = '0001-01-01T00:00:00';
+
     private const MAX_DATETIME = '9999-12-31T23:59:59';
 
     public function getNewProducts(?Carbon $since = null, int $page = 1, int $perPage = 50, string $sortDir = 'ASC'): array
@@ -414,9 +423,9 @@ class ProductService
      * dilimler kaybolur (~30-40 ürün), gerisi kurtarılır.
      *
      * @return array{products: array, bug: bool, recovered: int, lost: int}
-     *   - bug=false → normal sayfa (products dolu) veya gerçek son (products boş)
-     *   - bug=true  → sayfa bug'a denk geldi; products = kurtarılan alt küme,
-     *                 recovered/lost = kurtarılan/kaybedilen tahmini ürün sayısı
+     *                                                                      - bug=false → normal sayfa (products dolu) veya gerçek son (products boş)
+     *                                                                      - bug=true  → sayfa bug'a denk geldi; products = kurtarılan alt küme,
+     *                                                                      recovered/lost = kurtarılan/kaybedilen tahmini ürün sayısı
      */
     public function fetchProductPageRecovering(string $filterType, ?Carbon $since, int $page, int $perPage, string $sortDir = 'ASC', int $subStep = 10): array
     {
@@ -446,6 +455,7 @@ class ProductService
             } catch (\Throwable $e) {
                 if ($this->isTicimaxPaginationBug($e)) {
                     $lostSlices++; // bu küçük dilim de bug'a düştü, atla
+
                     continue;
                 }
                 throw $e;
@@ -487,6 +497,7 @@ class ProductService
     public function isTicimaxPaginationBug(\Throwable $e): bool
     {
         $msg = (string) $e->getMessage();
+
         return stripos($msg, 'Value cannot be null') !== false
             && stripos($msg, 'source') !== false;
     }
@@ -537,6 +548,7 @@ class ProductService
         }
         $first = $varyasyonlar[0] ?? null;
         $id = $first ? (int) ($first['ID'] ?? 0) : 0;
+
         return $id > 0 ? $id : null;
     }
 
@@ -570,6 +582,7 @@ class ProductService
             }
             throw $e;
         }
+
         return $this->normalizeList($resp, $this->method('select'), 'UrunKarti');
     }
 
@@ -584,9 +597,9 @@ class ProductService
      * - Tek deger: Ticimax StokKodu filtresi cogu kez birebir esler — once birebir,
      *   sonra SelectUrun'a buyuk sayfa cek + sunucu tarafinda LIKE filtrele.
      *
-     * @param  string  $query     Tek StokKodu, virgulle ayrilmis liste veya kismi ifade
-     * @param  int     $maxResults Tek-deger LIKE icin tarama ust limiti (varsayilan 200)
-     * @return array               UrunKarti list
+     * @param  string  $query  Tek StokKodu, virgulle ayrilmis liste veya kismi ifade
+     * @param  int  $maxResults  Tek-deger LIKE icin tarama ust limiti (varsayilan 200)
+     * @return array UrunKarti list
      */
     public function searchProductsByStokKodu(string $query, int $maxResults = 200): array
     {
@@ -607,6 +620,7 @@ class ProductService
                     $out[] = $hit;
                 }
             }
+
             return $out;
         }
 
@@ -624,22 +638,36 @@ class ProductService
         $scanned = 0;
         while ($scanned < $maxResults) {
             $batch = $this->getNewProducts(null, $page, $perPage, 'DESC');
-            if (empty($batch)) break;
+            if (empty($batch)) {
+                break;
+            }
             foreach ($batch as $p) {
                 $scanned++;
                 $variants = $p['Varyasyonlar']['Varyasyon'] ?? $p['Varyasyonlar'] ?? [];
-                if (isset($variants['Barkod'])) $variants = [$variants];
+                if (isset($variants['Barkod'])) {
+                    $variants = [$variants];
+                }
                 $matched = false;
                 foreach ($variants as $v) {
                     $sk = mb_strtolower(trim((string) ($v['StokKodu'] ?? '')));
-                    if ($sk !== '' && str_contains($sk, $qLower)) { $matched = true; break; }
+                    if ($sk !== '' && str_contains($sk, $qLower)) {
+                        $matched = true;
+                        break;
+                    }
                 }
-                if ($matched) $found[] = $p;
-                if ($scanned >= $maxResults) break;
+                if ($matched) {
+                    $found[] = $p;
+                }
+                if ($scanned >= $maxResults) {
+                    break;
+                }
             }
-            if (count($batch) < $perPage) break;
+            if (count($batch) < $perPage) {
+                break;
+            }
             $page++;
         }
+
         return $found;
     }
 
@@ -668,6 +696,7 @@ class ProductService
             throw $e;
         }
         $list = $this->normalizeList($resp, $this->method('select'), 'UrunKarti');
+
         return $list[0] ?? null;
     }
 
@@ -697,6 +726,7 @@ class ProductService
             throw $e;
         }
         $list = $this->normalizeList($resp, $this->method('select'), 'UrunKarti');
+
         return $list[0] ?? null;
     }
 
@@ -733,6 +763,7 @@ class ProductService
     public function updateProduct(string $productId, array $urunKarti): array
     {
         $urunKarti['ID'] = (int) $productId;
+
         return $this->saveBatch([$urunKarti], $this->fullUpdateAyarlari())[0] ?? [];
     }
 
@@ -770,8 +801,8 @@ class ProductService
                 $urunKartlari
             ));
             throw new \RuntimeException(
-                'Ticimax SaveUrun başarısız (SaveUrunResult=0, urunKartlari boş). ' .
-                'Barkodlar: ' . implode(', ', $barcodes) . '. ' .
+                'Ticimax SaveUrun başarısız (SaveUrunResult=0, urunKartlari boş). '.
+                'Barkodlar: '.implode(', ', $barcodes).'. '.
                 'Olası sebepler: zorunlu alan eksik, ücretsiz hesap limiti, varyasyon barkod çakışması, kategori bayi\'de yok.'
             );
         }
@@ -794,6 +825,7 @@ class ProductService
             'urunler' => [$varyasyon],
         ];
         $resp = $this->client->call('product', $this->method('update_stock'), $params);
+
         return $this->normalizeOne($resp) ?? [];
     }
 
@@ -839,6 +871,7 @@ class ProductService
             ],
         ];
         $resp = $this->client->call('product', $this->method('update_price'), $params);
+
         return $this->normalizeOne($resp) ?? [];
     }
 
@@ -883,40 +916,40 @@ class ProductService
             return;
         }
         $request = array_map(fn ($item) => [
-            'Barkod'         => $item['Barkod'],
-            'Fiyatlar'       => [
-                'SatisFiyati'   => (float) $item['SatisFiyati'],
+            'Barkod' => $item['Barkod'],
+            'Fiyatlar' => [
+                'SatisFiyati' => (float) $item['SatisFiyati'],
                 'IndirimliFiyat' => 0,
-                'KDVDahil'      => (bool) ($item['KdvDahil'] ?? true),
-                'KdvOrani'      => (int) ($item['KdvOrani'] ?? 20),
+                'KDVDahil' => (bool) ($item['KdvDahil'] ?? true),
+                'KdvOrani' => (int) ($item['KdvOrani'] ?? 20),
                 'UyeTipiFiyat1' => 0,
                 'UyeTipiFiyat2' => 0,
                 'UyeTipiFiyat3' => 0,
                 'UyeTipiFiyat4' => 0,
                 'UyeTipiFiyat5' => 0,
             ],
-            'TedarikciKodu'  => '',
+            'TedarikciKodu' => '',
             'TedarikciKodu2' => '',
-            'UrunIds'        => '',
-            'UrunKartiIds'   => '',
+            'UrunIds' => '',
+            'UrunKartiIds' => '',
         ], $items);
 
         $params = [
             'UyeKodu' => $this->client->getUyeKodu(),
             'request' => $request,
-            'ayar'    => [
-                'BarkodKodunaGoreGuncelle'    => true,
-                'IndirimliFiyatGuncelle'       => false,
-                'TedarikciKodu2GoreGuncelle'   => false,
-                'TedarikciKodunaGoreGuncelle'  => false,
-                'UrunIdGoreGuncelle'           => false,
-                'UrunKartiIdGoreGuncelle'      => false,
-                'UyeTipiFiyat1Guncelle'        => false,
-                'UyeTipiFiyat2Guncelle'        => false,
-                'UyeTipiFiyat3Guncelle'        => false,
-                'UyeTipiFiyat4Guncelle'        => false,
-                'UyeTipiFiyat5Guncelle'        => false,
-                'VaryasyonGuncelle'            => true,
+            'ayar' => [
+                'BarkodKodunaGoreGuncelle' => true,
+                'IndirimliFiyatGuncelle' => false,
+                'TedarikciKodu2GoreGuncelle' => false,
+                'TedarikciKodunaGoreGuncelle' => false,
+                'UrunIdGoreGuncelle' => false,
+                'UrunKartiIdGoreGuncelle' => false,
+                'UyeTipiFiyat1Guncelle' => false,
+                'UyeTipiFiyat2Guncelle' => false,
+                'UyeTipiFiyat3Guncelle' => false,
+                'UyeTipiFiyat4Guncelle' => false,
+                'UyeTipiFiyat5Guncelle' => false,
+                'VaryasyonGuncelle' => true,
             ],
         ];
         $this->client->call('product', $this->method('update_price'), $params);
@@ -996,12 +1029,12 @@ class ProductService
      *   'seo', 'uye_tipi_fiyat', 'resimler', 'aktif'
      *
      * @param  array  $fields  Etkin alan kimliklerinin listesi (orn. ['urun_adi','satis_fiyati'])
-     * @return array            ['ukAyar' => [...], 'vAyar' => [...]]
+     * @return array ['ukAyar' => [...], 'vAyar' => [...]]
      */
     public function buildSelectiveAyarlari(array $fields): array
     {
         $f = array_flip($fields);
-        $on = fn(string $k) => isset($f[$k]);
+        $on = fn (string $k) => isset($f[$k]);
 
         $ukAyar = [
             // ===== ICERIK =====
@@ -1053,11 +1086,14 @@ class ProductService
         // Uye tipi fiyatlarinin "hepsi" toplu secimini destekle (uye_tipi_fiyat) +
         // her birini ayri ayri (uye_tipi_fiyat_1 .. uye_tipi_fiyat_20)
         $uyeBayrak = function (int $i) use ($on) {
-            return $on('uye_tipi_fiyat') || $on('uye_tipi_fiyat_' . $i);
+            return $on('uye_tipi_fiyat') || $on('uye_tipi_fiyat_'.$i);
         };
         $herhangiUye = false;
         for ($i = 1; $i <= 20; $i++) {
-            if ($uyeBayrak($i)) { $herhangiUye = true; break; }
+            if ($uyeBayrak($i)) {
+                $herhangiUye = true;
+                break;
+            }
         }
 
         $vAyar = [
@@ -1082,15 +1118,15 @@ class ProductService
             // Tek bayrak: herhangi biri secili ise true (Ticimax bu bayragi gormezse
             // bireysel UyeTipiFiyatNGuncelle'leri de yok sayabilir — emniyet kemeri)
             'FiyatTipleriGuncelle' => $herhangiUye,
-            'UyeTipiFiyat1Guncelle'  => $uyeBayrak(1),
-            'UyeTipiFiyat2Guncelle'  => $uyeBayrak(2),
-            'UyeTipiFiyat3Guncelle'  => $uyeBayrak(3),
-            'UyeTipiFiyat4Guncelle'  => $uyeBayrak(4),
-            'UyeTipiFiyat5Guncelle'  => $uyeBayrak(5),
-            'UyeTipiFiyat6Guncelle'  => $uyeBayrak(6),
-            'UyeTipiFiyat7Guncelle'  => $uyeBayrak(7),
-            'UyeTipiFiyat8Guncelle'  => $uyeBayrak(8),
-            'UyeTipiFiyat9Guncelle'  => $uyeBayrak(9),
+            'UyeTipiFiyat1Guncelle' => $uyeBayrak(1),
+            'UyeTipiFiyat2Guncelle' => $uyeBayrak(2),
+            'UyeTipiFiyat3Guncelle' => $uyeBayrak(3),
+            'UyeTipiFiyat4Guncelle' => $uyeBayrak(4),
+            'UyeTipiFiyat5Guncelle' => $uyeBayrak(5),
+            'UyeTipiFiyat6Guncelle' => $uyeBayrak(6),
+            'UyeTipiFiyat7Guncelle' => $uyeBayrak(7),
+            'UyeTipiFiyat8Guncelle' => $uyeBayrak(8),
+            'UyeTipiFiyat9Guncelle' => $uyeBayrak(9),
             'UyeTipiFiyat10Guncelle' => $uyeBayrak(10),
             'UyeTipiFiyat11Guncelle' => $uyeBayrak(11),
             'UyeTipiFiyat12Guncelle' => $uyeBayrak(12),
@@ -1128,7 +1164,7 @@ class ProductService
      * sadece secili alan grubuna karsilik gelen Guncelle flag'leri true gonderilir.
      *
      * @param  array  $urunKarti  Mapper'in urettigi tam payload (ana'dan)
-     * @param  int    $bayiProductId  Bayi'deki mevcut UrunKarti.ID
+     * @param  int  $bayiProductId  Bayi'deki mevcut UrunKarti.ID
      * @param  array<string,int>  $bayiVariantIdByStokKodu  StokKodu → bayi Varyasyon.ID
      * @param  array  $selectedFields  Acik alan listesi (orn. ['urun_adi','satis_fiyati'])
      */
@@ -1151,11 +1187,15 @@ class ProductService
             $bayiVarByStok = [];
             if ($bayiKart !== null) {
                 $bv = $bayiKart['Varyasyonlar']['Varyasyon'] ?? $bayiKart['Varyasyonlar'] ?? [];
-                if (isset($bv['Barkod'])) $bv = [$bv];
+                if (isset($bv['Barkod'])) {
+                    $bv = [$bv];
+                }
                 if (is_array($bv)) {
                     foreach ($bv as $vv) {
                         $sk = (string) ($vv['StokKodu'] ?? '');
-                        if ($sk !== '') $bayiVarByStok[$sk] = $vv;
+                        if ($sk !== '') {
+                            $bayiVarByStok[$sk] = $vv;
+                        }
                     }
                 }
             }
@@ -1173,6 +1213,7 @@ class ProductService
             unset($v);
         }
         $ayarlar = $this->buildSelectiveAyarlari($selectedFields);
+
         return $this->saveBatch([$urunKarti], $ayarlar)[0] ?? [];
     }
 
@@ -1183,7 +1224,7 @@ class ProductService
     protected function preserveBayiFields(array $payload, array $bayiKart, array $selectedFields): array
     {
         $sel = array_flip($selectedFields);
-        $on = fn(string $k) => isset($sel[$k]);
+        $on = fn (string $k) => isset($sel[$k]);
 
         // urun_adi
         if (! $on('urun_adi')) {
@@ -1199,8 +1240,10 @@ class ProductService
         }
         // SEO
         if (! $on('seo')) {
-            foreach (['SeoSayfaBaslik','SeoSayfaAciklama','SeoAnahtarKelime','AramaAnahtarKelime','Etiketler','SeoNoFollow','SeoNoIndex'] as $f) {
-                if (array_key_exists($f, $bayiKart)) $payload[$f] = $bayiKart[$f];
+            foreach (['SeoSayfaBaslik', 'SeoSayfaAciklama', 'SeoAnahtarKelime', 'AramaAnahtarKelime', 'Etiketler', 'SeoNoFollow', 'SeoNoIndex'] as $f) {
+                if (array_key_exists($f, $bayiKart)) {
+                    $payload[$f] = $bayiKart[$f];
+                }
             }
         }
         // Kategori
@@ -1226,7 +1269,9 @@ class ProductService
             // Bayi'nin string array'i — wrapper ile geri yaz
             $bayiResim = $bayiKart['Resimler']['string'] ?? $bayiKart['Resimler'] ?? null;
             if ($bayiResim !== null) {
-                if (is_string($bayiResim)) $bayiResim = [$bayiResim];
+                if (is_string($bayiResim)) {
+                    $bayiResim = [$bayiResim];
+                }
                 if (is_array($bayiResim) && ! empty($bayiResim)) {
                     $payload['Resimler'] = ['string' => array_values($bayiResim)];
                 }
@@ -1260,7 +1305,7 @@ class ProductService
     protected function preserveBayiVariantFields(array $v, array $bayiVar, array $selectedFields): array
     {
         $sel = array_flip($selectedFields);
-        $on = fn(string $k) => isset($sel[$k]);
+        $on = fn (string $k) => isset($sel[$k]);
 
         if (! $on('stok_adedi')) {
             $v['StokAdedi'] = $bayiVar['StokAdedi'] ?? 0;
@@ -1295,8 +1340,8 @@ class ProductService
         }
         // Uye tipi fiyatlari 1..20
         for ($i = 1; $i <= 20; $i++) {
-            if (! ($on('uye_tipi_fiyat') || $on('uye_tipi_fiyat_' . $i))) {
-                $key = 'UyeTipiFiyat' . $i;
+            if (! ($on('uye_tipi_fiyat') || $on('uye_tipi_fiyat_'.$i))) {
+                $key = 'UyeTipiFiyat'.$i;
                 if (isset($bayiVar[$key])) {
                     $v[$key] = $bayiVar[$key];
                 }
@@ -1306,6 +1351,7 @@ class ProductService
         if (! $on('aktif')) {
             $v['Aktif'] = $bayiVar['Aktif'] ?? true;
         }
+
         return $v;
     }
 
@@ -1320,7 +1366,7 @@ class ProductService
      */
     protected function normalizeList(mixed $resp, string $method = '', string $itemKey = 'UrunKarti'): array
     {
-        $resultKey = $method . 'Result';
+        $resultKey = $method.'Result';
         if (is_object($resp)) {
             // SaveUrun gibi method'larda Result alanı sadece status int olabilir.
             // Önce urunKartlari (gerçek payload) varsa onu kullan; yoksa Result alanına bak.
@@ -1341,6 +1387,7 @@ class ProductService
         } elseif (! array_is_list($resp)) {
             $resp = [$resp];
         }
+
         return array_map(fn ($r) => $this->toArray($r), $resp);
     }
 
@@ -1349,6 +1396,7 @@ class ProductService
         if (! $resp) {
             return null;
         }
+
         return $this->toArray($resp);
     }
 
@@ -1360,6 +1408,7 @@ class ProductService
         if (is_object($v)) {
             return $this->toArray((array) $v);
         }
+
         return [];
     }
 }

@@ -11,6 +11,7 @@ class SyncSetting extends Model
     public static function get(string $key, mixed $default = null): mixed
     {
         $row = static::where('key', $key)->first();
+
         return $row ? $row->value : $default;
     }
 

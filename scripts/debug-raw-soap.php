@@ -1,24 +1,26 @@
 <?php
 
-require __DIR__ . '/../vendor/autoload.php';
-$app = require_once __DIR__ . '/../bootstrap/app.php';
-$kernel = $app->make(Illuminate\Contracts\Console\Kernel::class);
+require __DIR__.'/../vendor/autoload.php';
+$app = require_once __DIR__.'/../bootstrap/app.php';
+$kernel = $app->make(Kernel::class);
 $kernel->bootstrap();
 
 use App\Services\Ticimax\ProductMapper;
 use App\Services\Ticimax\ProductService;
 use App\Services\Ticimax\TicimaxClient;
+use Illuminate\Contracts\Console\Kernel;
 
 $barcode = $argv[1] ?? 'Mg26Winter1491';
 echo "=== Raw SOAP debug for {$barcode} ===\n";
 
 $ana = ProductService::for('ana');
 $bayi = ProductService::for('bayi');
-$mapper = new ProductMapper();
+$mapper = new ProductMapper;
 $mapper->setBrandResolver(fn (string $name) => $bayi->findOrCreateBrandId($name));
 $anaSupplierIdToName = array_flip($ana->getSupplierMap());
 $mapper->setSupplierResolver(function (int $anaId) use ($anaSupplierIdToName, $bayi) {
     $name = $anaSupplierIdToName[$anaId] ?? '';
+
     return $name ? $bayi->findOrCreateSupplierId($name) : 0;
 });
 
@@ -69,8 +71,8 @@ try {
     var_export($resp);
     echo "\n\n--- Last Response XML (ilk 5000 char) ---\n";
     $xml = $soap->__getLastResponse();
-    echo substr($xml, 0, 5000) . "\n";
-} catch (\Throwable $e) {
-    echo "EXCEPTION: " . $e->getMessage() . "\n";
-    echo "Last Response:\n" . substr($soap->__getLastResponse() ?? '', 0, 5000) . "\n";
+    echo substr($xml, 0, 5000)."\n";
+} catch (Throwable $e) {
+    echo 'EXCEPTION: '.$e->getMessage()."\n";
+    echo "Last Response:\n".substr($soap->__getLastResponse() ?? '', 0, 5000)."\n";
 }

@@ -6,7 +6,6 @@ use App\Models\ApiCredential;
 use App\Services\Ticimax\ProductService;
 use App\Services\Ticimax\TicimaxClient;
 use Illuminate\Console\Command;
-use Illuminate\Support\Carbon;
 use Throwable;
 
 class TicimaxTestCommand extends Command
@@ -28,6 +27,7 @@ class TicimaxTestCommand extends Command
         $store = $this->argument('store');
         if (! in_array($store, ['ana', 'bayi'], true)) {
             $this->error("store argümanı 'ana' veya 'bayi' olmalı.");
+
             return self::FAILURE;
         }
 
@@ -46,6 +46,7 @@ class TicimaxTestCommand extends Command
         $cred = ApiCredential::forStore($store);
         if (! $cred) {
             $this->error("[{$store}] için credential bulunamadı. Önce panelden veya --endpoint/--user/--password ile gir.");
+
             return self::FAILURE;
         }
 
@@ -57,7 +58,8 @@ class TicimaxTestCommand extends Command
         try {
             $client = new TicimaxClient($store);
         } catch (Throwable $e) {
-            $this->error('Client init başarısız: ' . $e->getMessage());
+            $this->error('Client init başarısız: '.$e->getMessage());
+
             return self::FAILURE;
         }
 
@@ -67,7 +69,7 @@ class TicimaxTestCommand extends Command
             if (! empty($r['ok'])) {
                 $this->line("  [{$svc}] OK — {$r['function_count']} SOAP method bulundu");
             } else {
-                $this->error("  [{$svc}] FAIL — " . ($r['error'] ?? 'bilinmiyor'));
+                $this->error("  [{$svc}] FAIL — ".($r['error'] ?? 'bilinmiyor'));
             }
         }
 
@@ -82,7 +84,7 @@ class TicimaxTestCommand extends Command
                         $this->line("  $fn");
                     }
                 } catch (Throwable $e) {
-                    $this->error("  hata: " . $e->getMessage());
+                    $this->error('  hata: '.$e->getMessage());
                 }
                 $this->newLine();
             }
@@ -103,7 +105,7 @@ class TicimaxTestCommand extends Command
                         }
                     }
                 } catch (Throwable $e) {
-                    $this->error("[{$svc}] hata: " . $e->getMessage());
+                    $this->error("[{$svc}] hata: ".$e->getMessage());
                 }
             }
         }
@@ -134,7 +136,7 @@ class TicimaxTestCommand extends Command
                     }
                 }
             } catch (Throwable $e) {
-                $this->error('  hata: ' . $e->getMessage());
+                $this->error('  hata: '.$e->getMessage());
             }
         }
 

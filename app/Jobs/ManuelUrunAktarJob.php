@@ -35,10 +35,10 @@ class ManuelUrunAktarJob implements ShouldQueue
     public int $tries = 1;
 
     /**
-     * @param string $mode      'yeni_urun' | 'stok_fiyat' | 'full_aktar'
-     * @param array  $rows      Compact product rows — NO _raw field
-     * @param array  $fields    Selected fields (full_aktar modunda kullanılır)
-     * @param int    $syncJobId SyncJob.id (ilerleme + log için)
+     * @param  string  $mode  'yeni_urun' | 'stok_fiyat' | 'full_aktar'
+     * @param  array  $rows  Compact product rows — NO _raw field
+     * @param  array  $fields  Selected fields (full_aktar modunda kullanılır)
+     * @param  int  $syncJobId  SyncJob.id (ilerleme + log için)
      */
     public function __construct(
         public readonly string $mode,
@@ -54,10 +54,10 @@ class ManuelUrunAktarJob implements ShouldQueue
 
         try {
             match ($this->mode) {
-                'yeni_urun'  => $this->handleYeniUrun($job),
+                'yeni_urun' => $this->handleYeniUrun($job),
                 'stok_fiyat' => $this->handleStokFiyat($job),
                 'full_aktar' => $this->handleFullAktar($job),
-                default      => null,
+                default => null,
             };
             $job?->update(['status' => 'completed', 'finished_at' => now()]);
         } catch (\Throwable $e) {
@@ -91,25 +91,26 @@ class ManuelUrunAktarJob implements ShouldQueue
         if (empty($adaylar)) {
             // Tüm ürünler zaten bayide — log kaydı bile oluşturma
             SyncLog::create([
-                'job_id'    => $job?->id,
-                'action'    => 'create_product',
+                'job_id' => $job?->id,
+                'action' => 'create_product',
                 'direction' => 'ana_to_bayi',
-                'status'    => 'skipped',
-                'message'   => 'Listelenen tüm ürünler zaten bayide mevcut ('
-                    . count($byUrunKarti) . ' ürün kart).',
+                'status' => 'skipped',
+                'message' => 'Listelenen tüm ürünler zaten bayide mevcut ('
+                    .count($byUrunKarti).' ürün kart).',
             ]);
+
             return;
         }
 
-        $ana    = ProductService::for('ana');
-        $bayi   = ProductService::for('bayi');
+        $ana = ProductService::for('ana');
+        $bayi = ProductService::for('bayi');
         $mapper = $this->buildMapper($ana, $bayi);
 
         // ── Adım 3: Kalan adaylar için Bayi SOAP probe → gerçekten yoksa oluştur ──
         foreach ($adaylar as $row) {
             $stokKodu = $row['stok_kodu'] ?? '';
-            $barkod   = $row['barkod']   ?? '';
-            $urunAdi  = $row['urun_adi'] ?? '';
+            $barkod = $row['barkod'] ?? '';
+            $urunAdi = $row['urun_adi'] ?? '';
 
             if ($stokKodu === '') {
                 continue;
@@ -124,7 +125,8 @@ class ManuelUrunAktarJob implements ShouldQueue
                     $this->upsertMapping($row, (int) $bayiMevcut['ID'],
                         $this->mapBayiVariantIds($bayiMevcut));
                     SyncLog::create($this->logData($job, 'create_product', 'skipped', $row,
-                        'Bayide zaten var (ID=' . $bayiMevcut['ID'] . ') — mapping güncellendi'));
+                        'Bayide zaten var (ID='.$bayiMevcut['ID'].') — mapping güncellendi'));
+
                     continue;
                 }
 
@@ -134,12 +136,13 @@ class ManuelUrunAktarJob implements ShouldQueue
                     $job?->increment('error_count');
                     SyncLog::create($this->logData($job, 'create_product', 'error', $row,
                         'Ana mağazada ürün bulunamadı'));
+
                     continue;
                 }
 
                 $payload = $mapper->anaToBayiCreatePayload($raw);
                 $created = $bayi->createProduct($payload);
-                $bayiId  = (int) ($created['ID'] ?? 0);
+                $bayiId = (int) ($created['ID'] ?? 0);
 
                 $msg = "Yeni ürün aktarıldı — stok kodu: {$stokKodu} | barkod: {$barkod} | bayi ID: {$bayiId}";
                 $job?->increment('success_count');
@@ -178,26 +181,26 @@ class ManuelUrunAktarJob implements ShouldQueue
 
         // ── Adım 1: Tek SQL ile tüm mapping'leri çek ──
         $stokKodlari = array_column($allRows, 'stok_kodu');
-        $mappings    = ProductMapping::whereIn('stok_kodu', $stokKodlari)
+        $mappings = ProductMapping::whereIn('stok_kodu', $stokKodlari)
             ->get()
             ->keyBy('stok_kodu');
 
         // ── Adım 2: Batch dizilerini doldur ──
-        $stockBatch  = [];   // updateStockBatch için
-        $priceBatch  = [];   // updatePriceBatch için
-        $mappedRows  = [];   // batch'e giren satırlar
+        $stockBatch = [];   // updateStockBatch için
+        $priceBatch = [];   // updatePriceBatch için
+        $mappedRows = [];   // batch'e giren satırlar
         $unmappedRows = [];  // fallback gereken satırlar
 
         foreach ($allRows as $row) {
             $stokKodu = $row['stok_kodu'];
-            $barkod   = ($row['barkod'] ?? '') ?: null;
-            $stock    = (int) ($row['stok_adedi'] ?? 0);
-            $price    = (float) ($row['satis_fiyati'] ?? 0);
-            $mapping  = $mappings->get($stokKodu);
+            $barkod = ($row['barkod'] ?? '') ?: null;
+            $stock = (int) ($row['stok_adedi'] ?? 0);
+            $price = (float) ($row['satis_fiyati'] ?? 0);
+            $mapping = $mappings->get($stokKodu);
 
             if ($mapping && $mapping->bayi_variant_id) {
                 $varItem = [
-                    'ID'        => (int) $mapping->bayi_variant_id,
+                    'ID' => (int) $mapping->bayi_variant_id,
                     'StokAdedi' => $stock,
                 ];
                 if ($barkod !== null) {
@@ -207,10 +210,10 @@ class ManuelUrunAktarJob implements ShouldQueue
 
                 if ($barkod !== null && $price > 0) {
                     $priceBatch[] = [
-                        'Barkod'      => $barkod,
+                        'Barkod' => $barkod,
                         'SatisFiyati' => $price,
-                        'KdvOrani'    => 20,
-                        'KdvDahil'    => true,
+                        'KdvOrani' => 20,
+                        'KdvDahil' => true,
                     ];
                 }
 
@@ -221,7 +224,7 @@ class ManuelUrunAktarJob implements ShouldQueue
         }
 
         // ── Adım 3: Toplu SOAP (2 çağrı, N ürün) ──
-        $bayi       = ProductService::for('bayi');
+        $bayi = ProductService::for('bayi');
         $batchError = null;
 
         try {
@@ -238,24 +241,24 @@ class ManuelUrunAktarJob implements ShouldQueue
         // ── Adım 4: Batch sonuçlarını logla + mapping'i güncelle ──
         foreach ($mappedRows as $row) {
             if ($batchError === null) {
-                $stok  = $row['stok_adedi'] ?? 0;
+                $stok = $row['stok_adedi'] ?? 0;
                 $fiyat = number_format((float) ($row['satis_fiyati'] ?? 0), 2, '.', '');
-                $msg   = "stok={$stok} fiyat={$fiyat} (batch)";
+                $msg = "stok={$stok} fiyat={$fiyat} (batch)";
                 $job?->increment('success_count');
                 SyncLog::create($this->logData($job, 'update_stock_price', 'success', $row, $msg));
 
                 ProductMapping::where('stok_kodu', $row['stok_kodu'])
                     ->update([
-                        'last_stock'     => $row['stok_adedi'] ?? null,
-                        'last_price'     => $row['satis_fiyati'] ?? null,
-                        'status'         => 'synced',
-                        'last_error'     => null,
+                        'last_stock' => $row['stok_adedi'] ?? null,
+                        'last_price' => $row['satis_fiyati'] ?? null,
+                        'status' => 'synced',
+                        'last_error' => null,
                         'last_synced_at' => now(),
                     ]);
             } else {
                 $job?->increment('error_count');
                 SyncLog::create($this->logData($job, 'update_stock_price', 'error', $row,
-                    'Batch güncelleme hatası: ' . substr($batchError, 0, 200)));
+                    'Batch güncelleme hatası: '.substr($batchError, 0, 200)));
             }
         }
 
@@ -263,26 +266,28 @@ class ManuelUrunAktarJob implements ShouldQueue
         if (! empty($unmappedRows)) {
             foreach ($unmappedRows as $row) {
                 $stokKodu = $row['stok_kodu'];
-                $barkod   = ($row['barkod'] ?? '') ?: null;
-                $stock    = (int) ($row['stok_adedi'] ?? 0);
-                $price    = (float) ($row['satis_fiyati'] ?? 0);
+                $barkod = ($row['barkod'] ?? '') ?: null;
+                $stock = (int) ($row['stok_adedi'] ?? 0);
+                $price = (float) ($row['satis_fiyati'] ?? 0);
 
                 try {
                     $bayiMevcut = $bayi->getProductByStokKodu($stokKodu);
                     if (! $bayiMevcut || (int) ($bayiMevcut['ID'] ?? 0) === 0) {
                         SyncLog::create($this->logData($job, 'update_stock_price', 'skipped', $row,
                             'Bayide bulunamadı — önce "Sadece Yeni Ürünleri Aktar" yapın'));
+
                         continue;
                     }
 
-                    $bayiId  = (int) $bayiMevcut['ID'];
-                    $varMap  = $this->mapBayiVariantIds($bayiMevcut);
+                    $bayiId = (int) $bayiMevcut['ID'];
+                    $varMap = $this->mapBayiVariantIds($bayiMevcut);
                     $bayiVarId = $varMap[$stokKodu] ?? null;
 
                     if (! $bayiVarId) {
                         $job?->increment('error_count');
                         SyncLog::create($this->logData($job, 'update_stock_price', 'error', $row,
                             "Bayi varyasyon ID'si bulunamadı (bayi ürün ID={$bayiId})"));
+
                         continue;
                     }
 
@@ -295,7 +300,7 @@ class ManuelUrunAktarJob implements ShouldQueue
                     $this->upsertMapping($row, $bayiId, $varMap);
 
                     $fiyat = number_format($price, 2, '.', '');
-                    $msg   = "stok={$stock} fiyat={$fiyat} (bireysel; mapping kaydedildi)";
+                    $msg = "stok={$stock} fiyat={$fiyat} (bireysel; mapping kaydedildi)";
                     $job?->increment('success_count');
                     SyncLog::create($this->logData($job, 'update_stock_price', 'success', $row, $msg));
                 } catch (\Throwable $e) {
@@ -313,14 +318,14 @@ class ManuelUrunAktarJob implements ShouldQueue
 
     private function handleFullAktar(?SyncJob $job): void
     {
-        $ana    = ProductService::for('ana');
-        $bayi   = ProductService::for('bayi');
+        $ana = ProductService::for('ana');
+        $bayi = ProductService::for('bayi');
         $mapper = $this->buildMapper($ana, $bayi);
 
         foreach ($this->groupByUrunKarti() as $row) {
             $stokKodu = $row['stok_kodu'] ?? '';
-            $barkod   = $row['barkod']   ?? '';
-            $urunAdi  = $row['urun_adi'] ?? '';
+            $barkod = $row['barkod'] ?? '';
+            $urunAdi = $row['urun_adi'] ?? '';
 
             if ($stokKodu === '') {
                 continue;
@@ -333,11 +338,12 @@ class ManuelUrunAktarJob implements ShouldQueue
                     $job?->increment('error_count');
                     SyncLog::create($this->logData($job, 'transfer_product', 'error', $row,
                         'Ana mağazada ürün bulunamadı'));
+
                     continue;
                 }
 
                 $bayiMevcut = $bayi->getProductByStokKodu($stokKodu);
-                $payload    = $mapper->anaToBayiCreatePayload($raw);
+                $payload = $mapper->anaToBayiCreatePayload($raw);
 
                 if ($bayiMevcut && (int) ($bayiMevcut['ID'] ?? 0) > 0) {
                     $bayiId = (int) $bayiMevcut['ID'];
@@ -347,8 +353,8 @@ class ManuelUrunAktarJob implements ShouldQueue
                     $this->upsertMapping($row, $bayiId, $varMap);
                 } else {
                     $created = $bayi->createProduct($payload);
-                    $bayiId  = (int) ($created['ID'] ?? 0);
-                    $msg     = "Oluşturuldu — bayi ID={$bayiId}";
+                    $bayiId = (int) ($created['ID'] ?? 0);
+                    $msg = "Oluşturuldu — bayi ID={$bayiId}";
                     $this->upsertMapping($row, $bayiId, []);
                 }
 
@@ -380,6 +386,7 @@ class ManuelUrunAktarJob implements ShouldQueue
                 $out[$uid] = $row;
             }
         }
+
         return $out;
     }
 
@@ -399,6 +406,7 @@ class ManuelUrunAktarJob implements ShouldQueue
                 }
             }
         }
+
         return $out;
     }
 
@@ -411,15 +419,15 @@ class ManuelUrunAktarJob implements ShouldQueue
         ProductMapping::updateOrCreate(
             ['stok_kodu' => $stokKodu],
             [
-                'barcode'         => $row['barkod'] ?? null,
-                'ana_variant_id'  => $row['variant_id'] ?? null,
+                'barcode' => $row['barkod'] ?? null,
+                'ana_variant_id' => $row['variant_id'] ?? null,
                 'bayi_product_id' => $bayiProductId ?: null,
                 'bayi_variant_id' => $bayiVarMap[$stokKodu] ?? null,
-                'last_price'      => $row['satis_fiyati'] ?? null,
-                'last_stock'      => $row['stok_adedi'] ?? null,
-                'status'          => 'synced',
-                'last_error'      => null,
-                'last_synced_at'  => now(),
+                'last_price' => $row['satis_fiyati'] ?? null,
+                'last_stock' => $row['stok_adedi'] ?? null,
+                'status' => 'synced',
+                'last_error' => null,
+                'last_synced_at' => now(),
             ]
         );
     }
@@ -428,35 +436,37 @@ class ManuelUrunAktarJob implements ShouldQueue
     private function logData(?SyncJob $job, string $action, string $status, array $row, string $message): array
     {
         return [
-            'job_id'    => $job?->id,
-            'action'    => $action,
+            'job_id' => $job?->id,
+            'action' => $action,
             'direction' => 'ana_to_bayi',
-            'status'    => $status,
-            'barcode'   => ($row['barkod'] ?? '') ?: null,
+            'status' => $status,
+            'barcode' => ($row['barkod'] ?? '') ?: null,
             'stok_kodu' => $row['stok_kodu'] ?? null,
-            'urun_adi'  => $row['urun_adi'] ?? null,
-            'ana_id'    => $row['urun_karti_id'] ?? null,
-            'message'   => $message,
+            'urun_adi' => $row['urun_adi'] ?? null,
+            'ana_id' => $row['urun_karti_id'] ?? null,
+            'message' => $message,
         ];
     }
 
     protected function buildMapper(ProductService $ana, ProductService $bayi): ProductMapper
     {
-        $mapper            = new ProductMapper();
-        $defaultBrandId    = $bayi->getDefaultBrandId();
+        $mapper = new ProductMapper;
+        $defaultBrandId = $bayi->getDefaultBrandId();
         $defaultSupplierId = $bayi->getDefaultSupplierId();
         $defaultCategoryId = $bayi->getDefaultCategoryId();
         $mapper->setDefaultCategoryId($defaultCategoryId);
 
         $mapper->setBrandResolver(function (string $name) use ($bayi, $defaultBrandId) {
             $id = $bayi->findOrCreateBrandId($name);
+
             return $id > 0 ? $id : $defaultBrandId;
         });
 
         $anaSupplierIdToName = array_flip($ana->getSupplierMap());
         $mapper->setSupplierResolver(function (int $anaId) use ($anaSupplierIdToName, $bayi, $defaultSupplierId) {
             $name = $anaSupplierIdToName[$anaId] ?? '';
-            $id   = $name ? $bayi->findOrCreateSupplierId($name) : 0;
+            $id = $name ? $bayi->findOrCreateSupplierId($name) : 0;
+
             return $id > 0 ? $id : $defaultSupplierId;
         });
 
@@ -464,6 +474,7 @@ class ManuelUrunAktarJob implements ShouldQueue
         $bayi->getCategoryTree();
         $mapper->setCategoryIdResolver(function (int $anaCatId) use ($bayi, $anaTree, $defaultCategoryId) {
             $bid = $bayi->mirrorCategoryFromAna($anaCatId, $anaTree);
+
             return $bid > 0 ? $bid : $defaultCategoryId;
         });
 

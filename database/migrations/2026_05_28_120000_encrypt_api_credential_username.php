@@ -31,7 +31,7 @@ return new class extends Migration
                 Crypt::decryptString($current);
 
                 continue;
-            } catch (\Throwable) {
+            } catch (Throwable) {
                 // düz metin → şifrele
             }
 
@@ -50,7 +50,7 @@ return new class extends Migration
             }
             try {
                 $plain = Crypt::decryptString($current);
-            } catch (\Throwable) {
+            } catch (Throwable) {
                 continue; // zaten düz metin
             }
             DB::table('api_credentials')

@@ -26,13 +26,14 @@ class TicimaxSyncRunCommand extends Command
 
         $jobs = match ($what) {
             'products' => [new SyncNewProductsJob($since)],
-            'stock' => [new SyncStockPriceJob()],
-            'orders' => [new PullBayiOrdersJob()],
-            'all' => [new SyncNewProductsJob($since), new SyncStockPriceJob(), new PullBayiOrdersJob()],
+            'stock' => [new SyncStockPriceJob],
+            'orders' => [new PullBayiOrdersJob],
+            'all' => [new SyncNewProductsJob($since), new SyncStockPriceJob, new PullBayiOrdersJob],
             default => null,
         };
         if (! $jobs) {
             $this->error("Geçersiz 'what': {$what}. Geçerli: products | stock | orders | all");
+
             return self::FAILURE;
         }
 
@@ -45,7 +46,7 @@ class TicimaxSyncRunCommand extends Command
                 $elapsed = round(microtime(true) - $start, 2);
                 $this->info("✓ {$name} tamamlandı ({$elapsed}s)");
             } catch (\Throwable $e) {
-                $this->error("✗ {$name} HATA: " . $e->getMessage());
+                $this->error("✗ {$name} HATA: ".$e->getMessage());
             }
         }
 
@@ -55,7 +56,7 @@ class TicimaxSyncRunCommand extends Command
         if ($lastJob) {
             $this->line("Son iş #{$lastJob->id} | {$lastJob->type} | {$lastJob->status} | toplam={$lastJob->total} başarı={$lastJob->success_count} hata={$lastJob->error_count}");
             if ($lastJob->last_error) {
-                $this->line("Hata: " . $lastJob->last_error);
+                $this->line('Hata: '.$lastJob->last_error);
             }
         }
 

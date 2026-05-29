@@ -39,7 +39,7 @@ class ApiCredentialEncryptionTest extends TestCase
         $this->assertSame('parola123', $cred->password);
     }
 
-    public function test_forStore_sadece_aktif_kaydi_doner(): void
+    public function test_for_store_sadece_aktif_kaydi_doner(): void
     {
         ApiCredential::create([
             'store_key' => 'bayi',

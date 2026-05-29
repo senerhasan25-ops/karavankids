@@ -4,6 +4,7 @@ namespace App\Livewire;
 
 use App\Jobs\TransferSingleBayiOrderJob;
 use App\Models\OrderTransfer;
+use App\Models\SyncLog;
 use App\Services\Ticimax\OrderService;
 use Illuminate\Support\Carbon;
 use Livewire\Attributes\Layout;
@@ -22,24 +23,39 @@ use Throwable;
 class OrderTransferPicker extends Component
 {
     public string $dateFrom = '';
+
     public string $dateTo = '';
+
     public string $siparisNo = '';
+
     public string $aliciAdi = '';    // istemci-taraflı arama (Ticimax SOAP filtresi desteklemiyor)
+
     public string $aliciMail = '';   // istemci-taraflı arama
+
     public string $telefon = '';     // Ticimax UyeTelefon filtresi var, SOAP tarafında uygulanır
+
     // -1 = Hepsi (filtre yok). Ticimax bu kodu valid bir durum olarak tanımamış,
     // server'da ignore edilir (veya getOrdersByFilter'da SOAP'a hiç eklenmez).
     public int $odemeTipi = -1;
+
     public int $odemeDurumu = -1;
+
     public int $siparisDurumu = -1;
+
     public int $paketlemeDurumu = -1;
+
     public int $aktarildi = -1;     // -1 = hepsi, 0 = aktarılmamış, 1 = aktarılmış
+
     public int $page = 1;
+
     public int $perPage = 25;
 
     public array $orders = [];
+
     public bool $loading = false;
+
     public ?string $lastError = null;
+
     public bool $hasSearched = false;
 
     // === ÜRÜN DÜZENLEME MODAL'I ===
@@ -47,44 +63,62 @@ class OrderTransferPicker extends Component
     // Kaydet'e basılınca order_transfers.product_overrides'a yazılır,
     // 'Aktar' job'u bunu okuyup Urunler listesini değiştirir.
     public ?string $editingBayiOrderId = null;
+
     public bool $showEditor = false;
+
     public bool $editorLoading = false;
+
     public ?string $editorError = null;
+
     /** @var array<int, array{stok_kodu:string,urun_adi:string,adet:int,birim_fiyat:float,removed:bool}> */
     public array $editingLines = [];
+
     public bool $hasOverride = false; // bu sipariş için önceden override kaydı var mı?
 
     // === DURUM GÜNCELLEME MODAL'I ===
     // Bayi VEYA ana'da siparişin Sipariş/Ödeme/Paketleme durumunu değiştirmek için.
     // Her tarafa ayrı dropdown seti (Bayi tab'ı her zaman aktif; Ana sadece aktarılmışsa).
     public ?string $statusEditingBayiOrderId = null;
+
     public bool $showStatusEditor = false;
+
     public ?string $statusEditorError = null;
+
     public ?string $statusEditorSuccess = null;
+
     public bool $statusSaving = false;
 
     // Hangi tarafı düzenliyoruz: 'bayi' veya 'ana'
     public string $statusEditTarget = 'bayi';
+
     // Ana'da düzenleme için aktarım sırasında alınan ana_order_id (yoksa null)
     public ?string $statusEditAnaOrderId = null;
 
     // Dropdown değerleri (kullanıcı modal'da seçer); -1 = "Değiştirme"
     public int $editSiparisDurumu = -1;
+
     public int $editOdemeDurumu = -1;
+
     public int $editPaketlemeDurumu = -1;
+
     public string $editSiparisNo = '';
 
     // Hangi durum kodları HANGİ tarafta destekleniyor (WSDL'den dinamik çekilir, cache'lenir)
     public array $bayiSupportedSiparisCodes = [];
+
     public array $anaSupportedSiparisCodes = [];
+
     public array $bayiSupportedOdemeCodes = [];
+
     public array $anaSupportedOdemeCodes = [];
 
     // === DIAGNOSTIC (Aktarım Detayı) MODAL'I ===
     // Aktarım başarılı veya başarısız olsun, SyncLog'tan kayıtları çekip
     // SOAP request/response XML'i + hata trace'i kullanıcıya gösterir.
     public ?string $diagBayiOrderId = null;
+
     public bool $showDiagnostics = false;
+
     public array $diagLogs = []; // [{status, message, raw_request, raw_response, created_at, action}]
 
     // Ticimax panel terminolojisi ile birebir aynı etiketler.
@@ -208,6 +242,7 @@ class OrderTransferPicker extends Component
                             return false;
                         }
                     }
+
                     return true;
                 }));
             }
@@ -233,6 +268,7 @@ class OrderTransferPicker extends Component
                 $ode = $this->extractFirstOdeme($o);
                 // OdemeDurumu metni gelmeyebilir; Onaylandi=1 ise "Onaylandı" (kod 1), aksi takdirde boş bırak.
                 $odemeDurumuKod = isset($ode['Onaylandi']) && (int) $ode['Onaylandi'] === 1 ? '1' : '';
+
                 return [
                     'id' => $id,
                     'siparis_no' => (string) ($o['SiparisNo'] ?? $o['SiparisKodu'] ?? ''),
@@ -476,16 +512,16 @@ class OrderTransferPicker extends Component
             $this->bayiSupportedOdemeCodes = array_keys($bayi->getSupportedOdemeDurumEnums());
         } catch (Throwable $e) {
             // sessiz geç — fallback const her zaman çalışır
-            $this->bayiSupportedSiparisCodes = array_keys(\App\Services\Ticimax\OrderService::SIPARIS_DURUM_ENUM);
-            $this->bayiSupportedOdemeCodes = array_keys(\App\Services\Ticimax\OrderService::ODEME_DURUM_ENUM);
+            $this->bayiSupportedSiparisCodes = array_keys(OrderService::SIPARIS_DURUM_ENUM);
+            $this->bayiSupportedOdemeCodes = array_keys(OrderService::ODEME_DURUM_ENUM);
         }
         try {
             $ana = OrderService::for('ana');
             $this->anaSupportedSiparisCodes = array_keys($ana->getSupportedSiparisDurumEnums());
             $this->anaSupportedOdemeCodes = array_keys($ana->getSupportedOdemeDurumEnums());
         } catch (Throwable $e) {
-            $this->anaSupportedSiparisCodes = array_keys(\App\Services\Ticimax\OrderService::SIPARIS_DURUM_ENUM);
-            $this->anaSupportedOdemeCodes = array_keys(\App\Services\Ticimax\OrderService::ODEME_DURUM_ENUM);
+            $this->anaSupportedSiparisCodes = array_keys(OrderService::SIPARIS_DURUM_ENUM);
+            $this->anaSupportedOdemeCodes = array_keys(OrderService::ODEME_DURUM_ENUM);
         }
     }
 
@@ -529,28 +565,28 @@ class OrderTransferPicker extends Component
                 : (int) ($this->statusEditAnaOrderId ?? 0);
 
             if (! $orderId) {
-                throw new \RuntimeException("Ana siparişi henüz aktarılmamış — ana tarafında güncelleme yapılamaz. Önce siparişi aktar.");
+                throw new \RuntimeException('Ana siparişi henüz aktarılmamış — ana tarafında güncelleme yapılamaz. Önce siparişi aktar.');
             }
 
             $updates = [];
             if ($this->editSiparisDurumu >= 0) {
                 $service->updateSiparisDurum($orderId, $this->editSiparisDurumu, $this->editSiparisNo);
-                $updates[] = "Sipariş Durumu → " . ($this->siparisDurumlari[$this->editSiparisDurumu] ?? $this->editSiparisDurumu);
+                $updates[] = 'Sipariş Durumu → '.($this->siparisDurumlari[$this->editSiparisDurumu] ?? $this->editSiparisDurumu);
             }
             if ($this->editPaketlemeDurumu >= 1) {
                 $service->updatePaketlemeDurum($orderId, $this->editPaketlemeDurumu);
-                $updates[] = "Paketleme Durumu → " . ($this->paketlemeDurumlari[$this->editPaketlemeDurumu] ?? $this->editPaketlemeDurumu);
+                $updates[] = 'Paketleme Durumu → '.($this->paketlemeDurumlari[$this->editPaketlemeDurumu] ?? $this->editPaketlemeDurumu);
             }
             if ($this->editOdemeDurumu >= 0) {
                 $service->updateOdemeDurum($orderId, $this->editOdemeDurumu);
-                $updates[] = "Ödeme Durumu → " . ($this->odemeDurumlari[$this->editOdemeDurumu] ?? $this->editOdemeDurumu);
+                $updates[] = 'Ödeme Durumu → '.($this->odemeDurumlari[$this->editOdemeDurumu] ?? $this->editOdemeDurumu);
             }
 
             if (empty($updates)) {
                 $this->statusEditorError = 'Hiçbir alan değiştirilmedi.';
             } else {
                 $hedef = $this->statusEditTarget === 'bayi' ? 'Bayi' : 'Ana';
-                $this->statusEditorSuccess = "✓ {$hedef} güncellendi: " . implode(' · ', $updates);
+                $this->statusEditorSuccess = "✓ {$hedef} güncellendi: ".implode(' · ', $updates);
                 // Listeyi tazele (yeni durumlar görünsün)
                 $this->listele();
             }
@@ -613,6 +649,7 @@ class OrderTransferPicker extends Component
             }
             if ($row && in_array($row['local_status'], ['transferred', 'queued'], true) && ! $force) {
                 $skipped++;
+
                 continue;
             }
             TransferSingleBayiOrderJob::dispatch((string) $bayiOrderId, $force);
@@ -674,7 +711,7 @@ class OrderTransferPicker extends Component
         $this->diagBayiOrderId = $bayiOrderId;
         $this->showDiagnostics = true;
 
-        $logs = \App\Models\SyncLog::where('bayi_id', $bayiOrderId)
+        $logs = SyncLog::where('bayi_id', $bayiOrderId)
             ->whereIn('action', ['transfer_order', 'transfer_order_manual', 'mark_order'])
             ->latest('id')
             ->take(5)
@@ -712,6 +749,7 @@ class OrderTransferPicker extends Component
         if (is_array($ode) && array_is_list($ode)) {
             return is_array($ode[0] ?? null) ? $ode[0] : [];
         }
+
         return is_array($ode) ? $ode : [];
     }
 

@@ -29,24 +29,32 @@ class ProductPicker extends Component
 
     /** Seçili VaryasyonID listesi (string olarak Livewire ile gönderim) */
     public array $selected = [];
+
     public bool $selectAll = false;
 
     /** Tüm listede sayfalama (Ticimax: 100 ürün/sayfa) */
     public int $page = 1;
+
     public int $perPage = 100;
+
     public bool $hasMore = false;
 
     /* ---------------------------------------------------------------------
      |  Tablo içi filtreler (liste yüklendikten sonra anlık daraltma)
      * --------------------------------------------------------------------- */
     public string $filterStokKodu = '';
-    public string $filterBarkod   = '';
-    public string $filterUrunAdi  = '';
+
+    public string $filterBarkod = '';
+
+    public string $filterUrunAdi = '';
 
     /** UI durumu */
     public bool $hasSearched = false;
+
     public int $resultCount = 0;
+
     public ?string $error = null;
+
     public ?string $status = null;
 
     /* ---------------------------------------------------------------------
@@ -54,41 +62,41 @@ class ProductPicker extends Component
      * --------------------------------------------------------------------- */
     public array $fields = [
         // ----- Icerik -----
-        'urun_adi'         => true,
-        'aciklama'         => true,
-        'on_yazi'          => true,
+        'urun_adi' => true,
+        'aciklama' => true,
+        'on_yazi' => true,
         // ----- Kategori / Marka / Tedarikci -----
-        'kategori'         => true,
-        'marka'            => true,
-        'tedarikci'        => true,
+        'kategori' => true,
+        'marka' => true,
+        'tedarikci' => true,
         // ----- Fiyat / Stok -----
-        'satis_fiyati'     => true,
-        'indirimli_fiyat'  => true,
-        'stok_adedi'       => true,
-        'eksi_stok_adedi'  => false,   // yeni — varsayilan kapali (riskli)
-        'kdv_dahil'        => true,
-        'kdv_orani'        => true,
+        'satis_fiyati' => true,
+        'indirimli_fiyat' => true,
+        'stok_adedi' => true,
+        'eksi_stok_adedi' => false,   // yeni — varsayilan kapali (riskli)
+        'kdv_dahil' => true,
+        'kdv_orani' => true,
         // ----- Identifiers (yeni — riskli, varsayilan kapali) -----
-        'stok_kodu'        => false,
-        'barkod'           => false,
+        'stok_kodu' => false,
+        'barkod' => false,
         // ----- SEO / Gorsel -----
-        'seo'              => true,
-        'resimler'         => true,
+        'seo' => true,
+        'resimler' => true,
         // ----- Aktiflik / Gorunum (her biri ayri) -----
-        'aktif'            => true,
-        'vitrin'           => false,   // yeni — manuel toggle
-        'yeni_urun'        => false,   // yeni
-        'firsat_urunu'     => false,   // yeni
+        'aktif' => true,
+        'vitrin' => false,   // yeni — manuel toggle
+        'yeni_urun' => false,   // yeni
+        'firsat_urunu' => false,   // yeni
         // ----- Uye tipi fiyatlari (toplu) -----
-        'uye_tipi_fiyat'   => false,   // toplu — varsayilan kapali; her biri ayri seçilebilir
+        'uye_tipi_fiyat' => false,   // toplu — varsayilan kapali; her biri ayri seçilebilir
     ];
 
     /** Uye tipi fiyatlari 1..20 ayri ayri (key: uye_tipi_fiyat_N) — Livewire dot notation icin) */
     public array $uyeTipi = [
-        1=>false, 2=>false, 3=>false, 4=>false, 5=>false,
-        6=>false, 7=>false, 8=>false, 9=>false, 10=>false,
-        11=>false,12=>false,13=>false,14=>false,15=>false,
-        16=>false,17=>false,18=>false,19=>false,20=>false,
+        1 => false, 2 => false, 3 => false, 4 => false, 5 => false,
+        6 => false, 7 => false, 8 => false, 9 => false, 10 => false,
+        11 => false, 12 => false, 13 => false, 14 => false, 15 => false,
+        16 => false, 17 => false, 18 => false, 19 => false, 20 => false,
     ];
 
     /** Aktarım sonuçları */
@@ -106,10 +114,10 @@ class ProductPicker extends Component
             $saved = json_decode($raw, true);
             if (isset($saved['fields']) && is_array($saved['fields'])) {
                 // Yeni anahtarlar eklenirse $this->fields'daki varsayılan korunur
-                $this->fields   = array_merge($this->fields,   $saved['fields']);
+                $this->fields = array_merge($this->fields, $saved['fields']);
             }
             if (isset($saved['uye_tipi']) && is_array($saved['uye_tipi'])) {
-                $this->uyeTipi  = array_merge($this->uyeTipi, $saved['uye_tipi']);
+                $this->uyeTipi = array_merge($this->uyeTipi, $saved['uye_tipi']);
             }
         }
     }
@@ -132,7 +140,7 @@ class ProductPicker extends Component
     protected function persistFieldSettings(): void
     {
         SyncSetting::put('product_sync_fields', json_encode([
-            'fields'   => $this->fields,
+            'fields' => $this->fields,
             'uye_tipi' => $this->uyeTipi,
         ]));
     }
@@ -153,8 +161,8 @@ class ProductPicker extends Component
         $this->hasSearched = true;
         // Tablo içi filtreleri sıfırla
         $this->filterStokKodu = '';
-        $this->filterBarkod   = '';
-        $this->filterUrunAdi  = '';
+        $this->filterBarkod = '';
+        $this->filterUrunAdi = '';
         // Yeni listede sayfa 1'den başla
         $this->page = 1;
         $this->loadPage();
@@ -210,7 +218,7 @@ class ProductPicker extends Component
                 }
             }
         } catch (\Throwable $e) {
-            $this->error = 'Listeleme hatası: ' . $e->getMessage();
+            $this->error = 'Listeleme hatası: '.$e->getMessage();
         }
         // Seçimler sayfa değişimini izlemiyor (basit MVP — her sayfa kendi seçimi)
         $this->selected = [];
@@ -220,21 +228,29 @@ class ProductPicker extends Component
     public function updatedSelectAll(bool $value): void
     {
         $this->selected = $value
-            ? array_map(fn($r) => (string) $r['variant_id'], $this->products)
+            ? array_map(fn ($r) => (string) $r['variant_id'], $this->products)
             : [];
     }
 
     public function tumunuSec(): void
     {
-        foreach (array_keys($this->fields) as $k) $this->fields[$k] = true;
-        foreach (array_keys($this->uyeTipi) as $k) $this->uyeTipi[$k] = true;
+        foreach (array_keys($this->fields) as $k) {
+            $this->fields[$k] = true;
+        }
+        foreach (array_keys($this->uyeTipi) as $k) {
+            $this->uyeTipi[$k] = true;
+        }
         $this->persistFieldSettings();
     }
 
     public function hicbirini(): void
     {
-        foreach (array_keys($this->fields) as $k) $this->fields[$k] = false;
-        foreach (array_keys($this->uyeTipi) as $k) $this->uyeTipi[$k] = false;
+        foreach (array_keys($this->fields) as $k) {
+            $this->fields[$k] = false;
+        }
+        foreach (array_keys($this->uyeTipi) as $k) {
+            $this->uyeTipi[$k] = false;
+        }
         $this->persistFieldSettings();
     }
 
@@ -246,8 +262,11 @@ class ProductPicker extends Component
     {
         $out = array_keys(array_filter($this->fields));
         foreach ($this->uyeTipi as $i => $on) {
-            if ($on) $out[] = 'uye_tipi_fiyat_' . $i;
+            if ($on) {
+                $out[] = 'uye_tipi_fiyat_'.$i;
+            }
         }
+
         return $out;
     }
 
@@ -262,11 +281,12 @@ class ProductPicker extends Component
     public function yeniUrunleriAktar(): void
     {
         $this->results = [];
-        $this->status  = null;
-        $this->error   = null;
+        $this->status = null;
+        $this->error = null;
 
         if (empty($this->products)) {
             $this->error = 'Listede ürün yok — önce "Listele" tıkla.';
+
             return;
         }
 
@@ -281,21 +301,22 @@ class ProductPicker extends Component
 
         // product_mappings'te bayi_product_id dolu = zaten aktarılmış → çıkar
         $stokKodulari = array_filter(array_column(array_values($byUrunKarti), 'stok_kodu'));
-        $mevcutSet    = array_flip(
+        $mevcutSet = array_flip(
             ProductMapping::whereIn('stok_kodu', $stokKodulari)
                 ->whereNotNull('bayi_product_id')
                 ->pluck('stok_kodu')
                 ->all()
         );
 
-        $adaylar      = array_values(array_filter(
+        $adaylar = array_values(array_filter(
             $byUrunKarti,
             fn ($r) => ! isset($mevcutSet[$r['stok_kodu'] ?? ''])
         ));
         $mevcutSayisi = count($byUrunKarti) - count($adaylar);
 
         if (empty($adaylar)) {
-            $this->status = 'Listede ' . count($byUrunKarti) . ' ürün kartı var — hepsi zaten bayide mevcut. Aktarılacak yeni ürün yok.';
+            $this->status = 'Listede '.count($byUrunKarti).' ürün kartı var — hepsi zaten bayide mevcut. Aktarılacak yeni ürün yok.';
+
             return;
         }
 
@@ -303,8 +324,8 @@ class ProductPicker extends Component
         $compactRows = array_map(fn ($r) => array_diff_key($r, ['_raw' => true]), $adaylar);
 
         $job = SyncJob::create([
-            'type'       => 'product_create',
-            'status'     => 'pending',
+            'type' => 'product_create',
+            'status' => 'pending',
             'started_at' => null,
         ]);
 
@@ -320,29 +341,29 @@ class ProductPicker extends Component
                 continue; // genel mesaj satırı
             }
             $this->results[] = [
-                'stok_kodu' => $log->stok_kodu  ?? '',
-                'urun_adi'  => $log->urun_adi   ?? '',
-                'durum'     => $log->status      === 'success'  ? 'olusturuldu'
-                            : ($log->status      === 'skipped'  ? 'atlandi'
-                            :                                     'hata'),
-                'mesaj'     => $log->message     ?? '',
+                'stok_kodu' => $log->stok_kodu ?? '',
+                'urun_adi' => $log->urun_adi ?? '',
+                'durum' => $log->status === 'success' ? 'olusturuldu'
+                            : ($log->status === 'skipped' ? 'atlandi'
+                            : 'hata'),
+                'mesaj' => $log->message ?? '',
             ];
         }
 
-        $yeni    = $job->success_count ?? 0;
+        $yeni = $job->success_count ?? 0;
         $atlandi = $logs->where('status', 'skipped')->count();
-        $hata    = $job->error_count   ?? 0;
+        $hata = $job->error_count ?? 0;
 
         $this->status = $mevcutSayisi > 0
             ? "{$mevcutSayisi} ürün zaten bayide (mapping'den tespit edildi, atlandı). "
             : '';
 
         if ($yeni === 0 && $hata === 0) {
-            $this->status .= count($adaylar) . ' aday Bayi\'de de mevcuttu — aktarılacak gerçek yeni ürün yok.';
+            $this->status .= count($adaylar).' aday Bayi\'de de mevcuttu — aktarılacak gerçek yeni ürün yok.';
         } else {
             $this->status .= "Aktarım tamamlandı: {$yeni} yeni eklendi"
-                . ($atlandi ? ", {$atlandi} atlandı (bayi'de mevcuttu)" : '')
-                . ($hata    ? ", {$hata} hata"                          : '') . '.';
+                .($atlandi ? ", {$atlandi} atlandı (bayi'de mevcuttu)" : '')
+                .($hata ? ", {$hata} hata" : '').'.';
         }
     }
 
@@ -353,10 +374,11 @@ class ProductPicker extends Component
     public function stokFiyatGuncelle(): void
     {
         $this->results = [];
-        $this->status  = null;
+        $this->status = null;
 
         if (empty($this->selected)) {
             $this->error = 'Güncellemek için ürün seçin.';
+
             return;
         }
         $this->error = null;
@@ -369,16 +391,16 @@ class ProductPicker extends Component
         $compactRows = array_map(fn ($r) => array_diff_key($r, ['_raw' => true]), $rows);
 
         $job = SyncJob::create([
-            'type'       => 'stock_price_update',
-            'status'     => 'pending',
+            'type' => 'stock_price_update',
+            'status' => 'pending',
             'started_at' => null,
         ]);
 
         ManuelUrunAktarJob::dispatch('stok_fiyat', $compactRows, [], $job->id);
 
-        $this->status = count($compactRows) . ' satır stok/fiyat güncellemesi kuyruğa alındı '
-            . '— İş #' . $job->id . '. İlerlemeyi Loglar sayfasından takip edebilirsin.';
-        $this->selected  = [];
+        $this->status = count($compactRows).' satır stok/fiyat güncellemesi kuyruğa alındı '
+            .'— İş #'.$job->id.'. İlerlemeyi Loglar sayfasından takip edebilirsin.';
+        $this->selected = [];
         $this->selectAll = false;
     }
 
@@ -389,15 +411,17 @@ class ProductPicker extends Component
     public function aktar(): void
     {
         $this->results = [];
-        $this->status  = null;
+        $this->status = null;
 
         if (empty($this->selected)) {
             $this->error = 'Aktarmak için ürün seçin.';
+
             return;
         }
         $selectedFields = $this->collectSelectedFields();
         if (empty($selectedFields)) {
             $this->error = 'En az bir parametre seçin.';
+
             return;
         }
         $this->error = null;
@@ -408,22 +432,23 @@ class ProductPicker extends Component
         ));
         if (empty($rows)) {
             $this->error = 'Seçili ürünler listede bulunamadı.';
+
             return;
         }
         // _raw alanını çıkar — job, Ana'dan yeniden çeker
         $compactRows = array_map(fn ($r) => array_diff_key($r, ['_raw' => true]), $rows);
 
         $job = SyncJob::create([
-            'type'       => 'product_create',
-            'status'     => 'pending',
+            'type' => 'product_create',
+            'status' => 'pending',
             'started_at' => null,
         ]);
 
         ManuelUrunAktarJob::dispatch('full_aktar', $compactRows, $selectedFields, $job->id);
 
-        $this->status = count($compactRows) . ' ürün aktarımı kuyruğa alındı '
-            . '— İş #' . $job->id . '. İlerlemeyi Loglar sayfasından takip edebilirsin.';
-        $this->selected  = [];
+        $this->status = count($compactRows).' ürün aktarımı kuyruğa alındı '
+            .'— İş #'.$job->id.'. İlerlemeyi Loglar sayfasından takip edebilirsin.';
+        $this->selected = [];
         $this->selectAll = false;
     }
 
@@ -436,23 +461,28 @@ class ProductPicker extends Component
         $rows = [];
         foreach ($urunKartlari as $uk) {
             $variants = $uk['Varyasyonlar']['Varyasyon'] ?? $uk['Varyasyonlar'] ?? [];
-            if (isset($variants['Barkod'])) $variants = [$variants];
-            if (! is_array($variants) || empty($variants)) continue;
+            if (isset($variants['Barkod'])) {
+                $variants = [$variants];
+            }
+            if (! is_array($variants) || empty($variants)) {
+                continue;
+            }
             foreach ($variants as $v) {
                 $rows[] = [
                     'urun_karti_id' => (int) ($uk['ID'] ?? 0),
-                    'variant_id'    => (int) ($v['ID'] ?? 0),
-                    'urun_adi'      => (string) ($uk['UrunAdi'] ?? ''),
-                    'stok_kodu'     => (string) ($v['StokKodu'] ?? ''),
-                    'barkod'        => (string) ($v['Barkod'] ?? ''),
-                    'stok_adedi'    => (int) ($v['StokAdedi'] ?? 0),
-                    'satis_fiyati'  => (float) ($v['SatisFiyati'] ?? 0),
+                    'variant_id' => (int) ($v['ID'] ?? 0),
+                    'urun_adi' => (string) ($uk['UrunAdi'] ?? ''),
+                    'stok_kodu' => (string) ($v['StokKodu'] ?? ''),
+                    'barkod' => (string) ($v['Barkod'] ?? ''),
+                    'stok_adedi' => (int) ($v['StokAdedi'] ?? 0),
+                    'satis_fiyati' => (float) ($v['SatisFiyati'] ?? 0),
                     'indirimli_fiyat' => (float) ($v['IndirimliFiyati'] ?? 0),
-                    'aktif'         => (bool) (($v['Aktif'] ?? true) && ($uk['Aktif'] ?? true)),
-                    '_raw'          => $uk,
+                    'aktif' => (bool) (($v['Aktif'] ?? true) && ($uk['Aktif'] ?? true)),
+                    '_raw' => $uk,
                 ];
             }
         }
+
         return $rows;
     }
 
@@ -486,8 +516,8 @@ class ProductPicker extends Component
     public function filterTemizle(): void
     {
         $this->filterStokKodu = '';
-        $this->filterBarkod   = '';
-        $this->filterUrunAdi  = '';
+        $this->filterBarkod = '';
+        $this->filterUrunAdi = '';
     }
 
     public function render()

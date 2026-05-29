@@ -1,11 +1,12 @@
 <?php
 
-require __DIR__ . '/../vendor/autoload.php';
-$app = require_once __DIR__ . '/../bootstrap/app.php';
-$kernel = $app->make(Illuminate\Contracts\Console\Kernel::class);
+require __DIR__.'/../vendor/autoload.php';
+$app = require_once __DIR__.'/../bootstrap/app.php';
+$kernel = $app->make(Kernel::class);
 $kernel->bootstrap();
 
 use App\Models\ProductMapping;
+use Illuminate\Contracts\Console\Kernel;
 
 $total = ProductMapping::count();
 $synced = ProductMapping::where('status', 'synced')->count();

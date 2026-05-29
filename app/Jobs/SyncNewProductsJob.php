@@ -38,7 +38,9 @@ class SyncNewProductsJob implements ShouldQueue
     use BuffersSyncWrites, Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public int $tries = 3;
+
     public int $backoff = 30;
+
     /** 1000 yeni ürün ~100 dk sürebilir; 3 saat yeterli tampon. */
     public int $timeout = 10800;
 
@@ -49,9 +51,7 @@ class SyncNewProductsJob implements ShouldQueue
      */
     public const LAST_RUN_KEY = 'last_new_products_run_at';
 
-    public function __construct(public ?Carbon $since = null, public ?Carbon $until = null)
-    {
-    }
+    public function __construct(public ?Carbon $since = null, public ?Carbon $until = null) {}
 
     /**
      * Aynı anda yalnızca BİR ürün-sync job'u çalışsın (overlap kilidi).
@@ -74,7 +74,7 @@ class SyncNewProductsJob implements ShouldQueue
         try {
             $ana = ProductService::for('ana');
             $bayi = ProductService::for('bayi');
-            $mapper = new ProductMapper();
+            $mapper = new ProductMapper;
 
             $defaultBrandId = $bayi->getDefaultBrandId();
             $defaultSupplierId = $bayi->getDefaultSupplierId();
@@ -83,6 +83,7 @@ class SyncNewProductsJob implements ShouldQueue
 
             $mapper->setBrandResolver(function (string $name) use ($bayi, $defaultBrandId) {
                 $id = $bayi->findOrCreateBrandId($name);
+
                 return $id > 0 ? $id : $defaultBrandId;
             });
 
@@ -90,6 +91,7 @@ class SyncNewProductsJob implements ShouldQueue
             $mapper->setSupplierResolver(function (int $anaId) use ($anaSupplierIdToName, $bayi, $defaultSupplierId) {
                 $name = $anaSupplierIdToName[$anaId] ?? '';
                 $id = $name ? $bayi->findOrCreateSupplierId($name) : 0;
+
                 return $id > 0 ? $id : $defaultSupplierId;
             });
 
@@ -100,6 +102,7 @@ class SyncNewProductsJob implements ShouldQueue
             $bayi->getCategoryTree(); // bayi cache'ini once isit (mevcut kategoriler eslesince yeniden olusturmasin)
             $mapper->setCategoryIdResolver(function (int $anaCatId) use ($bayi, $anaCategoryTree, $defaultCategoryId) {
                 $bayiId = $bayi->mirrorCategoryFromAna($anaCatId, $anaCategoryTree);
+
                 return $bayiId > 0 ? $bayiId : $defaultCategoryId;
             });
 
@@ -230,6 +233,7 @@ class SyncNewProductsJob implements ShouldQueue
 
         if ($primaryStokKodu === '' && $primaryBarkod === '') {
             $this->logError($job, $context, "Üründe ne StokKodu ne Barkod var (ID={$anaUrunId})");
+
             return;
         }
 
@@ -330,7 +334,7 @@ class SyncNewProductsJob implements ShouldQueue
                     ? "Lokal eşleşme → tüm alanlar güncellendi (bayi #{$bayiProductId})"
                     : ($bayiProductId
                         ? "SOAP eşleşmesi bulundu → mapping kaydedildi (bayi #{$bayiProductId})"
-                        : "Yeni ürün oluşturuldu");
+                        : 'Yeni ürün oluşturuldu');
             }
 
             // ========== AŞAMA 6: LOKAL MAPPING KAYDET / GÜNCELLE ==========
@@ -439,6 +443,7 @@ class SyncNewProductsJob implements ShouldQueue
         if (isset($v['Varyasyon'])) {
             $v = is_array($v['Varyasyon']) && array_is_list($v['Varyasyon']) ? $v['Varyasyon'] : [$v['Varyasyon']];
         }
+
         return is_array($v) ? array_values($v) : [];
     }
 
@@ -457,7 +462,7 @@ class SyncNewProductsJob implements ShouldQueue
      * sync_settings.'product_sync_fields' anahtarından seçili güncelleme alanlarını oku.
      * Ürünler menüsünde yapılan seçim buraya kaydedilir (ProductPicker::persistFieldSettings).
      *
-     * @return array|null  null → kayıt yok / boş → tam güncelleme kullanılır.
+     * @return array|null null → kayıt yok / boş → tam güncelleme kullanılır.
      */
     protected function loadSavedSelectedFields(): ?array
     {
@@ -474,7 +479,7 @@ class SyncNewProductsJob implements ShouldQueue
         $out = array_keys(array_filter($saved['fields'] ?? []));
         foreach ($saved['uye_tipi'] ?? [] as $i => $on) {
             if ($on) {
-                $out[] = 'uye_tipi_fiyat_' . $i;
+                $out[] = 'uye_tipi_fiyat_'.$i;
             }
         }
 

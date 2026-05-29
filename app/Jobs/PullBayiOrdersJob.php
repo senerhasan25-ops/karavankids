@@ -2,12 +2,12 @@
 
 namespace App\Jobs;
 
+use App\Livewire\QueueControl;
 use App\Models\OrderTransfer;
 use App\Models\ProductMapping;
 use App\Models\SyncJob;
 use App\Models\SyncLog;
 use App\Models\SyncSetting;
-use App\Livewire\QueueControl;
 use App\Services\Ticimax\OrderService;
 use App\Services\Ticimax\ProductMapper;
 use App\Services\Ticimax\ProductService;
@@ -31,7 +31,9 @@ class PullBayiOrdersJob implements ShouldQueue
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public int $tries = 3;
+
     public int $backoff = 30;
+
     /** Sipariş aktarımı için 1 saat yeterli (çok sayıda sipariş gelse de). */
     public int $timeout = 3600;
 
@@ -61,7 +63,7 @@ class PullBayiOrdersJob implements ShouldQueue
             $bayi = OrderService::for('bayi');
             $ana = OrderService::for('ana');
             $anaProduct = ProductService::for('ana');
-            $mapper = new ProductMapper();
+            $mapper = new ProductMapper;
 
             // StokKodu → ana Varyasyon.ID resolver — LOKAL ÖNCELİKLİ.
             $variantCache = [];
@@ -105,6 +107,7 @@ class PullBayiOrdersJob implements ShouldQueue
                         ]
                     );
                 }
+
                 return $variantCache[$stokKodu] = $foundVarId ?: null;
             };
 
@@ -169,11 +172,11 @@ class PullBayiOrdersJob implements ShouldQueue
                     ?? $o['Urunler']['WebSiparisUrun']['StokKodu']
                     ?? '');
                 $context = [
-                    'barcode'   => $bayiOrderId,
+                    'barcode' => $bayiOrderId,
                     'stok_kodu' => $ilkUrunStok ?: null,
-                    'urun_adi'  => $musteri ?: null,
-                    'ana_id'    => null,
-                    'bayi_id'   => $bayiOrderId,
+                    'urun_adi' => $musteri ?: null,
+                    'ana_id' => null,
+                    'bayi_id' => $bayiOrderId,
                 ];
 
                 $anaPayload = null;
@@ -186,22 +189,22 @@ class PullBayiOrdersJob implements ShouldQueue
                     // CRITICAL: aktarılan durumu önce kaydet — markOrderTransferred patlarsa
                     // yeniden deneme ana'da duplicate oluşturmasın.
                     $transfer->fill([
-                        'ana_order_id'   => $anaOrderId,
-                        'status'         => 'transferred',
+                        'ana_order_id' => $anaOrderId,
+                        'status' => 'transferred',
                         'transferred_at' => now(),
-                        'last_error'     => null,
+                        'last_error' => null,
                     ])->save();
 
                     try {
                         $bayi->markOrderTransferred($bayiOrderId, "Ana #{$anaOrderId} olarak aktarıldı");
                     } catch (Throwable $markEx) {
                         SyncLog::create([
-                            'job_id'    => $job->id,
-                            'barcode'   => $bayiOrderId,
-                            'action'    => 'mark_order',
+                            'job_id' => $job->id,
+                            'barcode' => $bayiOrderId,
+                            'action' => 'mark_order',
                             'direction' => 'bayi_to_ana',
-                            'status'    => 'error',
-                            'message'   => 'markOrderTransferred patladı (ana #' . $anaOrderId . ' zaten oluştu): ' . $markEx->getMessage(),
+                            'status' => 'error',
+                            'message' => 'markOrderTransferred patladı (ana #'.$anaOrderId.' zaten oluştu): '.$markEx->getMessage(),
                         ]);
                     }
 
@@ -219,8 +222,8 @@ class PullBayiOrdersJob implements ShouldQueue
                         try {
                             $hits = $ana->getOrdersByFilter([
                                 'siparis_no' => $bayiSiparisNo,
-                                'date_from'  => \Illuminate\Support\Carbon::now()->subYear()->format('Y-m-d\T00:00:00'),
-                                'date_to'    => \Illuminate\Support\Carbon::now()->format('Y-m-d\T23:59:59'),
+                                'date_from' => Carbon::now()->subYear()->format('Y-m-d\T00:00:00'),
+                                'date_to' => Carbon::now()->format('Y-m-d\T23:59:59'),
                             ], 1, 5);
                             if (! empty($hits)) {
                                 $existingAnaId = (string) ($hits[0]['ID'] ?? $hits[0]['SiparisID'] ?? '');
@@ -231,10 +234,10 @@ class PullBayiOrdersJob implements ShouldQueue
 
                         $context['ana_id'] = $existingAnaId ?: null;
                         $transfer->fill([
-                            'ana_order_id'   => $existingAnaId ?: ($transfer->ana_order_id ?? null),
-                            'status'         => 'transferred',
+                            'ana_order_id' => $existingAnaId ?: ($transfer->ana_order_id ?? null),
+                            'status' => 'transferred',
                             'transferred_at' => now(),
-                            'last_error'     => null,
+                            'last_error' => null,
                         ])->save();
 
                         try {
@@ -250,30 +253,31 @@ class PullBayiOrdersJob implements ShouldQueue
                             ? "Sipariş ana sitede zaten mevcut → Ana #{$existingAnaId} olarak eşleştirildi (SiparisNo={$bayiSiparisNo})"
                             : 'Sipariş ana sitede zaten mevcut (SiparisNo ile bulunamadı, "transferred" işaretlendi)';
                         $this->log($job, $context, 'success', $msg);
+
                         continue; // success path
                     }
 
                     $transfer->fill([
-                        'status'      => 'failed',
+                        'status' => 'failed',
                         'retry_count' => ($transfer->retry_count ?? 0) + 1,
-                        'last_error'  => $e->getMessage(),
+                        'last_error' => $e->getMessage(),
                     ])->save();
 
                     $client = $ana->getClient();
                     $traceLines = array_slice(explode("\n", $e->getTraceAsString()), 0, 5);
                     $fullMsg = $e->getMessage()
-                        . "\n  ↳ " . $e->getFile() . ':' . $e->getLine()
-                        . "\n  trace:\n    " . implode("\n    ", $traceLines);
+                        ."\n  ↳ ".$e->getFile().':'.$e->getLine()
+                        ."\n  trace:\n    ".implode("\n    ", $traceLines);
 
                     $diagRequest = "=== BAYI ORDER (ham) ===\n"
-                        . json_encode($o, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+                        .json_encode($o, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
                     if ($anaPayload !== null) {
                         $diagRequest .= "\n\n=== ANA PAYLOAD (mapper çıktısı) ===\n"
-                            . json_encode($anaPayload, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+                            .json_encode($anaPayload, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
                     }
                     $lastReq = $client->getLastRequestXml();
                     if ($lastReq) {
-                        $diagRequest .= "\n\n=== SOAP REQUEST XML ===\n" . $lastReq;
+                        $diagRequest .= "\n\n=== SOAP REQUEST XML ===\n".$lastReq;
                     }
 
                     $this->log($job, $context, 'error', $fullMsg,
@@ -283,15 +287,15 @@ class PullBayiOrdersJob implements ShouldQueue
             }
 
             $job->update([
-                'status'     => $stoppedEarly ? 'failed' : 'completed',
+                'status' => $stoppedEarly ? 'failed' : 'completed',
                 'finished_at' => now(),
                 'last_error' => $stoppedEarly ? 'Kullanıcı tarafından manuel durduruldu' : null,
             ]);
         } catch (Throwable $e) {
             $job->update([
-                'status'      => 'failed',
+                'status' => 'failed',
                 'finished_at' => now(),
-                'last_error'  => $e->getMessage(),
+                'last_error' => $e->getMessage(),
             ]);
             throw $e;
         }
@@ -305,12 +309,12 @@ class PullBayiOrdersJob implements ShouldQueue
             $job->increment('error_count');
         }
         SyncLog::create(array_merge($ctx, [
-            'job_id'       => $job->id,
-            'action'       => 'transfer_order',
-            'direction'    => 'bayi_to_ana',
-            'status'       => $status,
-            'message'      => $msg,
-            'raw_request'  => $rawRequest,
+            'job_id' => $job->id,
+            'action' => 'transfer_order',
+            'direction' => 'bayi_to_ana',
+            'status' => $status,
+            'message' => $msg,
+            'raw_request' => $rawRequest,
             'raw_response' => $rawResponse,
         ]));
     }

@@ -26,12 +26,13 @@ class TicimaxRetryErrorsCommand extends Command
     {
         $ana = ProductService::for('ana');
         $bayi = ProductService::for('bayi');
-        $mapper = new ProductMapper();
+        $mapper = new ProductMapper;
         $defaultBrandId = $bayi->getDefaultBrandId();
         $defaultSupplierId = $bayi->getDefaultSupplierId();
 
         $mapper->setBrandResolver(function (string $name) use ($bayi, $defaultBrandId) {
             $id = $bayi->findOrCreateBrandId($name);
+
             return $id > 0 ? $id : $defaultBrandId;
         });
 
@@ -39,6 +40,7 @@ class TicimaxRetryErrorsCommand extends Command
         $mapper->setSupplierResolver(function (int $anaId) use ($anaSupplierIdToName, $bayi, $defaultSupplierId) {
             $name = $anaSupplierIdToName[$anaId] ?? '';
             $id = $name ? $bayi->findOrCreateSupplierId($name) : 0;
+
             return $id > 0 ? $id : $defaultSupplierId;
         });
 
@@ -59,7 +61,7 @@ class TicimaxRetryErrorsCommand extends Command
         $limit = (int) $this->option('limit');
         $errors = $query->limit($limit)->get();
 
-        $this->info("İşlenecek: " . $errors->count() . " / toplam error: {$total}");
+        $this->info('İşlenecek: '.$errors->count()." / toplam error: {$total}");
 
         $success = 0;
         $fail = 0;
@@ -86,6 +88,7 @@ class TicimaxRetryErrorsCommand extends Command
                     $this->logSuccess($job, $bar, 'matched_existing');
                     $success++;
                     $this->line("  ✓ {$bar} (eşleşti, ID={$existing['ID']})");
+
                     continue;
                 }
 
@@ -126,6 +129,7 @@ class TicimaxRetryErrorsCommand extends Command
 
         $this->newLine();
         $this->info("Bitti: başarılı={$success}, başarısız={$fail}");
+
         return self::SUCCESS;
     }
 

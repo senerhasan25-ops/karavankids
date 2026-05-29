@@ -11,12 +11,15 @@ use SoapFault;
 class TicimaxClient
 {
     protected ApiCredential $credential;
+
     protected array $clients = [];
 
     /** Son SOAP request XML'i (debug için job'lar __getLastRequest() yerine bunu okuyabilir) */
     protected ?string $lastRequestXml = null;
+
     /** Son SOAP response XML'i */
     protected ?string $lastResponseXml = null;
+
     /** Son çağrı bilgisi: service, method, store */
     protected array $lastCallMeta = [];
 
@@ -76,7 +79,7 @@ class TicimaxClient
         if (preg_match('#^https?://#i', $wsdlPath)) {
             $url = $wsdlPath;
         } else {
-            $url = rtrim($this->credential->endpoint_url, '/') . '/' . ltrim($wsdlPath, '/');
+            $url = rtrim($this->credential->endpoint_url, '/').'/'.ltrim($wsdlPath, '/');
         }
 
         // WSDL disk cache için yazılabilir bir dizin garanti et. PHP'nin varsayılan
@@ -102,7 +105,7 @@ class TicimaxClient
                 'keep_alive' => false,
             ]);
         } catch (SoapFault $e) {
-            throw new Exception("SOAP client init failed for {$service}: " . $e->getMessage(), 0, $e);
+            throw new Exception("SOAP client init failed for {$service}: ".$e->getMessage(), 0, $e);
         }
 
         return $this->clients[$service];
@@ -123,6 +126,7 @@ class TicimaxClient
                 // Başarılı çağrıda da raw'ı sakla (audit için)
                 $this->lastRequestXml = $this->maskCredentials((string) $client->__getLastRequest());
                 $this->lastResponseXml = (string) $client->__getLastResponse();
+
                 return $result;
             } catch (SoapFault $e) {
                 // Hata olsa da raw'ı yakala — job debug için kullanır
@@ -145,6 +149,7 @@ class TicimaxClient
                         'service' => $service, 'method' => $method,
                     ]);
                     sleep($waitSeconds);
+
                     continue; // bu attempt'i tekrarla
                 }
 
@@ -153,7 +158,7 @@ class TicimaxClient
                 }
             }
         }
-        throw new Exception("Ticimax call failed after {$attempts} attempts: " . ($last?->getMessage() ?? 'unknown'), 0, $last);
+        throw new Exception("Ticimax call failed after {$attempts} attempts: ".($last?->getMessage() ?? 'unknown'), 0, $last);
     }
 
     public function getLastRequestXml(): ?string
@@ -198,6 +203,7 @@ class TicimaxClient
                 $results[$svc] = ['ok' => false, 'error' => $e->getMessage()];
             }
         }
+
         return $results;
     }
 }

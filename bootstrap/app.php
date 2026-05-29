@@ -1,5 +1,7 @@
 <?php
 
+use App\Console\SyncTick;
+use App\Models\SyncSetting;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -15,15 +17,15 @@ return Application::configure(basePath: dirname(__DIR__))
         // Sadece "Otomatik senkronizasyonu aktif et" checkbox'i acikken her dakika tetiklenir.
         // Kapaliyken scheduler hicbir sey yapmaz, ekrana "Running" da yazmaz.
         $schedule->call(function () {
-            \App\Console\SyncTick::run();
+            SyncTick::run();
         })
             ->name('karavankids_sync_tick')
             ->everyMinute()
             ->withoutOverlapping()
             ->when(function () {
                 try {
-                    return (bool) \App\Models\SyncSetting::get('otomatik_aktif', false);
-                } catch (\Throwable) {
+                    return (bool) SyncSetting::get('otomatik_aktif', false);
+                } catch (Throwable) {
                     return false; // DB henuz hazir degilse calistirma
                 }
             });

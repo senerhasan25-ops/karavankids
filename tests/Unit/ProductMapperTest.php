@@ -14,7 +14,7 @@ class ProductMapperTest extends TestCase
 {
     public function test_maps_bayi_order_to_ana_save_siparis_payload(): void
     {
-        $mapper = new ProductMapper();
+        $mapper = new ProductMapper;
 
         $bayiOrder = [
             'ID' => 'B-1234',
@@ -58,7 +58,7 @@ class ProductMapperTest extends TestCase
 
     public function test_throws_when_stok_kodu_not_resolvable_in_ana(): void
     {
-        $mapper = new ProductMapper();
+        $mapper = new ProductMapper;
         $bayiOrder = [
             'SiparisNo' => 'B-9999',
             'Urunler' => [
@@ -74,7 +74,7 @@ class ProductMapperTest extends TestCase
 
     public function test_throws_when_stok_kodu_missing_on_line(): void
     {
-        $mapper = new ProductMapper();
+        $mapper = new ProductMapper;
         $bayiOrder = [
             'Urunler' => [
                 ['Adet' => 1, 'Tutar' => 100.0],
@@ -89,7 +89,7 @@ class ProductMapperTest extends TestCase
 
     public function test_teslimat_address_passthrough(): void
     {
-        $mapper = new ProductMapper();
+        $mapper = new ProductMapper;
         $bayiOrder = [
             'TeslimatAdresi' => ['Adres' => 'Test', 'Il' => 'Ankara'],
             'Urunler' => [['StokKodu' => 'X', 'Adet' => 1, 'Tutar' => 1.0]],
@@ -104,7 +104,7 @@ class ProductMapperTest extends TestCase
 
     public function test_coerces_numeric_strings_to_correct_types(): void
     {
-        $mapper = new ProductMapper();
+        $mapper = new ProductMapper;
         $bayiOrder = [
             'Urunler' => [
                 ['StokKodu' => 'X', 'Adet' => '3', 'Tutar' => '49.90', 'KdvOrani' => '18'],
@@ -121,7 +121,7 @@ class ProductMapperTest extends TestCase
 
     public function test_builds_tedarikci_kodu_with_correct_format(): void
     {
-        $mapper = new ProductMapper();
+        $mapper = new ProductMapper;
         // Yeni format: SUP2026|{stokKodu}|{anaVariantId}
         $this->assertSame('SUP2026|MG26A|123', $mapper->buildTedarikciKodu(123, 'MG26A'));
         $this->assertSame('SUP2026||99', $mapper->buildTedarikciKodu(99, ''));
@@ -129,12 +129,12 @@ class ProductMapperTest extends TestCase
 
     public function test_sanitize_html_strips_script_style_and_event_handlers(): void
     {
-        $mapper = new ProductMapper();
+        $mapper = new ProductMapper;
         $dirty = '<p>Güvenli</p><script>alert(1)</script><style>body{}</style>'
-              . '<a href="javascript:steal()" onclick="boom()">x</a>'
-              . '<div style="behavior:url(x.htc); width:expression(alert(1))">ok</div>'
-              . '<iframe src="evil"></iframe>'
-              . '<!-- yorum -->';
+              .'<a href="javascript:steal()" onclick="boom()">x</a>'
+              .'<div style="behavior:url(x.htc); width:expression(alert(1))">ok</div>'
+              .'<iframe src="evil"></iframe>'
+              .'<!-- yorum -->';
         $clean = $mapper->sanitizeHtml($dirty);
 
         $this->assertStringNotContainsString('<script', $clean);
@@ -150,14 +150,14 @@ class ProductMapperTest extends TestCase
 
     public function test_sanitize_text_strips_all_html(): void
     {
-        $mapper = new ProductMapper();
+        $mapper = new ProductMapper;
         $this->assertSame('Test ürün adı', $mapper->sanitizeText('<b>Test</b> ürün <i>adı</i>'));
         $this->assertSame('Tek satır metin', $mapper->sanitizeText("Tek\n\nsatır   metin"));
     }
 
     public function test_ana_to_bayi_sanitizes_aciklama(): void
     {
-        $mapper = new ProductMapper();
+        $mapper = new ProductMapper;
         $ana = [
             'ID' => 1,
             'UrunAdi' => 'Test',
@@ -174,7 +174,7 @@ class ProductMapperTest extends TestCase
 
     public function test_ana_to_bayi_payload_embeds_tedarikci_kodu(): void
     {
-        $mapper = new ProductMapper();
+        $mapper = new ProductMapper;
         $ana = [
             'ID' => 555, // UrunKartiID — TedarikciKodu'da KULLANILMAZ artık
             'UrunAdi' => 'Test',
@@ -182,9 +182,9 @@ class ProductMapperTest extends TestCase
             'StokKodu' => 'ABC',
             'Varyasyonlar' => [
                 ['ID' => 11, 'Barkod' => 'B1', 'StokKodu' => 'ABC',
-                 'Ozellikler' => ['VaryasyonOzellik' => [['Tanim' => 'Renk', 'Deger' => 'Kırmızı']]]],
+                    'Ozellikler' => ['VaryasyonOzellik' => [['Tanim' => 'Renk', 'Deger' => 'Kırmızı']]]],
                 ['ID' => 22, 'Barkod' => 'B2', 'StokKodu' => 'ABC-2',
-                 'Ozellikler' => ['VaryasyonOzellik' => [['Tanim' => 'Renk', 'Deger' => 'Mavi'], ['Tanim' => 'Beden', 'Deger' => 'L']]]],
+                    'Ozellikler' => ['VaryasyonOzellik' => [['Tanim' => 'Renk', 'Deger' => 'Mavi'], ['Tanim' => 'Beden', 'Deger' => 'L']]]],
             ],
         ];
 

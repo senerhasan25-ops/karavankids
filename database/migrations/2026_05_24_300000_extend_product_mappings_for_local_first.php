@@ -34,7 +34,7 @@ return new class extends Migration
             Schema::table('product_mappings', function (Blueprint $table) {
                 $table->dropUnique(['barcode']);
             });
-        } catch (\Throwable) {
+        } catch (Throwable) {
             // SQLite eski sürümlerde sessiz geç — yeni unique kolon zaten stok_kodu
         }
 

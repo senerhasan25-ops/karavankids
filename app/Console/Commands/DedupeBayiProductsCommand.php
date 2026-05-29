@@ -151,11 +151,11 @@ class DedupeBayiProductsCommand extends Command
         foreach ($bayiMatches as $bm) {
             $bmId = (int) ($bm['ID'] ?? 0);
             if ($bmId !== $keepId) {
-                $removeStrs[] = '#' . $bmId . ' (' . substr((string) ($bm['TedarikciKodu'] ?? '?'), 0, 30) . ')';
+                $removeStrs[] = '#'.$bmId.' ('.substr((string) ($bm['TedarikciKodu'] ?? '?'), 0, 30).')';
             }
         }
 
-        $this->line("  StokKodu={$stokKodu}: KEEP #{$keepId} ({$keepTk}) | REMOVE " . implode(', ', $removeStrs));
+        $this->line("  StokKodu={$stokKodu}: KEEP #{$keepId} ({$keepTk}) | REMOVE ".implode(', ', $removeStrs));
 
         if (! $apply) {
             return;
@@ -184,7 +184,7 @@ class DedupeBayiProductsCommand extends Command
                     'bayi_product_id' => $keepId > 0 ? (string) $keepId : null,
                     'bayi_variant_id' => $keepVariantId > 0 ? (string) $keepVariantId : null,
                     // TedarikciKodu kaynak VaryasyonID'sini gömer (UrunKartiID değil)
-                    'tedarikci_kodu' => "SUP2026|{$stokKodu}|" . (isset($anaVariant['ID']) ? (int) $anaVariant['ID'] : 0),
+                    'tedarikci_kodu' => "SUP2026|{$stokKodu}|".(isset($anaVariant['ID']) ? (int) $anaVariant['ID'] : 0),
                     'status' => 'synced',
                     'last_synced_at' => now(),
                     'last_error' => null,
@@ -192,7 +192,7 @@ class DedupeBayiProductsCommand extends Command
             );
             $mappedCount++;
         } catch (\Throwable $e) {
-            $this->error("    ✗ Mapping kaydı hatası: " . $e->getMessage());
+            $this->error('    ✗ Mapping kaydı hatası: '.$e->getMessage());
         }
     }
 
@@ -202,6 +202,7 @@ class DedupeBayiProductsCommand extends Command
         if (isset($v['Varyasyon'])) {
             $v = is_array($v['Varyasyon']) && array_is_list($v['Varyasyon']) ? $v['Varyasyon'] : [$v['Varyasyon']];
         }
+
         return is_array($v) ? array_values($v) : [];
     }
 }

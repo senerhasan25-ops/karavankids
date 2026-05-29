@@ -1,14 +1,16 @@
 <?php
+
 /**
  * Derin agaç senaryosu: sentetik ana_tree ile mirrorCategoryFromAna'yi izole test et.
  * Bayide gercekten root→child agaci kuruluyor mu? E2E SaveUrun yok, sadece kategori akisi.
  */
 
-require __DIR__ . '/../vendor/autoload.php';
-$app = require_once __DIR__ . '/../bootstrap/app.php';
-$app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+require __DIR__.'/../vendor/autoload.php';
+$app = require_once __DIR__.'/../bootstrap/app.php';
+$app->make(Kernel::class)->bootstrap();
 
 use App\Services\Ticimax\ProductService;
+use Illuminate\Contracts\Console\Kernel;
 
 $bayi = ProductService::for('bayi');
 
@@ -22,7 +24,7 @@ $anaTree = [
 
 echo "=== Sentetik ana agaci ===\n";
 foreach ($anaTree as $n) {
-    echo "  ID=" . $n['ID'] . " PID=" . $n['PID'] . " | " . $n['Tanim'] . "\n";
+    echo '  ID='.$n['ID'].' PID='.$n['PID'].' | '.$n['Tanim']."\n";
 }
 
 echo "\n=== mirrorCategoryFromAna(leaf=7003) ===\n";
@@ -44,11 +46,11 @@ while ($cur) {
     $cur = $pid > 0 ? ($bTree[$pid] ?? null) : null;
 }
 foreach ($path as $i => $n) {
-    echo str_repeat('  ', $i) . "└─ ID=" . $n['ID'] . " PID=" . $n['PID'] . " | " . $n['Tanim'] . "\n";
+    echo str_repeat('  ', $i).'└─ ID='.$n['ID'].' PID='.$n['PID'].' | '.$n['Tanim']."\n";
 }
 
 if (count($path) === 3) {
     echo "\n✓ AGACTAKI 3 NODE BAYIDE OLUSTURULDU\n";
 } else {
-    echo "\n✗ Beklenen 3 node, bulunan " . count($path) . "\n";
+    echo "\n✗ Beklenen 3 node, bulunan ".count($path)."\n";
 }

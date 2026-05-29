@@ -41,7 +41,9 @@ class SyncStockPriceJob implements ShouldQueue
     use BuffersSyncWrites, Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public int $tries = 3;
+
     public int $backoff = 30;
+
     /** Delta modunda çok sayıda ürün değişmişse 3 saat yeterli tampon. */
     public int $timeout = 10800;
 
@@ -50,8 +52,8 @@ class SyncStockPriceJob implements ShouldQueue
 
     /**
      * @param  string|null  $singleStokKodu  Sadece bu ürünü güncelle (manuel tetik için).
-     *                                        null → tam delta sync.
-     * @param  Carbon|null  $forceSince      Checkpoint'i yoksay, buradan tara (test/debug).
+     *                                       null → tam delta sync.
+     * @param  Carbon|null  $forceSince  Checkpoint'i yoksay, buradan tara (test/debug).
      */
     public function __construct(
         public ?string $singleStokKodu = null,
@@ -71,19 +73,20 @@ class SyncStockPriceJob implements ShouldQueue
     public function handle(): void
     {
         $job = SyncJob::create([
-            'type'       => 'stock_price_update',
-            'status'     => 'running',
+            'type' => 'stock_price_update',
+            'status' => 'running',
             'started_at' => now(),
         ]);
 
         $startedAt = now();
 
         try {
-            $ana  = ProductService::for('ana');
+            $ana = ProductService::for('ana');
             $bayi = ProductService::for('bayi');
 
             if ($this->singleStokKodu) {
                 $this->handleSingle($job, $ana, $bayi);
+
                 return;
             }
 
@@ -91,9 +94,9 @@ class SyncStockPriceJob implements ShouldQueue
         } catch (Throwable $e) {
             $this->flushSyncBuffers($job); // biriken log'ları kaybetme
             $job->update([
-                'status'      => 'failed',
+                'status' => 'failed',
                 'finished_at' => now(),
-                'last_error'  => $e->getMessage(),
+                'last_error' => $e->getMessage(),
             ]);
             throw $e;
         }
@@ -109,12 +112,12 @@ class SyncStockPriceJob implements ShouldQueue
         if ($this->forceSince) {
             $since = $this->forceSince;
         } else {
-            $raw   = SyncSetting::get(self::LAST_RUN_KEY);
+            $raw = SyncSetting::get(self::LAST_RUN_KEY);
             $since = $raw ? Carbon::parse($raw) : now()->subDay();
         }
 
-        $perPage      = (int) config('ticimax.batch_size', 50);
-        $page         = 1;
+        $perPage = (int) config('ticimax.batch_size', 50);
+        $page = 1;
         $stoppedEarly = false;
 
         // ── Tüm mapping'leri tek sorguda belleğe al ─────────────────────────
@@ -176,9 +179,9 @@ class SyncStockPriceJob implements ShouldQueue
         }
 
         $job->update([
-            'status'      => $stoppedEarly ? 'failed' : 'completed',
+            'status' => $stoppedEarly ? 'failed' : 'completed',
             'finished_at' => now(),
-            'last_error'  => $stoppedEarly ? 'Kullanıcı tarafından manuel durduruldu' : null,
+            'last_error' => $stoppedEarly ? 'Kullanıcı tarafından manuel durduruldu' : null,
         ]);
     }
 
@@ -192,7 +195,7 @@ class SyncStockPriceJob implements ShouldQueue
     {
         $stockBatch = [];
         $priceBatch = [];
-        $toUpdate   = [];  // stok_kodu → meta
+        $toUpdate = [];  // stok_kodu → meta
 
         foreach ($products as $urunKarti) {
             foreach ($this->extractVariants($urunKarti) as $v) {
@@ -206,9 +209,9 @@ class SyncStockPriceJob implements ShouldQueue
                     continue; // bu varyasyon bayi'ye eşleşmemiş, atla
                 }
 
-                $stock    = (int) ($v['StokAdedi'] ?? 0);
-                $price    = (float) ($v['SatisFiyati'] ?? 0);
-                $kdv      = (float) ($v['KdvOrani'] ?? 20);
+                $stock = (int) ($v['StokAdedi'] ?? 0);
+                $price = (float) ($v['SatisFiyati'] ?? 0);
+                $kdv = (float) ($v['KdvOrani'] ?? 20);
                 $kdvDahil = (bool) ($v['KdvDahil'] ?? true);
 
                 $stockChanged = $m->last_stock === null || (int) $m->last_stock !== $stock;
@@ -230,17 +233,17 @@ class SyncStockPriceJob implements ShouldQueue
 
                 if ($priceChanged && $m->barcode) {
                     $priceBatch[] = [
-                        'Barkod'      => $m->barcode,
+                        'Barkod' => $m->barcode,
                         'SatisFiyati' => $price,
-                        'KdvOrani'    => $kdv,
-                        'KdvDahil'    => $kdvDahil,
+                        'KdvOrani' => $kdv,
+                        'KdvDahil' => $kdvDahil,
                     ];
                 }
 
                 $toUpdate[$stokKodu] = [
-                    'stock'        => $stock,
-                    'price'        => $price,
-                    'mapping'      => $m,
+                    'stock' => $stock,
+                    'price' => $price,
+                    'mapping' => $m,
                     'stockChanged' => $stockChanged,
                     'priceChanged' => $priceChanged,
                 ];
@@ -266,33 +269,33 @@ class SyncStockPriceJob implements ShouldQueue
 
         // ── Sonuçları logla + mapping güncelle ─────────────────────────────
         foreach ($toUpdate as $stokKodu => $data) {
-            $m   = $data['mapping'];
+            $m = $data['mapping'];
             $ctx = [
-                'barcode'   => $m->barcode,
+                'barcode' => $m->barcode,
                 'stok_kodu' => $stokKodu,
-                'ana_id'    => $m->ana_product_id,
-                'bayi_id'   => $m->bayi_product_id,
+                'ana_id' => $m->ana_product_id,
+                'bayi_id' => $m->bayi_product_id,
             ];
 
             if ($batchError === null) {
                 $parts = [];
                 if ($data['stockChanged']) {
-                    $parts[] = 'stok ' . ($m->last_stock ?? '?') . '→' . $data['stock'];
+                    $parts[] = 'stok '.($m->last_stock ?? '?').'→'.$data['stock'];
                 }
                 if ($data['priceChanged']) {
-                    $parts[] = 'fiyat ' . ($m->last_price ?? '?') . '→' . number_format($data['price'], 2);
+                    $parts[] = 'fiyat '.($m->last_price ?? '?').'→'.number_format($data['price'], 2);
                 }
 
                 $this->log($job, $ctx, 'success', implode(' | ', $parts));
                 $m->update([
-                    'last_stock'     => $data['stock'],
-                    'last_price'     => $data['price'],
-                    'status'         => 'synced',
-                    'last_error'     => null,
+                    'last_stock' => $data['stock'],
+                    'last_price' => $data['price'],
+                    'status' => 'synced',
+                    'last_error' => null,
                     'last_synced_at' => now(),
                 ]);
             } else {
-                $this->log($job, $ctx, 'error', 'Batch hatası: ' . substr($batchError, 0, 250));
+                $this->log($job, $ctx, 'error', 'Batch hatası: '.substr($batchError, 0, 250));
                 $m->update(['status' => 'error', 'last_error' => $batchError]);
             }
         }
@@ -325,9 +328,9 @@ class SyncStockPriceJob implements ShouldQueue
         $this->flushSyncBuffers($job); // kalan tampon
 
         $job->update([
-            'status'      => $stoppedEarly ? 'failed' : 'completed',
+            'status' => $stoppedEarly ? 'failed' : 'completed',
             'finished_at' => now(),
-            'last_error'  => $stoppedEarly ? 'Kullanıcı tarafından manuel durduruldu' : null,
+            'last_error' => $stoppedEarly ? 'Kullanıcı tarafından manuel durduruldu' : null,
         ]);
     }
 
@@ -342,10 +345,10 @@ class SyncStockPriceJob implements ShouldQueue
     protected function processOne(SyncJob $job, ProductMapping $m, ProductService $ana, ProductService $bayi): void
     {
         $context = [
-            'barcode'   => $m->barcode,
+            'barcode' => $m->barcode,
             'stok_kodu' => $m->stok_kodu,
-            'ana_id'    => $m->ana_product_id,
-            'bayi_id'   => $m->bayi_product_id,
+            'ana_id' => $m->ana_product_id,
+            'bayi_id' => $m->bayi_product_id,
         ];
 
         try {
@@ -358,9 +361,9 @@ class SyncStockPriceJob implements ShouldQueue
                 throw new \RuntimeException('Ana ürün içinde eşleşen varyasyon yok');
             }
 
-            $stock    = (int) ($anaVar['StokAdedi'] ?? 0);
-            $price    = (float) ($anaVar['SatisFiyati'] ?? 0);
-            $kdv      = (float) ($anaVar['KdvOrani'] ?? 20);
+            $stock = (int) ($anaVar['StokAdedi'] ?? 0);
+            $price = (float) ($anaVar['SatisFiyati'] ?? 0);
+            $kdv = (float) ($anaVar['KdvOrani'] ?? 20);
             $kdvDahil = (bool) ($anaVar['KdvDahil'] ?? true);
 
             $stockChanged = $m->last_stock === null || (int) $m->last_stock !== $stock;
@@ -369,22 +372,22 @@ class SyncStockPriceJob implements ShouldQueue
             $msgParts = [];
             if ($stockChanged) {
                 $bayi->updateStock((string) $m->bayi_variant_id, $stock, $m->barcode);
-                $msgParts[] = 'stok ' . ($m->last_stock ?? '-') . "→{$stock}";
+                $msgParts[] = 'stok '.($m->last_stock ?? '-')."→{$stock}";
             }
             if ($priceChanged && $m->barcode) {
                 $bayi->updatePrice($m->barcode, $price, $kdv, $kdvDahil);
                 $msgParts[] = sprintf('fiyat %s→%.2f', $m->last_price ?? '-', $price);
             }
             if (empty($msgParts)) {
-                $msgParts[] = "değişiklik yok (stok={$stock} fiyat=" . number_format($price, 2) . ')';
+                $msgParts[] = "değişiklik yok (stok={$stock} fiyat=".number_format($price, 2).')';
             }
 
             $m->update([
-                'last_stock'     => $stock,
-                'last_price'     => $price,
+                'last_stock' => $stock,
+                'last_price' => $price,
                 'last_synced_at' => now(),
-                'status'         => 'synced',
-                'last_error'     => null,
+                'status' => 'synced',
+                'last_error' => null,
             ]);
 
             $this->log($job, $context, 'success', implode(' | ', $msgParts));

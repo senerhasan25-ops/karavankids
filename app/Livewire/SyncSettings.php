@@ -5,7 +5,6 @@ namespace App\Livewire;
 use App\Jobs\PullBayiOrdersJob;
 use App\Jobs\SyncNewProductsJob;
 use App\Jobs\SyncStockPriceJob;
-use App\Livewire\QueueControl;
 use App\Models\SyncSetting;
 use App\Services\Ticimax\OrderService;
 use Illuminate\Support\Facades\Cache;
@@ -18,10 +17,15 @@ use Livewire\Component;
 class SyncSettings extends Component
 {
     public int $interval_minutes = 15;
+
     public bool $otomatik_aktif = false;
+
     public bool $otomatik_urunler = true;
+
     public bool $otomatik_stok_fiyat = true;
+
     public bool $otomatik_siparis = true;
+
     public ?string $last_run_at = null;
 
     public int $siparis_saat_aralik = 24;
@@ -34,8 +38,10 @@ class SyncSettings extends Component
 
     /** Ticimax'tan çekilen sipariş durumları: [['id' => 1, 'ad' => 'Yeni Sipariş'], ...] */
     public array $siparisDurumlari = [];
+
     /** Seçili durum ID'leri — boş = tümü */
     public array $seciliDurumlar = [];
+
     public ?string $durumYuklemHata = null;
 
     public function mount(): void
@@ -45,10 +51,10 @@ class SyncSettings extends Component
         $this->otomatik_urunler = (bool) SyncSetting::get('otomatik_urunler', true);
         $this->otomatik_stok_fiyat = (bool) SyncSetting::get('otomatik_stok_fiyat', true);
         $this->otomatik_siparis = (bool) SyncSetting::get('otomatik_siparis', true);
-        $this->last_run_at              = SyncSetting::get('last_run_at') ?: null;
-        $this->last_stock_price_run_at  = SyncSetting::get(SyncStockPriceJob::LAST_RUN_KEY) ?: null;
-        $this->last_new_products_run_at = SyncSetting::get(\App\Jobs\SyncNewProductsJob::LAST_RUN_KEY) ?: null;
-        $this->siparis_saat_aralik      = (int) SyncSetting::get('siparis_saat_aralik', 24);
+        $this->last_run_at = SyncSetting::get('last_run_at') ?: null;
+        $this->last_stock_price_run_at = SyncSetting::get(SyncStockPriceJob::LAST_RUN_KEY) ?: null;
+        $this->last_new_products_run_at = SyncSetting::get(SyncNewProductsJob::LAST_RUN_KEY) ?: null;
+        $this->siparis_saat_aralik = (int) SyncSetting::get('siparis_saat_aralik', 24);
 
         $seciliRaw = SyncSetting::get('secili_siparis_durumlari', '');
         $this->seciliDurumlar = ($seciliRaw && $seciliRaw !== '[]')
@@ -103,11 +109,11 @@ class SyncSettings extends Component
     protected function rules(): array
     {
         return [
-            'interval_minutes'   => ['required', 'integer', 'min:1', 'max:1440'],
-            'otomatik_aktif'     => ['boolean'],
-            'otomatik_urunler'   => ['boolean'],
+            'interval_minutes' => ['required', 'integer', 'min:1', 'max:1440'],
+            'otomatik_aktif' => ['boolean'],
+            'otomatik_urunler' => ['boolean'],
             'otomatik_stok_fiyat' => ['boolean'],
-            'otomatik_siparis'   => ['boolean'],
+            'otomatik_siparis' => ['boolean'],
             'siparis_saat_aralik' => ['required', 'integer', 'min:1', 'max:720'],
         ];
     }
@@ -129,7 +135,8 @@ class SyncSettings extends Component
         SyncSetting::put('secili_siparis_durumlari', json_encode(array_values($this->seciliDurumlar)));
 
         if ($this->otomatik_aktif) {
-            session()->flash('status', 'Ayarlar kaydedildi. Scheduler her ' . $this->interval_minutes . ' dk seçilenleri çalıştıracak.');
+            session()->flash('status', 'Ayarlar kaydedildi. Scheduler her '.$this->interval_minutes.' dk seçilenleri çalıştıracak.');
+
             return;
         }
 
@@ -152,7 +159,7 @@ class SyncSettings extends Component
         if (empty($dispatched)) {
             session()->flash('status', 'Ayarlar kaydedildi. Hiçbir sync türü seçili olmadığı için kuyruğa iş eklenmedi.');
         } else {
-            session()->flash('status', 'Ayarlar kaydedildi + kuyruğa alındı: ' . implode(', ', $dispatched) . '. İlerleme için Loglar sekmesine bak.');
+            session()->flash('status', 'Ayarlar kaydedildi + kuyruğa alındı: '.implode(', ', $dispatched).'. İlerleme için Loglar sekmesine bak.');
         }
     }
 
@@ -174,7 +181,7 @@ class SyncSettings extends Component
      */
     public function sifirlaYeniUrunCheckpoint(): void
     {
-        SyncSetting::put(\App\Jobs\SyncNewProductsJob::LAST_RUN_KEY, '');
+        SyncSetting::put(SyncNewProductsJob::LAST_RUN_KEY, '');
         $this->last_new_products_run_at = null;
         session()->flash('status', 'Yeni ürün checkpoint sıfırlandı — bir sonraki çalışmada son 7 gün taranacak.');
     }

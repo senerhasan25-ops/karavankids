@@ -48,8 +48,8 @@ class TicimaxTailLogsCommand extends Command
                 $time = $log->created_at?->format('H:i:s') ?? '--:--:--';
                 $statusIcon = match ($log->status) {
                     'success' => '<fg=green>✓</>',
-                    'error'   => '<fg=red>✗</>',
-                    default   => '<fg=yellow>·</>',
+                    'error' => '<fg=red>✗</>',
+                    default => '<fg=yellow>·</>',
                 };
                 $dir = $log->direction === 'ana_to_bayi' ? '→' : '←';
                 $barcode = $log->barcode ?: '-';

@@ -1,15 +1,17 @@
 <?php
+
 /**
  * Bayi'de elden eklenen son ürünü çek, klonla (ID=0, yeni barkod), SaveUrun ile gönder.
  * Eğer başarılı olursa = bizim payload'da eksik alanlar var demek.
  */
 
-require __DIR__ . '/../vendor/autoload.php';
-$app = require_once __DIR__ . '/../bootstrap/app.php';
-$kernel = $app->make(Illuminate\Contracts\Console\Kernel::class);
+require __DIR__.'/../vendor/autoload.php';
+$app = require_once __DIR__.'/../bootstrap/app.php';
+$kernel = $app->make(Kernel::class);
 $kernel->bootstrap();
 
 use App\Services\Ticimax\ProductService;
+use Illuminate\Contracts\Console\Kernel;
 
 $bayi = ProductService::for('bayi');
 
@@ -25,13 +27,15 @@ echo "Şablon: ID={$template['ID']} | {$template['UrunAdi']}\n";
 // Klonla
 $clone = $template;
 $clone['ID'] = 0;
-$clone['UrunAdi'] = 'KLON TEST — ' . date('Y-m-d H:i');
+$clone['UrunAdi'] = 'KLON TEST — '.date('Y-m-d H:i');
 
-$newBarcode = 'KLON-' . date('YmdHis');
+$newBarcode = 'KLON-'.date('YmdHis');
 
 // Varyasyonları temizle, yeni ID + yeni barkod
 $varList = $clone['Varyasyonlar']['Varyasyon'] ?? $clone['Varyasyonlar'];
-if (isset($varList['Barkod'])) { $varList = [$varList]; }
+if (isset($varList['Barkod'])) {
+    $varList = [$varList];
+}
 $cleanedVariants = [];
 foreach ($varList as $v) {
     $v['ID'] = 0;
@@ -60,6 +64,6 @@ try {
     } else {
         echo "✗ Yine SaveUrunResult=0\n";
     }
-} catch (\Throwable $e) {
-    echo "✗ " . substr($e->getMessage(), 0, 250) . "\n";
+} catch (Throwable $e) {
+    echo '✗ '.substr($e->getMessage(), 0, 250)."\n";
 }

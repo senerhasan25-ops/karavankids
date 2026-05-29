@@ -34,7 +34,8 @@ class TicimaxSeedTestCredentialsCommand extends Command
 
         foreach ($stores as $key => $cfg) {
             if (! $cfg['endpoint']) {
-                $this->warn("[{$key}] TICIMAX_" . strtoupper($key) . "_ENDPOINT .env'de yok, atlandı.");
+                $this->warn("[{$key}] TICIMAX_".strtoupper($key)."_ENDPOINT .env'de yok, atlandı.");
+
                 continue;
             }
             if (! $cfg['username']) {

@@ -1,9 +1,11 @@
 <?php
-require __DIR__ . '/../vendor/autoload.php';
-$app = require_once __DIR__ . '/../bootstrap/app.php';
-$app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+
+require __DIR__.'/../vendor/autoload.php';
+$app = require_once __DIR__.'/../bootstrap/app.php';
+$app->make(Kernel::class)->bootstrap();
 
 use App\Services\Ticimax\TicimaxClient;
+use Illuminate\Contracts\Console\Kernel;
 
 $ana = TicimaxClient::for('ana');
 $uye = $ana->getUyeKodu();
@@ -22,14 +24,17 @@ $minFilter = [
     'DuzenlemeTarihiBitis' => '9999-12-31T23:59:59',
 ];
 
-$call = function(array $extra) use ($ana, $uye, $minFilter) {
+$call = function (array $extra) use ($ana, $uye, $minFilter) {
     $resp = $ana->call('product', 'SelectUrun', [
         'UyeKodu' => $uye,
         'f' => $extra + $minFilter,
         's' => ['BaslangicIndex' => 0, 'KayitSayisi' => 1000, 'KayitSayisinaGoreGetir' => true],
     ]);
     $list = $resp->SelectUrunResult->UrunKarti ?? [];
-    if (! is_array($list)) $list = [$list];
+    if (! is_array($list)) {
+        $list = [$list];
+    }
+
     return count($list);
 };
 
@@ -51,7 +56,7 @@ foreach ([
     'HediyeIpucuAktif' => false,
 ] as $k => $v) {
     $n = $call([$k => $v]);
-    echo "  $k=" . var_export($v, true) . " → $n urun\n";
+    echo "  $k=".var_export($v, true)." → $n urun\n";
 }
 
 echo "\n=== Cok yuksek BaslangicIndex (toplam say) ===\n";
@@ -61,8 +66,10 @@ $resp = $ana->call('product', 'SelectUrun', [
     's' => ['BaslangicIndex' => 10000, 'KayitSayisi' => 1, 'KayitSayisinaGoreGetir' => true],
 ]);
 $list = $resp->SelectUrunResult->UrunKarti ?? [];
-if (! is_array($list)) $list = [$list];
-echo "  10000+ index: " . count($list) . " urun\n";
+if (! is_array($list)) {
+    $list = [$list];
+}
+echo '  10000+ index: '.count($list)." urun\n";
 
 // Sayfa sayfa total say (1000'er)
 echo "\n=== Toplam (1000'er sayfalama) ===\n";
@@ -75,11 +82,15 @@ while ($page < 50) {
         's' => ['BaslangicIndex' => $page * 1000, 'KayitSayisi' => 1000, 'KayitSayisinaGoreGetir' => true],
     ]);
     $list = $resp->SelectUrunResult->UrunKarti ?? [];
-    if (! is_array($list)) $list = [$list];
+    if (! is_array($list)) {
+        $list = [$list];
+    }
     $c = count($list);
     $total += $c;
-    echo "  index " . ($page * 1000) . ": $c urun (toplam $total)\n";
-    if ($c < 1000) break;
+    echo '  index '.($page * 1000).": $c urun (toplam $total)\n";
+    if ($c < 1000) {
+        break;
+    }
     $page++;
 }
 echo "\nFINAL: ana magazada toplam $total urun gorunuyor (api uzerinden)\n";

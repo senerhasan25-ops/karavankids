@@ -13,17 +13,27 @@ use Livewire\Component;
 class ApiSettings extends Component
 {
     public string $ana_endpoint = '';
+
     public string $ana_wsdl_product = '';
+
     public string $ana_wsdl_order = '';
+
     public string $ana_username = '';
+
     public string $ana_password = '';
+
     public bool $ana_active = true;
 
     public string $bayi_endpoint = '';
+
     public string $bayi_wsdl_product = '';
+
     public string $bayi_wsdl_order = '';
+
     public string $bayi_username = '';
+
     public string $bayi_password = '';
+
     public bool $bayi_active = true;
 
     public array $testResults = [];

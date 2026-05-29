@@ -12,7 +12,7 @@ class ProductMapperTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->mapper = new ProductMapper();
+        $this->mapper = new ProductMapper;
     }
 
     public function test_urun_karti_temel_alanlar_kopyalanir(): void
@@ -90,7 +90,7 @@ class ProductMapperTest extends TestCase
         $this->assertCount(2, $payload['Resimler']);
     }
 
-    public function test_varyasyonlar_aktarilir_ve_ID_sifirlanir(): void
+    public function test_varyasyonlar_aktarilir_ve_i_d_sifirlanir(): void
     {
         $payload = $this->mapper->anaToBayiCreatePayload([
             'UrunAdi' => 'Ana Ürün',
@@ -179,7 +179,7 @@ class ProductMapperTest extends TestCase
         $this->assertSame([], $payload['Kategoriler']);
     }
 
-    public function test_brand_resolver_kullanilirsa_MarkaID_doldurulur(): void
+    public function test_brand_resolver_kullanilirsa_marka_i_d_doldurulur(): void
     {
         $this->mapper->setBrandResolver(fn (string $name) => $name === 'Karavankids' ? 42 : 0);
         $payload = $this->mapper->anaToBayiCreatePayload([

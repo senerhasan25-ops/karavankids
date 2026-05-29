@@ -1,11 +1,12 @@
 <?php
 
-require __DIR__ . '/../vendor/autoload.php';
-$app = require_once __DIR__ . '/../bootstrap/app.php';
-$kernel = $app->make(Illuminate\Contracts\Console\Kernel::class);
+require __DIR__.'/../vendor/autoload.php';
+$app = require_once __DIR__.'/../bootstrap/app.php';
+$kernel = $app->make(Kernel::class);
 $kernel->bootstrap();
 
 use App\Services\Ticimax\ProductService;
+use Illuminate\Contracts\Console\Kernel;
 
 $bayi = ProductService::for('bayi');
 
@@ -21,15 +22,15 @@ echo "Test ürün: ID={$urun['ID']} | {$urun['UrunAdi']}\n";
 
 // Bayi'den çektiğimiz objeyi olduğu gibi geri gönder, sadece UrunAdi'na ekle yap
 $updatePayload = $urun;
-$updatePayload['UrunAdi'] = $urun['UrunAdi'] . ' (TEST)';
+$updatePayload['UrunAdi'] = $urun['UrunAdi'].' (TEST)';
 
 try {
     $result = $bayi->updateProduct((string) $urun['ID'], $updatePayload);
-    echo "✓ updateProduct döndü, sonuç ID=" . ($result['ID'] ?? '(?)') . "\n";
+    echo '✓ updateProduct döndü, sonuç ID='.($result['ID'] ?? '(?)')."\n";
 
     // Bayi'den tekrar çekip UrunAdi değişti mi
     $verify = $bayi->getProductByBarcode($barcode);
-    echo "Bayi'deki yeni isim: " . ($verify['UrunAdi'] ?? '-') . "\n";
+    echo "Bayi'deki yeni isim: ".($verify['UrunAdi'] ?? '-')."\n";
 
     // Restore
     $bayi->updateProduct((string) $urun['ID'], [
@@ -38,6 +39,6 @@ try {
         'Aktif' => true,
     ]);
     echo "(İsim eski haline döndürüldü)\n";
-} catch (\Throwable $e) {
-    echo "✗ HATA: " . $e->getMessage() . "\n";
+} catch (Throwable $e) {
+    echo '✗ HATA: '.$e->getMessage()."\n";
 }

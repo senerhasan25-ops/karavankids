@@ -2,7 +2,6 @@
 
 namespace App\Jobs;
 
-use App\Livewire\QueueControl;
 use App\Models\OrderTransfer;
 use App\Models\ProductMapping;
 use App\Models\SyncJob;
@@ -15,6 +14,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Carbon;
 use Throwable;
 
 /**
@@ -33,9 +33,7 @@ class TransferSingleBayiOrderJob implements ShouldQueue
 
     public int $tries = 1;
 
-    public function __construct(public string $bayiOrderId, public bool $forceReTransfer = false)
-    {
-    }
+    public function __construct(public string $bayiOrderId, public bool $forceReTransfer = false) {}
 
     public function handle(): void
     {
@@ -49,7 +47,7 @@ class TransferSingleBayiOrderJob implements ShouldQueue
             $bayi = OrderService::for('bayi');
             $ana = OrderService::for('ana');
             $anaProduct = ProductService::for('ana');
-            $mapper = new ProductMapper();
+            $mapper = new ProductMapper;
 
             // 1) Bayi'den siparişi taze çek
             $o = $bayi->getOrderById((int) $this->bayiOrderId);
@@ -67,6 +65,7 @@ class TransferSingleBayiOrderJob implements ShouldQueue
                     'ana_id' => $existing->ana_order_id,
                 ], 'skipped', "Zaten aktarılmış (Ana #{$existing->ana_order_id})");
                 $job->update(['status' => 'completed', 'finished_at' => now()]);
+
                 return;
             }
 
@@ -172,10 +171,12 @@ class TransferSingleBayiOrderJob implements ShouldQueue
                                     'last_synced_at' => now(),
                                 ]
                             );
+
                             return $variantCache[$stokKodu] = $varId;
                         }
                     }
                 }
+
                 return $variantCache[$stokKodu] = null;
             };
 
@@ -210,7 +211,7 @@ class TransferSingleBayiOrderJob implements ShouldQueue
                         'action' => 'mark_order',
                         'direction' => 'bayi_to_ana',
                         'status' => 'error',
-                        'message' => 'markOrderTransferred patladı (ana #' . $anaOrderId . ' zaten oluştu): ' . $markEx->getMessage(),
+                        'message' => 'markOrderTransferred patladı (ana #'.$anaOrderId.' zaten oluştu): '.$markEx->getMessage(),
                     ]);
                 }
 
@@ -218,12 +219,12 @@ class TransferSingleBayiOrderJob implements ShouldQueue
                 // ne gönderdiğimizi / ne aldığımızı görebilsin (debug + audit).
                 $client = $ana->getClient();
                 $successDiagRequest = "=== BAYI ORDER (ham) ===\n"
-                    . json_encode($o, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE)
-                    . "\n\n=== ANA PAYLOAD (mapper çıktısı) ===\n"
-                    . json_encode($anaPayload, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+                    .json_encode($o, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE)
+                    ."\n\n=== ANA PAYLOAD (mapper çıktısı) ===\n"
+                    .json_encode($anaPayload, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
                 $lastReqOk = $client->getLastRequestXml();
                 if ($lastReqOk) {
-                    $successDiagRequest .= "\n\n=== SOAP REQUEST XML ===\n" . $lastReqOk;
+                    $successDiagRequest .= "\n\n=== SOAP REQUEST XML ===\n".$lastReqOk;
                 }
                 $this->log($job, $context, 'success', "Ana #{$anaOrderId} (manuel aktarım)",
                     $successDiagRequest,
@@ -245,8 +246,8 @@ class TransferSingleBayiOrderJob implements ShouldQueue
                         // Ana sitede SiparisNo ile ara — son 1 yıl içinde
                         $hits = $ana->getOrdersByFilter([
                             'siparis_no' => $bayiSiparisNo,
-                            'date_from' => \Illuminate\Support\Carbon::now()->subYear()->format('Y-m-d\T00:00:00'),
-                            'date_to' => \Illuminate\Support\Carbon::now()->format('Y-m-d\T23:59:59'),
+                            'date_from' => Carbon::now()->subYear()->format('Y-m-d\T00:00:00'),
+                            'date_to' => Carbon::now()->format('Y-m-d\T23:59:59'),
                         ], 1, 5);
                         if (! empty($hits)) {
                             $existingAnaId = (string) ($hits[0]['ID'] ?? $hits[0]['SiparisID'] ?? '');
@@ -278,6 +279,7 @@ class TransferSingleBayiOrderJob implements ShouldQueue
                         : 'Sipariş ana sitede zaten mevcut (SiparisNo ile bulunamadı ama "transferred" işaretlendi)';
                     $this->log($job, $context, 'success', $msg);
                     $job->update(['status' => 'completed', 'finished_at' => now()]);
+
                     return;
                 }
 
@@ -291,18 +293,18 @@ class TransferSingleBayiOrderJob implements ShouldQueue
                 $client = $ana->getClient();
                 $traceLines = array_slice(explode("\n", $e->getTraceAsString()), 0, 5);
                 $fullMsg = $e->getMessage()
-                    . "\n  ↳ " . $e->getFile() . ':' . $e->getLine()
-                    . "\n  trace:\n    " . implode("\n    ", $traceLines);
+                    ."\n  ↳ ".$e->getFile().':'.$e->getLine()
+                    ."\n  trace:\n    ".implode("\n    ", $traceLines);
 
                 $diagRequest = "=== BAYI ORDER (ham) ===\n"
-                    . json_encode($o, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+                    .json_encode($o, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
                 if ($anaPayload !== null) {
                     $diagRequest .= "\n\n=== ANA PAYLOAD (mapper çıktısı) ===\n"
-                        . json_encode($anaPayload, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+                        .json_encode($anaPayload, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
                 }
                 $lastReq = $client->getLastRequestXml();
                 if ($lastReq) {
-                    $diagRequest .= "\n\n=== SOAP REQUEST XML ===\n" . $lastReq;
+                    $diagRequest .= "\n\n=== SOAP REQUEST XML ===\n".$lastReq;
                 }
 
                 $this->log($job, $context, 'error', $fullMsg, $diagRequest, $client->getLastResponseXml());

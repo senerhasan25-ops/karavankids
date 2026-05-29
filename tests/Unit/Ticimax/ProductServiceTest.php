@@ -15,7 +15,7 @@ class ProductServiceTest extends TestCase
         parent::tearDown();
     }
 
-    public function test_get_new_products_SelectUrun_dogru_parametrelerle_cagrir(): void
+    public function test_get_new_products_select_urun_dogru_parametrelerle_cagrir(): void
     {
         $client = Mockery::mock(TicimaxClient::class);
         $client->shouldReceive('getUyeKodu')->andReturn('U123');
@@ -52,7 +52,7 @@ class ProductServiceTest extends TestCase
         $this->assertSame([], $svc->getNewProducts());
     }
 
-    public function test_get_product_by_barcode_SelectUrun_filtreli_cagirir(): void
+    public function test_get_product_by_barcode_select_urun_filtreli_cagirir(): void
     {
         $client = Mockery::mock(TicimaxClient::class);
         $client->shouldReceive('getUyeKodu')->andReturn('U');
@@ -69,7 +69,7 @@ class ProductServiceTest extends TestCase
         $this->assertSame('Bulundu', $result['UrunAdi']);
     }
 
-    public function test_create_product_SaveUrun_batch_olarak_cagirir(): void
+    public function test_create_product_save_urun_batch_olarak_cagirir(): void
     {
         $client = Mockery::mock(TicimaxClient::class);
         $client->shouldReceive('getUyeKodu')->andReturn('U');
@@ -90,7 +90,7 @@ class ProductServiceTest extends TestCase
         $this->assertSame(99, $result['ID']);
     }
 
-    public function test_update_stock_StokAdediGuncelle_varyasyon_listesi_cagirir(): void
+    public function test_update_stock_stok_adedi_guncelle_varyasyon_listesi_cagirir(): void
     {
         $client = Mockery::mock(TicimaxClient::class);
         $client->shouldReceive('getUyeKodu')->andReturn('U');
@@ -108,7 +108,7 @@ class ProductServiceTest extends TestCase
         $this->addToAssertionCount(1);
     }
 
-    public function test_update_price_UpdateUrunFiyat_barkod_ve_ayar_cagirir(): void
+    public function test_update_price_update_urun_fiyat_barkod_ve_ayar_cagirir(): void
     {
         $client = Mockery::mock(TicimaxClient::class);
         $client->shouldReceive('getUyeKodu')->andReturn('U');
@@ -139,7 +139,7 @@ class ProductServiceTest extends TestCase
         $this->addToAssertionCount(1);
     }
 
-    public function test_set_active_SaveUrun_uzerinden_Aktif_alani_guceller(): void
+    public function test_set_active_save_urun_uzerinden_aktif_alani_guceller(): void
     {
         $client = Mockery::mock(TicimaxClient::class);
         $client->shouldReceive('getUyeKodu')->andReturn('U');

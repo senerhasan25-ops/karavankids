@@ -7,9 +7,7 @@ use Illuminate\Support\Facades\Cache;
 
 class OrderService
 {
-    public function __construct(protected TicimaxClient $client)
-    {
-    }
+    public function __construct(protected TicimaxClient $client) {}
 
     public static function for(string $storeKey): self
     {
@@ -65,6 +63,7 @@ class OrderService
         ];
 
         $resp = $this->client->call('order', $this->method('select'), $params);
+
         return $this->normalizeList($resp, $this->method('select'));
     }
 
@@ -97,12 +96,13 @@ class OrderService
 
         $result = [];
         foreach ((array) $items as $item) {
-            $id  = (int) (is_object($item) ? $item->Key   : ($item['Key']   ?? null));
-            $ad  = (string) (is_object($item) ? $item->Value : ($item['Value'] ?? "Durum #{$id}"));
+            $id = (int) (is_object($item) ? $item->Key : ($item['Key'] ?? null));
+            $ad = (string) (is_object($item) ? $item->Value : ($item['Value'] ?? "Durum #{$id}"));
             $result[] = ['id' => $id, 'ad' => $ad];
         }
 
         usort($result, fn ($a, $b) => $a['id'] <=> $b['id']);
+
         return $result;
     }
 
@@ -122,9 +122,9 @@ class OrderService
 
         // Carbon objesi veya date-only string gelirse Ticimax formatına çevir
         $bas = $bas instanceof Carbon ? $bas->format('Y-m-d\T00:00:00')
-            : (strlen((string) $bas) === 10 ? $bas . 'T00:00:00' : $bas);
+            : (strlen((string) $bas) === 10 ? $bas.'T00:00:00' : $bas);
         $son = $son instanceof Carbon ? $son->format('Y-m-d\T23:59:59')
-            : (strlen((string) $son) === 10 ? $son . 'T23:59:59' : $son);
+            : (strlen((string) $son) === 10 ? $son.'T23:59:59' : $son);
 
         // Ticimax SOAP DataContract bu alanları zorunlu kabul ediyor — omit edersek
         // sessizce boş cevap dönüyor. Alanları HER ZAMAN ekleriz; "Hepsi" için -1 göndeririz
@@ -179,6 +179,7 @@ class OrderService
         // TEK STATÜ — direkt SOAP çağrısı
         if ($siparisDurumu >= 0) {
             $resp = $this->client->call('order', $this->method('select'), $buildParams($siparisDurumu));
+
             return $this->normalizeList($resp, $this->method('select'));
         }
 
@@ -188,7 +189,7 @@ class OrderService
         // 60 saniye boyunca aynı (filtre+sayfa+perPage) kombinasyonu cache'ten döner.
         // Cache key: store_key + tüm filtre + page bilgisini içeren hash.
         $storeKey = $this->client->getCredential()->store_key ?? 'unknown';
-        $cacheKey = 'ticimax.orders.hepsi.' . $storeKey . '.' . md5(json_encode([
+        $cacheKey = 'ticimax.orders.hepsi.'.$storeKey.'.'.md5(json_encode([
             $bas, $son, $odemeDurumu, $paketlemeDurumu, $odemeTipi, $aktarildi,
             $filters['siparis_id'] ?? 0,
             $filters['siparis_no'] ?? null,
@@ -218,6 +219,7 @@ class OrderService
                     (string) ($a['SiparisTarihi'] ?? $a['DuzenlemeTarihi'] ?? '')
                 );
             });
+
             return array_slice($merged, $startIdx, $perPage);
         });
     }
@@ -232,6 +234,7 @@ class OrderService
     {
         $storeKey = $this->client->getCredential()->store_key ?? 'unknown';
         $cacheKey = "ticimax.order.byid.{$storeKey}.{$siparisId}";
+
         return Cache::remember($cacheKey, now()->addSeconds($ttlSeconds), function () use ($siparisId) {
             return $this->getOrderById($siparisId);
         });
@@ -248,6 +251,7 @@ class OrderService
             'date_from' => Carbon::now()->subYear()->format('Y-m-d\T00:00:00'),
             'date_to' => Carbon::now()->format('Y-m-d\T23:59:59'),
         ], 1, 1);
+
         return $orders[0] ?? null;
     }
 
@@ -299,7 +303,7 @@ class OrderService
                 }
             }
             $full = "Ticimax SaveSiparis reddetti: {$msg}"
-                . ($subMsgs ? "\n" . implode("\n", $subMsgs) : '');
+                .($subMsgs ? "\n".implode("\n", $subMsgs) : '');
             throw new \RuntimeException($full);
         }
 
@@ -317,6 +321,7 @@ class OrderService
         if ($anaOrderId !== null && ! isset($normalized['SiparisID'])) {
             $normalized['SiparisID'] = (string) $anaOrderId;
         }
+
         return $normalized;
     }
 
@@ -353,19 +358,19 @@ class OrderService
         $wsdlPath = $cred->wsdl_path_order ?: config('ticimax.wsdl_paths.order');
         $endpoint = preg_match('#^https?://#i', (string) $wsdlPath)
             ? $wsdlPath
-            : rtrim($cred->endpoint_url, '/') . '/' . ltrim($wsdlPath, '/');
+            : rtrim($cred->endpoint_url, '/').'/'.ltrim($wsdlPath, '/');
         $base = preg_replace('/\?wsdl$/i', '', $endpoint);
         $cacheKey = "ticimax.enum.{$cred->store_key}.{$enumType}";
 
-        return \Illuminate\Support\Facades\Cache::remember($cacheKey, now()->addDay(), function () use ($base, $enumType) {
+        return Cache::remember($cacheKey, now()->addDay(), function () use ($base, $enumType) {
             // Ticimax XSD'leri xsd0, xsd1, ... olarak parçalı dağıtıyor — en fazla 10'a kadar deneriz
             for ($i = 0; $i < 10; $i++) {
-                $xml = @file_get_contents($base . '?xsd=xsd' . $i);
-                if (! $xml || strpos($xml, '"' . $enumType . '"') === false) {
+                $xml = @file_get_contents($base.'?xsd=xsd'.$i);
+                if (! $xml || strpos($xml, '"'.$enumType.'"') === false) {
                     continue;
                 }
                 // simpleType[name=$enumType] içindeki enumeration value'larını çek
-                $doc = new \DOMDocument();
+                $doc = new \DOMDocument;
                 @$doc->loadXML($xml);
                 $xp = new \DOMXPath($doc);
                 $xp->registerNamespace('xs', 'http://www.w3.org/2001/XMLSchema');
@@ -375,9 +380,11 @@ class OrderService
                     foreach ($nodes as $idx => $node) {
                         $result[$idx] = $node->getAttribute('value');
                     }
+
                     return $result;
                 }
             }
+
             return [];
         });
     }
@@ -449,6 +456,7 @@ class OrderService
             ],
         ];
         $resp = $this->client->call('order', 'SetSiparisDurum', $params);
+
         return $this->normalizeOne($resp) ?? ['method' => 'SetSiparisDurum', 'durum' => $durumEnum];
     }
 
@@ -465,6 +473,7 @@ class OrderService
             'PaketlemeDurumId' => $paketlemeKodu,
         ];
         $resp = $this->client->call('order', 'SetSiparisPaketlemeDurum', $params);
+
         return $this->normalizeOne($resp) ?? ['method' => 'SetSiparisPaketlemeDurum'];
     }
 
@@ -525,6 +534,7 @@ class OrderService
             ],
         ];
         $resp = $this->client->call('order', 'SetSiparisOdemeDurum', $params);
+
         return $this->normalizeOne($resp) ?? ['method' => 'SetSiparisOdemeDurum', 'odeme_id' => $odemeId, 'durum' => $odemeDurumEnum];
     }
 
@@ -542,6 +552,7 @@ class OrderService
                 }
             }
         }
+
         return null;
     }
 
@@ -554,6 +565,7 @@ class OrderService
                 'aktarilanSiparisKodu' => $externalRef ?? '',
             ];
             $resp = $this->client->call('order', $this->method('mark_transferred'), $params);
+
             return $this->normalizeOne($resp) ?? ['method' => 'SetSiparisAktarildi'];
         } catch (\Throwable $e) {
             // Fallback: paketleme durumunu 2 yap → bir daha "yeni" filtresine girmez.
@@ -563,6 +575,7 @@ class OrderService
                 'PaketlemeDurumId' => 2,
             ];
             $resp = $this->client->call('order', 'SetSiparisPaketlemeDurum', $params);
+
             return $this->normalizeOne($resp) ?? ['method' => 'SetSiparisPaketlemeDurum', 'fallback_reason' => $e->getMessage()];
         }
     }
@@ -574,7 +587,7 @@ class OrderService
 
     protected function normalizeList(mixed $resp, string $method = ''): array
     {
-        $resultKey = $method . 'Result';
+        $resultKey = $method.'Result';
         if (is_object($resp) && isset($resp->{$resultKey})) {
             $resp = $resp->{$resultKey};
         }
@@ -594,6 +607,7 @@ class OrderService
         if (! array_is_list($resp)) {
             $resp = [$resp];
         }
+
         return array_map(fn ($r) => $this->toArray($r), $resp);
     }
 
@@ -610,6 +624,7 @@ class OrderService
         if (is_object($v)) {
             return $this->toArray((array) $v);
         }
+
         return [];
     }
 }
