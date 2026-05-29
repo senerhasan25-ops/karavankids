@@ -1,13 +1,12 @@
 <?php
 
-require __DIR__.'/../vendor/autoload.php';
-$app = require_once __DIR__.'/../bootstrap/app.php';
-$kernel = $app->make(Kernel::class);
+require __DIR__ . '/../vendor/autoload.php';
+$app = require_once __DIR__ . '/../bootstrap/app.php';
+$kernel = $app->make(Illuminate\Contracts\Console\Kernel::class);
 $kernel->bootstrap();
 
 use App\Services\Ticimax\ProductMapper;
 use App\Services\Ticimax\ProductService;
-use Illuminate\Contracts\Console\Kernel;
 
 $ana = ProductService::for('ana');
 $bayi = ProductService::for('bayi');
@@ -56,44 +55,40 @@ scan: while ($page <= 50) {
 }
 
 if (! $found) {
-    echo "Ana'nın ilk ".(($page - 1) * 25)." ürününde bayi'de olmayan bulunamadı. Sayfa aralığını genişlet.\n";
+    echo "Ana'nın ilk " . (($page - 1) * 25) . " ürününde bayi'de olmayan bulunamadı. Sayfa aralığını genişlet.\n";
     exit(1);
 }
 
 echo "\n=== 2) Ürün detayı ===\n";
 $varList = $found['Varyasyonlar']['Varyasyon'] ?? $found['Varyasyonlar'];
-if (isset($varList['Barkod'])) {
-    $varList = [$varList];
-}
+if (isset($varList['Barkod'])) { $varList = [$varList]; }
 $primary = $varList[0];
 echo "  Ana UrunKartiID: {$found['ID']}\n";
 echo "  Ürün Adı: {$found['UrunAdi']}\n";
-echo '  Marka: '.($found['Marka'] ?? '-')."\n";
-echo '  Tedarikçi: ana ID='.($found['TedarikciID'] ?? 0)."\n";
-echo '  Aktif: '.(! empty($found['Aktif']) ? 'evet' : 'hayır')."\n";
-echo '  Varyasyon sayısı: '.count($varList)."\n";
+echo "  Marka: " . ($found['Marka'] ?? '-') . "\n";
+echo "  Tedarikçi: ana ID=" . ($found['TedarikciID'] ?? 0) . "\n";
+echo "  Aktif: " . (! empty($found['Aktif']) ? 'evet' : 'hayır') . "\n";
+echo "  Varyasyon sayısı: " . count($varList) . "\n";
 echo "  Birincil barkod: {$primary['Barkod']} | stok={$primary['StokAdedi']} | fiyat={$primary['SatisFiyati']} | ParaBirimi={$primary['ParaBirimi']} ID={$primary['ParaBirimiID']}\n";
 
 echo "\n=== 3) Mapper payload üret ===\n";
-$mapper = new ProductMapper;
+$mapper = new ProductMapper();
 $defaultBrandId = $bayi->getDefaultBrandId();
 $defaultSupplierId = $bayi->getDefaultSupplierId();
 $mapper->setBrandResolver(function (string $name) use ($bayi, $defaultBrandId) {
     $id = $bayi->findOrCreateBrandId($name);
-
     return $id > 0 ? $id : $defaultBrandId;
 });
 $anaSupplierIdToName = array_flip($ana->getSupplierMap());
 $mapper->setSupplierResolver(function (int $anaId) use ($anaSupplierIdToName, $bayi, $defaultSupplierId) {
     $name = $anaSupplierIdToName[$anaId] ?? '';
     $id = $name ? $bayi->findOrCreateSupplierId($name) : 0;
-
     return $id > 0 ? $id : $defaultSupplierId;
 });
 
 $payload = $mapper->anaToBayiCreatePayload($found);
 echo "  Payload UrunAdi: {$payload['UrunAdi']}\n";
-echo '  Payload Marka: '.($payload['Marka'] ?: '(boş)')." (ID={$payload['MarkaID']})\n";
+echo "  Payload Marka: " . ($payload['Marka'] ?: '(boş)') . " (ID={$payload['MarkaID']})\n";
 echo "  Payload TedarikciID: {$payload['TedarikciID']}\n";
 echo "  Varyasyon[0]: barkod={$payload['Varyasyonlar'][0]['Barkod']} stok={$payload['Varyasyonlar'][0]['StokAdedi']} fiyat={$payload['Varyasyonlar'][0]['SatisFiyati']} ParaBirimiID={$payload['Varyasyonlar'][0]['ParaBirimiID']}\n";
 
@@ -115,20 +110,18 @@ try {
         $check = $bayi->getProductByBarcode($primary['Barkod']);
         if ($check) {
             $checkVar = $check['Varyasyonlar']['Varyasyon'] ?? $check['Varyasyonlar'];
-            if (isset($checkVar['Barkod'])) {
-                $checkVar = [$checkVar];
-            }
+            if (isset($checkVar['Barkod'])) { $checkVar = [$checkVar]; }
             $cv = $checkVar[0];
             echo "  Bayi'deki kayıt:\n";
-            echo "    ID={$check['ID']} | Aktif=".(! empty($check['Aktif']) ? 'evet' : 'hayır')."\n";
+            echo "    ID={$check['ID']} | Aktif=" . (! empty($check['Aktif']) ? 'evet' : 'hayır') . "\n";
             echo "    UrunAdi: {$check['UrunAdi']}\n";
-            echo '    Marka: '.($check['Marka'] ?? '-')." (MarkaID={$check['MarkaID']})\n";
-            echo '    TedarikciID: '.($check['TedarikciID'] ?? '-')."\n";
+            echo "    Marka: " . ($check['Marka'] ?? '-') . " (MarkaID={$check['MarkaID']})\n";
+            echo "    TedarikciID: " . ($check['TedarikciID'] ?? '-') . "\n";
             echo "    Birincil varyasyon: barkod={$cv['Barkod']} stok={$cv['StokAdedi']} fiyat={$cv['SatisFiyati']} ID={$cv['ID']}\n";
         }
     } else {
         echo "  ✗ Yine 0 döndü, bir sorun var\n";
     }
-} catch (Throwable $e) {
-    echo '  ✗ HATA: '.$e->getMessage()."\n";
+} catch (\Throwable $e) {
+    echo "  ✗ HATA: " . $e->getMessage() . "\n";
 }

@@ -4,8 +4,8 @@
  * Ana magazadaki gercek urun sayisini ve neden listede 65 gozuktugunu tespit et.
  */
 
-require __DIR__.'/../vendor/autoload.php';
-$app = require_once __DIR__.'/../bootstrap/app.php';
+require __DIR__.'/../../vendor/autoload.php';
+$app = require_once __DIR__.'/../../bootstrap/app.php';
 $app->make(Kernel::class)->bootstrap();
 
 use App\Services\Ticimax\ProductService;
