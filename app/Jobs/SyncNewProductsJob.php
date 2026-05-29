@@ -2,10 +2,10 @@
 
 namespace App\Jobs;
 
+use App\Jobs\Concerns\BuffersSyncWrites;
 use App\Livewire\QueueControl;
 use App\Models\ProductMapping;
 use App\Models\SyncJob;
-use App\Models\SyncLog;
 use App\Models\SyncSetting;
 use App\Services\Ticimax\ProductMapper;
 use App\Services\Ticimax\ProductService;
@@ -35,7 +35,7 @@ use Throwable;
  */
 class SyncNewProductsJob implements ShouldQueue
 {
-    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+    use BuffersSyncWrites, Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public int $tries = 3;
     public int $backoff = 30;
@@ -138,13 +138,16 @@ class SyncNewProductsJob implements ShouldQueue
 
                 if ($result['bug']) {
                     $consecutiveBugPages++;
-                    SyncLog::create([
-                        'job_id' => $job->id,
-                        'action' => 'create_product',
-                        'direction' => 'ana_to_bayi',
-                        'status' => 'warning',
-                        'message' => "Ticimax SOAP page bug — sayfa #{$page}: {$result['recovered']} ürün kurtarıldı, ~{$result['lost']} ürün kaçırıldı. Devam ediliyor.",
-                    ]);
+                    // warning: action/direction NOT NULL — boş ctx ile bufferLog kullan.
+                    $this->bufferLog(
+                        $job,
+                        [],
+                        'create_product',
+                        'warning',
+                        "Ticimax SOAP page bug — sayfa #{$page}: {$result['recovered']} ürün kurtarıldı, ~{$result['lost']} ürün kaçırıldı. Devam ediliyor.",
+                    );
+                    // warning'i total sayma — sadece gerçek ürünler sayılsın.
+                    $this->pendingTotal--;
                     if (empty($products) && $consecutiveBugPages >= $maxConsecutiveBugPages) {
                         break; // muhtemelen gerçek veri sonu
                     }
@@ -160,9 +163,11 @@ class SyncNewProductsJob implements ShouldQueue
                         $stoppedEarly = true;
                         break 2;
                     }
-                    $job->increment('total');
                     $this->processOne($job, $urunKarti, $bayi, $mapper, $selectedFields);
                 }
+
+                // Sayfa sonunda tamponu boşalt (bulk insert + tek sayaç update).
+                $this->flushSyncBuffers($job);
 
                 // Normal (bug olmayan) sayfada tam dolmamışsa son sayfadayız.
                 // Bug sayfasında count<perPage normaldir (dilim kaybı) → devam et.
@@ -171,6 +176,10 @@ class SyncNewProductsJob implements ShouldQueue
                 }
                 $page++;
             }
+
+            // Döngü break ile çıkmış olabilir (erken durdurma / son sayfa) —
+            // kalan tamponu mutlaka yaz.
+            $this->flushSyncBuffers($job);
 
             $job->update([
                 'status' => $stoppedEarly ? 'failed' : 'completed',
@@ -185,6 +194,8 @@ class SyncNewProductsJob implements ShouldQueue
                 SyncSetting::put(self::LAST_RUN_KEY, $startedAt->toIso8601String());
             }
         } catch (Throwable $e) {
+            // Patlamadan önce biriken log'ları kaybetme.
+            $this->flushSyncBuffers($job);
             $job->update([
                 'status' => 'failed',
                 'finished_at' => now(),
@@ -433,28 +444,13 @@ class SyncNewProductsJob implements ShouldQueue
 
     protected function logSuccess(SyncJob $job, array $ctx, string $msg): void
     {
-        $job->increment('success_count');
-        SyncLog::create(array_merge($ctx, [
-            'job_id' => $job->id,
-            'action' => 'create_product',
-            'direction' => 'ana_to_bayi',
-            'status' => 'success',
-            'message' => $msg,
-        ]));
+        // Tampona yaz — sayfa sonunda flushSyncBuffers() ile toplu insert/increment (#4).
+        $this->bufferLog($job, $ctx, 'create_product', 'success', $msg);
     }
 
     protected function logError(SyncJob $job, array $ctx, string $msg, ?string $rawRequest = null, ?string $rawResponse = null): void
     {
-        $job->increment('error_count');
-        SyncLog::create(array_merge($ctx, [
-            'job_id' => $job->id,
-            'action' => 'create_product',
-            'direction' => 'ana_to_bayi',
-            'status' => 'error',
-            'message' => $msg,
-            'raw_request' => $rawRequest,
-            'raw_response' => $rawResponse,
-        ]));
+        $this->bufferLog($job, $ctx, 'create_product', 'error', $msg, 'ana_to_bayi', $rawRequest, $rawResponse);
     }
 
     /**

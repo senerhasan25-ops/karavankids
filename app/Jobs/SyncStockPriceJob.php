@@ -2,10 +2,10 @@
 
 namespace App\Jobs;
 
+use App\Jobs\Concerns\BuffersSyncWrites;
 use App\Livewire\QueueControl;
 use App\Models\ProductMapping;
 use App\Models\SyncJob;
-use App\Models\SyncLog;
 use App\Models\SyncSetting;
 use App\Services\Ticimax\ProductService;
 use Illuminate\Bus\Queueable;
@@ -34,7 +34,7 @@ use Throwable;
  */
 class SyncStockPriceJob implements ShouldQueue
 {
-    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+    use BuffersSyncWrites, Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public int $tries = 3;
     public int $backoff = 30;
@@ -85,6 +85,7 @@ class SyncStockPriceJob implements ShouldQueue
 
             $this->handleDelta($job, $ana, $bayi, $startedAt);
         } catch (Throwable $e) {
+            $this->flushSyncBuffers($job); // biriken log'ları kaybetme
             $job->update([
                 'status'      => 'failed',
                 'finished_at' => now(),
@@ -135,13 +136,14 @@ class SyncStockPriceJob implements ShouldQueue
 
             if ($result['bug']) {
                 $consecutiveBugPages++;
-                SyncLog::create([
-                    'job_id' => $job->id,
-                    'action' => 'update_stock_price',
-                    'direction' => 'ana_to_bayi',
-                    'status' => 'warning',
-                    'message' => "Ticimax SOAP page bug — sayfa #{$page}: {$result['recovered']} ürün kurtarıldı, ~{$result['lost']} ürün kaçırıldı.",
-                ]);
+                $this->bufferLog(
+                    $job,
+                    [],
+                    'update_stock_price',
+                    'warning',
+                    "Ticimax SOAP page bug — sayfa #{$page}: {$result['recovered']} ürün kurtarıldı, ~{$result['lost']} ürün kaçırıldı.",
+                );
+                $this->pendingTotal--; // warning'i ürün sayma
                 if (empty($products) && $consecutiveBugPages >= $maxConsecutiveBugPages) {
                     break;
                 }
@@ -153,12 +155,16 @@ class SyncStockPriceJob implements ShouldQueue
             }
 
             $this->processPage($job, $bayi, $products, $mappings);
+            $this->flushSyncBuffers($job); // sayfa sonunda toplu yaz (#4)
 
             if (! $result['bug'] && count($products) < $perPage) {
                 break;
             }
             $page++;
         }
+
+        // Döngü break ile çıkmış olabilir → kalan tamponu yaz.
+        $this->flushSyncBuffers($job);
 
         // ── Checkpoint'i güncelle (sadece başarılı tamamlamada) ─────────────
         if (! $stoppedEarly) {
@@ -208,7 +214,7 @@ class SyncStockPriceJob implements ShouldQueue
                     continue; // DuzenlemeTarihi güncellendi ama stok/fiyat aynı (başka alan değişti)
                 }
 
-                $job->increment('total');
+                // total sayımı bufferLog içinde yapılır (her success/error += 1).
 
                 if ($stockChanged) {
                     $vi = ['ID' => (int) $m->bayi_variant_id, 'StokAdedi' => $stock];
@@ -273,7 +279,6 @@ class SyncStockPriceJob implements ShouldQueue
                     $parts[] = 'fiyat ' . ($m->last_price ?? '?') . '→' . number_format($data['price'], 2);
                 }
 
-                $job->increment('success_count');
                 $this->log($job, $ctx, 'success', implode(' | ', $parts));
                 $m->update([
                     'last_stock'     => $data['stock'],
@@ -283,7 +288,6 @@ class SyncStockPriceJob implements ShouldQueue
                     'last_synced_at' => now(),
                 ]);
             } else {
-                $job->increment('error_count');
                 $this->log($job, $ctx, 'error', 'Batch hatası: ' . substr($batchError, 0, 250));
                 $m->update(['status' => 'error', 'last_error' => $batchError]);
             }
@@ -308,10 +312,13 @@ class SyncStockPriceJob implements ShouldQueue
 
                         return false;
                     }
-                    $job->increment('total');
                     $this->processOne($job, $m, $ana, $bayi);
                 }
+
+                $this->flushSyncBuffers($job); // her chunk sonunda toplu yaz (#4)
             });
+
+        $this->flushSyncBuffers($job); // kalan tampon
 
         $job->update([
             'status'      => $stoppedEarly ? 'failed' : 'completed',
@@ -376,10 +383,8 @@ class SyncStockPriceJob implements ShouldQueue
                 'last_error'     => null,
             ]);
 
-            $job->increment('success_count');
             $this->log($job, $context, 'success', implode(' | ', $msgParts));
         } catch (Throwable $e) {
-            $job->increment('error_count');
             $m->update(['status' => 'error', 'last_error' => $e->getMessage()]);
             $this->log($job, $context, 'error', $e->getMessage());
         }
@@ -408,12 +413,7 @@ class SyncStockPriceJob implements ShouldQueue
 
     protected function log(SyncJob $job, array $ctx, string $status, string $msg): void
     {
-        SyncLog::create(array_merge($ctx, [
-            'job_id'    => $job->id,
-            'action'    => 'update_stock_price',
-            'direction' => 'ana_to_bayi',
-            'status'    => $status,
-            'message'   => $msg,
-        ]));
+        // Tampona yaz — flushSyncBuffers() ile sayfa/chunk sonunda toplu insert (#4).
+        $this->bufferLog($job, $ctx, 'update_stock_price', $status, $msg);
     }
 }
