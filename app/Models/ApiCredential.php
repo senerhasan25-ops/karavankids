@@ -17,6 +17,8 @@ class ApiCredential extends Model
     ];
 
     protected $casts = [
+        // username = Ticimax "Web Servis Yetki Kodu" = asıl gizli anahtar → şifreli sakla.
+        'username' => 'encrypted',
         'password' => 'encrypted',
         'is_active' => 'boolean',
     ];
