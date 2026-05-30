@@ -122,10 +122,10 @@ class SyncStockPriceJob implements ShouldQueue
 
         // ── Tüm mapping'leri tek sorguda belleğe al ─────────────────────────
         // 1000 ürün için ~1 MB — yönetilebilir. Her SOAP döngüsünde DB query YOK.
-        $mappings = ProductMapping::whereNotNull('bayi_variant_id')
-            ->whereNotNull('stok_kodu')
-            ->get()
-            ->keyBy('stok_kodu');
+        // Eşleme anahtarı tedarikçi kodu (birincil); stok_kodu yedek (ted boşsa).
+        $allMappings = ProductMapping::whereNotNull('bayi_variant_id')->get();
+        $byTed = $allMappings->filter(fn ($m) => (string) $m->tedarikci_kodu !== '')->keyBy('tedarikci_kodu');
+        $byStok = $allMappings->filter(fn ($m) => (string) $m->stok_kodu !== '')->keyBy('stok_kodu');
 
         // ── Ana'dan değişen ürünleri sayfa sayfa çek ────────────────────────
         $consecutiveBugPages = 0;
@@ -161,7 +161,7 @@ class SyncStockPriceJob implements ShouldQueue
                 }
             }
 
-            $this->processPage($job, $bayi, $products, $mappings);
+            $this->processPage($job, $bayi, $products, $byTed, $byStok);
             $this->flushSyncBuffers($job); // sayfa sonunda toplu yaz (#4)
 
             if (! $result['bug'] && count($products) < $perPage) {
@@ -191,23 +191,28 @@ class SyncStockPriceJob implements ShouldQueue
      *  - Gerçekten değişenleri batch dizilerine ekle
      *  - Tek updateStockBatch + updatePriceBatch SOAP çağrısı
      */
-    private function processPage(SyncJob $job, ProductService $bayi, array $products, $mappings): void
+    private function processPage(SyncJob $job, ProductService $bayi, array $products, $byTed, $byStok): void
     {
         $stockBatch = [];
         $priceBatch = [];
-        $toUpdate = [];  // stok_kodu → meta
+        $toUpdate = [];  // tedarikçi kodu → meta
 
         foreach ($products as $urunKarti) {
             foreach ($this->extractVariants($urunKarti) as $v) {
                 $stokKodu = (string) ($v['StokKodu'] ?? '');
-                if ($stokKodu === '') {
+                $ted = trim((string) ($v['TedarikciKodu'] ?? ''));
+                if ($ted === '' && $stokKodu === '') {
                     continue;
                 }
 
-                $m = $mappings->get($stokKodu);
+                // Eşleme önceliği: tedarikçi kodu → stok_kodu (yedek).
+                $m = ($ted !== '' ? ($byTed->get($ted)) : null)
+                    ?? ($stokKodu !== '' ? ($byStok->get($stokKodu)) : null);
                 if (! $m || ! $m->bayi_variant_id) {
                     continue; // bu varyasyon bayi'ye eşleşmemiş, atla
                 }
+                // Birden çok varyasyon aynı mapping'e düşmesin diye anahtar olarak mapping id kullan.
+                $rowKey = $m->tedarikci_kodu ?: ('stok:'.$stokKodu);
 
                 $stock = (int) ($v['StokAdedi'] ?? 0);
                 $price = (float) ($v['SatisFiyati'] ?? 0);
@@ -240,7 +245,7 @@ class SyncStockPriceJob implements ShouldQueue
                     ];
                 }
 
-                $toUpdate[$stokKodu] = [
+                $toUpdate[$rowKey] = [
                     'stock' => $stock,
                     'price' => $price,
                     'mapping' => $m,
@@ -268,11 +273,11 @@ class SyncStockPriceJob implements ShouldQueue
         }
 
         // ── Sonuçları logla + mapping güncelle ─────────────────────────────
-        foreach ($toUpdate as $stokKodu => $data) {
+        foreach ($toUpdate as $data) {
             $m = $data['mapping'];
             $ctx = [
                 'barcode' => $m->barcode,
-                'stok_kodu' => $stokKodu,
+                'stok_kodu' => $m->stok_kodu,
                 'ana_id' => $m->ana_product_id,
                 'bayi_id' => $m->bayi_product_id,
             ];
