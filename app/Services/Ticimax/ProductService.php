@@ -364,7 +364,9 @@ class ProductService
      */
     public function getProductsByStockOrPriceChanged(?Carbon $since = null, int $page = 1, int $perPage = 50, string $sortDir = 'ASC'): array
     {
-        return $this->getProductsByDateFilter('FiyatStokGuncellemeTarihiBas', 'FiyatStokGuncellemeTarihiSon', $since, $page, $perPage, $sortDir);
+        // DİKKAT: Doğru alan StokGuncellemeTarihiBaslangic (canlı doğrulandı).
+        // Eski 'FiyatStokGuncellemeTarihiBas' Ticimax tarafında yok sayılıyordu.
+        return $this->getProductsByDateFilter('StokGuncellemeTarihiBaslangic', 'StokGuncellemeTarihiBitis', $since, $page, $perPage, $sortDir);
     }
 
     /**
@@ -387,10 +389,16 @@ class ProductService
     {
         $params = [
             'UyeKodu' => $this->client->getUyeKodu(),
-            'f' => $this->baseFilter() + [
+            // DİKKAT: array_merge kullan, `+` DEĞİL. baseFilter() zaten
+            // EklemeTarihiBaslangic/Bitis anahtarlarını MIN/MAX ile içeriyor;
+            // `+` birleşiminde çakışan anahtarda SOLDAKI (baseFilter) kazanır ve
+            // tarih override'ı sessizce ATILIRDI → created filtresi hep MIN kalıp
+            // TÜM kataloğu döndürüyordu (delta sync çalışmıyordu). array_merge ile
+            // sağdaki (gerçek tarih) kazanır.
+            'f' => array_merge($this->baseFilter(), [
                 $startField => $since ? $since->format('Y-m-d\TH:i:s') : self::MIN_DATETIME,
                 $endField => self::MAX_DATETIME,
-            ],
+            ]),
             's' => [
                 'BaslangicIndex' => $startIdx,
                 'KayitSayisi' => $perPage,
@@ -405,9 +413,14 @@ class ProductService
     }
 
     /** Filtre tipi → [startField, endField] eşlemesi (recovery için tek kaynak). */
+    // Canlı doğrulanmış alan adları (2099 testi, debug-stock-filter-field.php):
+    //   EklemeTarihiBaslangic           → filtreliyor ✓ (yeni eklenen)
+    //   StokGuncellemeTarihiBaslangic   → filtreliyor ✓ (stok/fiyat değişimi)
+    //   DuzenlemeTarihiBaslangic        → filtreliyor ✓ (herhangi düzenleme)
+    //   FiyatStokGuncellemeTarihiBas    → Ticimax YOK SAYIYOR ✗ (eski yanlış ad)
     private const FILTER_FIELDS = [
         'created' => ['EklemeTarihiBaslangic', 'EklemeTarihiBitis'],
-        'stock_price' => ['FiyatStokGuncellemeTarihiBas', 'FiyatStokGuncellemeTarihiSon'],
+        'stock_price' => ['StokGuncellemeTarihiBaslangic', 'StokGuncellemeTarihiBitis'],
         'modified' => ['DuzenlemeTarihiBaslangic', 'DuzenlemeTarihiBitis'],
     ];
 
