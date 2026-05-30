@@ -188,45 +188,17 @@ class OrderService
             return $this->normalizeList($resp, $this->method('select'));
         }
 
-        // HEPSİ MODU — kullanıcı "Hepsi" seçti, tüm bilinen durumları döngüye al + dedup.
-        // Performans: 23 SOAP çağrısı. Aynı filtreyle peş peşe tıklamalarda (sayfa
-        // değiştir / geri dön) tekrar 23 çağrı yapılmaması için kısa-süreli cache:
-        // 5 dakika boyunca aynı (filtre+sayfa+perPage) kombinasyonu cache'ten döner.
-        // Cache key: store_key + tüm filtre + page bilgisini içeren hash.
-        $storeKey = $this->client->getCredential()->store_key ?? 'unknown';
-        $cacheKey = 'ticimax.orders.hepsi.'.$storeKey.'.'.md5(json_encode([
-            $bas, $son, $odemeDurumu, $paketlemeDurumu, $odemeTipi, $aktarildi,
-            $filters['siparis_id'] ?? 0,
-            $filters['siparis_no'] ?? null,
-            $filters['siparis_kaynagi'] ?? '',
-            $filters['uye_telefon'] ?? null,
-            $startIdx, $perPage,
-        ]));
+        // HEPSİ MODU — kullanıcı "Hepsi" seçti. Eskiden SiparisDurumu=-1'in 0 sonuç
+        // döndürdüğü varsayılıp 23 durum tek tek sorgulanıp birleştiriliyordu (4748ms).
+        // Canlı doğrulama (D): SiparisDurumu=-1 TEK çağrı, native pagination + DESC
+        // sıralamayla TÜM siparişleri döndürüyor — TEK İSTİSNA: Durum=10 "Silinmiş"
+        // siparişler hariç tutuluyor. Bu bir transfer panelinde istenen davranıştır
+        // (silinmiş sipariş aktarılmaz). Silinmişleri görmek isteyen kullanıcı durumu
+        // açıkça "Silinmiş" seçer (o yol yukarıdaki tek-çağrı dalına düşer).
+        // Net etki: 23 çağrı / ~4.7sn → 1 çağrı / ~0.2sn.
+        $resp = $this->client->call('order', $this->method('select'), $buildParams(-1));
 
-        return Cache::remember($cacheKey, now()->addMinutes(5), function () use ($buildParams, $startIdx, $perPage) {
-            $merged = [];
-            $seen = [];
-            foreach (range(0, 22) as $statusCode) {
-                $resp = $this->client->call('order', $this->method('select'), $buildParams($statusCode));
-                $batch = $this->normalizeList($resp, $this->method('select'));
-                foreach ($batch as $o) {
-                    $id = (string) ($o['ID'] ?? $o['SiparisID'] ?? '');
-                    if ($id !== '' && ! isset($seen[$id])) {
-                        $seen[$id] = true;
-                        $merged[] = $o;
-                    }
-                }
-            }
-            // Tarihe göre DESC sırala
-            usort($merged, function ($a, $b) {
-                return strcmp(
-                    (string) ($b['SiparisTarihi'] ?? $b['DuzenlemeTarihi'] ?? ''),
-                    (string) ($a['SiparisTarihi'] ?? $a['DuzenlemeTarihi'] ?? '')
-                );
-            });
-
-            return array_slice($merged, $startIdx, $perPage);
-        });
+        return $this->normalizeList($resp, $this->method('select'));
     }
 
     /**
