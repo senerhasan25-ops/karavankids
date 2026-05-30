@@ -184,6 +184,16 @@ class SyncNewProductsJob implements ShouldQueue
             // kalan tamponu mutlaka yaz.
             $this->flushSyncBuffers($job);
 
+            // ── EKSİK ÜRÜNLERİ TAMAMLA ──────────────────────────────────────
+            // created-delta yalnızca checkpoint SONRASI eklenen ürünleri getirir;
+            // "ana'da var ama bayide yok" (FullRemapProductsJob'un status=pending
+            // işaretlediği) eski ürünler buraya hiç düşmez. Bu geçiş onları
+            // stok_kodu ile ana'dan çekip bayide oluşturur. Oluşan ürün
+            // status=synced olur → bir sonraki çalışmada tekrar denenmez.
+            if (! $stoppedEarly) {
+                $this->processPendingMissing($job, $ana, $bayi, $mapper, $selectedFields);
+            }
+
             $job->update([
                 'status' => $stoppedEarly ? 'failed' : 'completed',
                 'finished_at' => now(),
@@ -369,6 +379,54 @@ class SyncNewProductsJob implements ShouldQueue
                 );
             }
         }
+    }
+
+    /**
+     * "Ana'da var, bayide yok" (status=pending, bayi_product_id NULL) ürünleri
+     * stok_kodu ile ana'dan çekip bayide oluştur. FullRemapProductsJob bu satırları
+     * işaretler; bu geçiş onları gerçekten aktarır. Aynı ana kartının birden çok
+     * pending varyasyonu olabilir → ana_product_id'ye göre tekille, kart başına bir kez.
+     */
+    protected function processPendingMissing(SyncJob $job, ProductService $ana, ProductService $bayi, ProductMapper $mapper, ?array $selectedFields): void
+    {
+        $pending = ProductMapping::where('status', 'pending')
+            ->whereNull('bayi_product_id')
+            ->whereNotNull('stok_kodu')
+            ->get(['stok_kodu', 'barcode', 'ana_product_id']);
+
+        if ($pending->isEmpty()) {
+            return;
+        }
+
+        $seenCards = [];
+        foreach ($pending as $m) {
+            if (QueueControl::isStopRequested($job->id)) {
+                break;
+            }
+            // Aynı kartı iki kez işleme (processOne zaten tüm varyasyonları kapsar).
+            $cardKey = $m->ana_product_id ?: ('stok:'.$m->stok_kodu);
+            if (isset($seenCards[$cardKey])) {
+                continue;
+            }
+            $seenCards[$cardKey] = true;
+
+            $ctx = ['stok_kodu' => $m->stok_kodu, 'barcode' => $m->barcode, 'ana_id' => $m->ana_product_id];
+            try {
+                $anaCard = $ana->getProductByStokKodu($m->stok_kodu);
+                if (! $anaCard || (int) ($anaCard['ID'] ?? 0) === 0) {
+                    $this->logError($job, $ctx, 'Eksik ürün: ana mağazada stok_kodu ile bulunamadı (silinmiş olabilir)');
+
+                    continue;
+                }
+                // processOne: lokal mapping (bayi_id NULL) → SOAP probe → bayide yoksa createProduct
+                // → upsertMappings bayi ID'lerini yazıp status=synced yapar.
+                $this->processOne($job, $anaCard, $bayi, $mapper, $selectedFields);
+            } catch (Throwable $e) {
+                $this->logError($job, $ctx, 'Eksik ürün oluşturma hatası: '.$e->getMessage());
+            }
+        }
+
+        $this->flushSyncBuffers($job);
     }
 
     /**
