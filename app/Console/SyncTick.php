@@ -36,8 +36,10 @@ class SyncTick
         // Alt-toggle'lar — sadece açık olanları dispatch et
         $dispatched = false;
         if ((bool) SyncSetting::get('otomatik_urunler', true)) {
-            SyncNewProductsJob::dispatch();
-            $dispatched = true;
+            // Zaten çalışan/bekleyen ürün işi varsa scheduler ikinci kopya eklemesin.
+            if (SyncNewProductsJob::dispatchUnique()) {
+                $dispatched = true;
+            }
         }
         if ((bool) SyncSetting::get('otomatik_stok_fiyat', true)) {
             SyncStockPriceJob::dispatch();

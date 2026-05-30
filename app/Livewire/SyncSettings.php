@@ -145,8 +145,11 @@ class SyncSettings extends Component
         Cache::forget(QueueControl::STOP_FLAG_KEY);
         $dispatched = [];
         if ($this->otomatik_urunler) {
-            SyncNewProductsJob::dispatch();
-            $dispatched[] = '📦 Ürünler';
+            if (SyncNewProductsJob::dispatchUnique()) {
+                $dispatched[] = '📦 Ürünler';
+            } else {
+                $dispatched[] = '📦 Ürünler (zaten çalışıyor/kuyrukta — atlandı)';
+            }
         }
         if ($this->otomatik_stok_fiyat) {
             SyncStockPriceJob::dispatch();

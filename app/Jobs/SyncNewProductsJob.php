@@ -16,6 +16,7 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Throwable;
 
 /**
@@ -52,6 +53,32 @@ class SyncNewProductsJob implements ShouldQueue
     public const LAST_RUN_KEY = 'last_new_products_run_at';
 
     public function __construct(public ?Carbon $since = null, public ?Carbon $until = null) {}
+
+    /**
+     * Zaten çalışan VEYA kuyrukta bekleyen bir ürün-açma işi varsa YENİ dispatch ETME.
+     * Buton iki kez tetiklense bile ikinci kopya oluşmaz (gereksiz ikinci tam pas önlenir).
+     *
+     * @return bool true → kuyruğa eklendi, false → zaten varolan iş yüzünden atlandı
+     */
+    public static function dispatchUnique(?Carbon $since = null, ?Carbon $until = null): bool
+    {
+        if (self::isQueuedOrRunning()) {
+            return false;
+        }
+        self::dispatch($since, $until);
+
+        return true;
+    }
+
+    /** Çalışan (sync_jobs) veya bekleyen (jobs kuyruğu) bir ürün-açma işi var mı? */
+    public static function isQueuedOrRunning(): bool
+    {
+        if (SyncJob::where('type', 'product_create')->where('status', 'running')->exists()) {
+            return true;
+        }
+
+        return DB::table('jobs')->where('payload', 'like', '%SyncNewProductsJob%')->exists();
+    }
 
     /**
      * Aynı anda yalnızca BİR ürün-sync job'u çalışsın (overlap kilidi).

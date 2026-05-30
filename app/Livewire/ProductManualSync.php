@@ -62,8 +62,11 @@ class ProductManualSync extends Component
     {
         $since = $this->pullSince ? Carbon::parse($this->pullSince)->startOfDay() : null;
         $until = $this->pullUntil ? Carbon::parse($this->pullUntil)->endOfDay() : null;
-        SyncNewProductsJob::dispatch($since, $until);
-        session()->flash('status', "Yeni ürünleri çekme işi kuyruğa alındı ({$this->pullSince} → {$this->pullUntil}).");
+        if (SyncNewProductsJob::dispatchUnique($since, $until)) {
+            session()->flash('status', "Yeni ürünleri çekme işi kuyruğa alındı ({$this->pullSince} → {$this->pullUntil}).");
+        } else {
+            session()->flash('status', 'Zaten çalışan/kuyrukta bir ürün işi var — yeni iş eklenmedi. Bitince tekrar deneyebilirsin.');
+        }
     }
 
     public function updateAll(): void
