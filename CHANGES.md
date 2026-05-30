@@ -7,6 +7,66 @@ Yeni notları **en üste** ekle. Format: `## YYYY-MM-DD — kısa başlık`.
 
 ---
 
+## 2026-05-30 — Eşleştirme anahtarı StokKodu → TedarikciKodu'ya geçti
+
+**Commits:** `c3a1812`, `8a42beb`, `52143c1`, `1c39c06`, `f668db9`, `ae33d48`
+
+### Neden
+StokKodu ve Barkod bir üründe **çoklu/tekrarlı** olabiliyor ve sonradan
+değişebiliyor — eşleştirme anahtarı olarak güvenilmez. **TedarikciKodu ise
+unique ve immutable.** Bu yüzden hem ürün haritalama, hem yeni ürün açma, hem
+de stok/fiyat delta eşleştirmesi artık **TedarikciKodu'yu birincil anahtar**
+kabul ediyor (StokKodu → Barkod sadece fallback).
+
+> Karar gerekçesi (kullanıcı): "tedarikçi kodları unique ve değiştirilemez …
+> her yeni ürünü açarken aynı tedarikçi kodu olmasına dikkat edeceğiz ve
+> ürünleri tedarikçi kodu üzerinden eşleyeceğiz."
+
+### Ana TedarikciKodu formatı
+- **Gerçek:** `SUP26|{anaVariantId}|{stokKodu}` (örn `SUP26|1880|HEB-134`) —
+  ana mağazadan birebir kopyalanır.
+- **Sentetik yedek** (ana'da TedarikciKodu boşsa): `SUP2026|{stokKodu}|{anaVariantId}`.
+- `ProductMapper::resolveTedarikciKodu()` / `resolveVariantTedarikciKodu()`
+  önce gerçeği dener, yoksa sentetik üretir.
+
+### Şema
+`2026_05_30_120000_make_tedarikci_kodu_unique_key.php`: `stok_kodu`
+UNIQUE → düz index'e düşürüldü, `tedarikci_kodu` UNIQUE yapıldı (SQLite için
+try/catch sarmalı).
+
+### Akış değişiklikleri
+- **`ProductService`**: yeni `getProductByTedarikciKodu()` (SelectUrun +
+  `TedarikciKodu` filtresi). `fullCreateAyarlari`'da hem ukAyar hem vAyar
+  `TedarikciKodunaGoreGuncelle = true` (Ticimax-native upsert geri açıldı,
+  artık TedarikciKodu güvenilir).
+- **`SyncNewProductsJob`**: lokal lookup `ProductMapping::where('tedarikci_kodu')`,
+  SOAP probe önce TedarikciKodu → stok → barcode sırasıyla. `upsertMappings`
+  varyasyon başına `tedarikci_kodu` anahtarıyla yazar.
+- **`FullRemapProductsJob`**: eşleştirme önceliği TedarikciKodu → stok →
+  barkod; mapping `tedarikci_kodu` anahtarıyla yazılır.
+- **`SyncStockPriceJob`**: delta eşleştirme `byTed` → `byStok` sırası.
+
+### Yan düzeltmeler (aynı tur)
+- **Varyasyonsuz delta kartı kurtarma** (`ae33d48`): Ticimax'in
+  `StokGuncellemeTarihi` filtresi bazı kartları **varyasyonsuz** (Varyasyon
+  sayısı 0) döndürüyor → stok güncellemesi sessizce kaçıyordu. `refetchVariants()`
+  o kartı `ana_product_id` üzerinden tam haliyle yeniden çeker. (Test:
+  `testurunnnnnDSD`/12623 stok 121→120 doğrulandı ✅.)
+- **Timezone** UTC → `Europe/Istanbul` (`config/app.php` + `.env`) — loglardaki
+  saatler artık 3 saat geri değil.
+- **Çift dispatch koruması** (`1c39c06`): `SyncNewProductsJob::dispatchUnique()`
+  + `isQueuedOrRunning()` — aynı iş hem `jobs` tablosunda hem `sync_jobs`'ta
+  açıkken yeniden dispatch edilmez. SyncSettings / ProductManualSync / SyncTick
+  hepsi bunu kullanır.
+- **Log görünürlüğü** (`52143c1`): eksik-ürün tamamlama pasında her 20 kartta
+  `flushSyncBuffers` → ürün açılırken loglar canlı akar.
+- **Sipariş paneli toplu seçim** (`8a42beb`): her satır (sadece uygun olanlar
+  değil) seçilebilir; "Seçilenleri Aktar" tüm sayfayı kapsar.
+- **Test/KLON filtresi YOK**: create akışı `testurun`/`test1233` gibi tüm
+  stok kodlarını da aktarır (kullanıcı kararı).
+
+---
+
 ## 2026-05-28 — Üçüncü tur: kapsamlı iyileştirme taraması (10 madde)
 
 Tüm kod tabanı taranıp 10 maddelik iyileştirme uygulandı. **Tararken kritik bir
