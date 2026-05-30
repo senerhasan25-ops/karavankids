@@ -634,16 +634,19 @@ class OrderTransferPicker extends Component
     // Her seçili sipariş için ayrı bir job dispatch edilir (paralel çalışma — kuyruk worker'ı kadar).
     public array $selectedBayiIds = [];
 
-    /** "Tümünü seç" toggle — sadece "aktarılmamış" siparişleri seçer (transferred/queued olanlar atlanır). */
+    /**
+     * "Tümünü seç" toggle — bu sayfadaki TÜM siparişleri seçer/temizler.
+     * Aktarılmış olanlar da seçilir; "Seçilenleri Aktar" onları atlar, "Force Aktar" gönderir.
+     */
     public function toggleSelectAll(): void
     {
-        $eligible = array_values(array_filter(array_map(
-            fn ($o) => in_array($o['local_status'], [null, 'failed', 'pending'], true) ? (string) $o['id'] : null,
+        $all = array_values(array_filter(array_map(
+            fn ($o) => (string) ($o['id'] ?? ''),
             $this->orders
         )));
         // Hepsi zaten seçiliyse temizle, değilse tümünü seç
-        $allSelected = ! empty($eligible) && empty(array_diff($eligible, $this->selectedBayiIds));
-        $this->selectedBayiIds = $allSelected ? [] : $eligible;
+        $allSelected = ! empty($all) && empty(array_diff($all, $this->selectedBayiIds));
+        $this->selectedBayiIds = $allSelected ? [] : $all;
     }
 
     public function clearSelection(): void

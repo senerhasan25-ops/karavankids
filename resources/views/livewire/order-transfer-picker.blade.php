@@ -212,7 +212,7 @@
                                 <tr>
                                     <th class="px-3 py-2 text-center w-10">
                                         <button type="button" wire:click="toggleSelectAll"
-                                            title="Aktarılmamış siparişlerin hepsini seç / temizle"
+                                            title="Bu sayfadaki tüm siparişleri seç / temizle"
                                             class="text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 text-sm">
                                             ☑
                                         </button>
@@ -234,15 +234,14 @@
                                 @foreach ($orders as $o)
                                     <tr class="hover:bg-gray-50 dark:hover:bg-gray-900/50 {{ in_array((string) $o['id'], $selectedBayiIds, true) ? 'bg-indigo-50/40 dark:bg-indigo-900/20' : '' }}">
                                         <td class="px-3 py-2 text-center">
-                                            {{-- Sadece henüz aktarılmamış (veya başarısız) siparişler için checkbox aktif --}}
-                                            @if (in_array($o['local_status'], [null, 'failed', 'pending'], true))
-                                                <input type="checkbox"
-                                                    wire:model.live="selectedBayiIds"
-                                                    value="{{ $o['id'] }}"
-                                                    class="rounded border-gray-300 dark:border-gray-600 text-indigo-600 focus:ring-indigo-500" />
-                                            @else
-                                                <span class="text-gray-300 dark:text-gray-700" title="Zaten aktarılmış / kuyrukta">—</span>
-                                            @endif
+                                            {{-- Her satır seçilebilir. Aktarılmış/kuyruktaki siparişler amber renkte
+                                                 işaretlenir; "Seçilenleri Aktar" onları atlar, yalnızca "Force Aktar" gönderir. --}}
+                                            @php $isDone = in_array($o['local_status'], ['transferred', 'queued'], true); @endphp
+                                            <input type="checkbox"
+                                                wire:model.live="selectedBayiIds"
+                                                value="{{ $o['id'] }}"
+                                                title="{{ $isDone ? 'Zaten aktarılmış/kuyrukta — yalnızca Force Aktar ile tekrar gönderilir' : 'Aktarım için seç' }}"
+                                                class="rounded border-gray-300 dark:border-gray-600 focus:ring-2 {{ $isDone ? 'text-amber-500 focus:ring-amber-500' : 'text-indigo-600 focus:ring-indigo-500' }}" />
                                         </td>
                                         <td class="px-3 py-2 font-mono text-xs text-gray-600 dark:text-gray-400">{{ $o['id'] }}</td>
                                         <td class="px-3 py-2 font-mono">{{ $o['siparis_no'] ?: '—' }}</td>
