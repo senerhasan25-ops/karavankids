@@ -60,8 +60,8 @@ class FullRemapProductsJob implements ShouldQueue
             $ana = ProductService::for('ana');
             $bayi = ProductService::for('bayi');
 
-            // ── 1) Bayi indeksini kur: stok_kodu/barkod → [cardId, varId, barkod] ──
-            [$bayiByStok, $bayiByBarkod, $bayiVarCount, $stoppedEarly] = $this->buildBayiIndex($bayi, $job);
+            // ── 1) Bayi indeksini kur: TedarikciKodu (birincil) + stok_kodu/barkod (yedek) ──
+            [$bayiByTed, $bayiByStok, $bayiByBarkod, $bayiVarCount, $stoppedEarly] = $this->buildBayiIndex($bayi, $job);
 
             if ($stoppedEarly) {
                 $this->finish($job, 'failed', 'Kullanıcı tarafından durduruldu (bayi indeks aşamasında)');
@@ -109,15 +109,19 @@ class FullRemapProductsJob implements ShouldQueue
                     foreach ($this->extractVariants($urunKarti) as $v) {
                         $stok = (string) ($v['StokKodu'] ?? '');
                         $barkod = (string) ($v['Barkod'] ?? '');
-                        if ($stok === '' && $barkod === '') {
+                        $ted = trim((string) ($v['TedarikciKodu'] ?? ''));
+                        if ($ted === '' && $stok === '' && $barkod === '') {
                             continue;
                         }
                         $anaVarCount++;
 
-                        $hit = ($stok !== '' ? ($bayiByStok[$stok] ?? null) : null)
+                        // Eşleme önceliği: TedarikciKodu → stok_kodu → barkod.
+                        $hit = ($ted !== '' ? ($bayiByTed[$ted] ?? null) : null)
+                            ?? ($stok !== '' ? ($bayiByStok[$stok] ?? null) : null)
                             ?? ($barkod !== '' ? ($bayiByBarkod[$barkod] ?? null) : null);
 
                         $this->upsertMapping(
+                            $ted,
                             $stok,
                             $barkod,
                             $anaCardId,
@@ -171,13 +175,14 @@ class FullRemapProductsJob implements ShouldQueue
     }
 
     /**
-     * Bayi'deki tüm ürünleri sayfalayıp stok_kodu/barkod indeksleri kur.
+     * Bayi'deki tüm ürünleri sayfalayıp TedarikciKodu (birincil) + stok_kodu/barkod (yedek) indeksleri kur.
      *
-     * @return array{0: array<string,array>, 1: array<string,array>, 2: int, 3: bool}
-     *                                                                                [bayiByStok, bayiByBarkod, bayiVarCount, stoppedEarly]
+     * @return array{0: array<string,array>, 1: array<string,array>, 2: array<string,array>, 3: int, 4: bool}
+     *                                                                                                        [bayiByTed, bayiByStok, bayiByBarkod, bayiVarCount, stoppedEarly]
      */
     protected function buildBayiIndex(ProductService $bayi, SyncJob $job): array
     {
+        $byTed = [];
         $byStok = [];
         $byBarkod = [];
         $count = 0;
@@ -217,7 +222,11 @@ class FullRemapProductsJob implements ShouldQueue
                     }
                     $stok = (string) ($v['StokKodu'] ?? '');
                     $barkod = (string) ($v['Barkod'] ?? '');
-                    $entry = ['card_id' => $cardId, 'var_id' => $vId, 'barkod' => $barkod, 'stok' => $stok];
+                    $ted = trim((string) ($v['TedarikciKodu'] ?? ''));
+                    $entry = ['card_id' => $cardId, 'var_id' => $vId, 'barkod' => $barkod, 'stok' => $stok, 'ted' => $ted];
+                    if ($ted !== '') {
+                        $byTed[$ted] = $entry;
+                    }
                     if ($stok !== '') {
                         $byStok[$stok] = $entry;
                     }
@@ -234,7 +243,7 @@ class FullRemapProductsJob implements ShouldQueue
             $page++;
         }
 
-        return [$byStok, $byBarkod, $count, $stoppedEarly];
+        return [$byTed, $byStok, $byBarkod, $count, $stoppedEarly];
     }
 
     /**
@@ -244,6 +253,7 @@ class FullRemapProductsJob implements ShouldQueue
      * @param  array|null  $hit  ['card_id'=>int,'var_id'=>int,'barkod'=>string,'stok'=>string]|null
      */
     protected function upsertMapping(
+        string $ted,
         string $stok,
         string $barkod,
         int $anaCardId,
@@ -252,9 +262,13 @@ class FullRemapProductsJob implements ShouldQueue
         float $price,
         int $stock,
     ): void {
-        $key = $stok !== '' ? ['stok_kodu' => $stok] : ['barcode' => $barkod];
+        // Birincil anahtar tedarikçi kodu; yoksa stok_kodu, o da yoksa barkod.
+        $key = $ted !== ''
+            ? ['tedarikci_kodu' => $ted]
+            : ($stok !== '' ? ['stok_kodu' => $stok] : ['barcode' => $barkod]);
 
         ProductMapping::updateOrCreate($key, [
+            'tedarikci_kodu' => $ted ?: null,
             'stok_kodu' => $stok ?: null,
             'barcode' => $barkod ?: null,
             'ana_product_id' => $anaCardId > 0 ? (string) $anaCardId : null,

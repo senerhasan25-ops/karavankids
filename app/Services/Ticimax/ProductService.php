@@ -761,6 +761,39 @@ class ProductService
     }
 
     /**
+     * Tedarikçi koduna göre tek ürün — SelectUrun'a TedarikciKodu filtresi verir.
+     * Eşleme/upsert birincil anahtarı bu (stok_kodu/barkod çoklu olabildiği için).
+     */
+    public function getProductByTedarikciKodu(string $tedarikciKodu): ?array
+    {
+        $tedarikciKodu = trim($tedarikciKodu);
+        if ($tedarikciKodu === '') {
+            return null;
+        }
+        $filter = $this->baseFilter() + ['TedarikciKodu' => $tedarikciKodu];
+        $params = [
+            'UyeKodu' => $this->client->getUyeKodu(),
+            'f' => $filter,
+            's' => [
+                'BaslangicIndex' => 0,
+                'KayitSayisi' => 1,
+                'KayitSayisinaGoreGetir' => true,
+            ],
+        ];
+        try {
+            $resp = $this->client->call('product', $this->method('select'), $params);
+        } catch (\Throwable $e) {
+            if (str_contains($e->getMessage(), 'Value cannot be null') && str_contains($e->getMessage(), 'source')) {
+                return null;
+            }
+            throw $e;
+        }
+        $list = $this->normalizeList($resp, $this->method('select'), 'UrunKarti');
+
+        return $list[0] ?? null;
+    }
+
+    /**
      * UrunFiltre için varsayılan alanlar.
      *
      * DİKKAT: Eskiden burada TÜM tarih alanları (Ekleme/Stok/Resim/Yayin) MIN-MAX
@@ -1022,10 +1055,10 @@ class ProductService
                 'OncekiResimleriSil' => false,
                 'Base64Resim' => false,
                 'ResimleriIndirme' => false,
-                // Lokal-öncelikli akışa geçtik: eşleşmeyi biz lokal mapping tablosundan
-                // çözüp payload'a ID yazıyoruz. TedarikciKodu match'i artık güvenlik
-                // kemeri olarak gerekmiyor (yanlış prefix'li eski ürünleri yakalamasın).
-                'TedarikciKodunaGoreGuncelle' => false,
+                // Eşleme anahtarı artık ana'nın GERÇEK TedarikciKodu'su (unique + değişmez).
+                // Lokal mapping + ID match birincil yol; bu bayrak Ticimax tarafında ek
+                // güvenlik kemeri: aynı tedarikçi kodu varsa yeni kart AÇMAZ, günceller.
+                'TedarikciKodunaGoreGuncelle' => true,
             ],
             'vAyar' => [
                 'AktifGuncelle' => true,
@@ -1041,7 +1074,7 @@ class ProductService
                 'StokKoduGuncelle' => true,
                 'UrunKartiAktifGuncelle' => true,
                 'OncekiResimleriSil' => false,
-                'TedarikciKodunaGoreGuncelle' => false,
+                'TedarikciKodunaGoreGuncelle' => true,
             ],
         ];
     }

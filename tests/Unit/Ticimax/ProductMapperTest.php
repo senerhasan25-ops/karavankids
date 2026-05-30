@@ -211,4 +211,36 @@ class ProductMapperTest extends TestCase
         $payload = $this->mapper->deactivatePayload();
         $this->assertSame(['Aktif' => false], $payload);
     }
+
+    public function test_ana_gercek_tedarikci_kodu_birebir_kopyalanir(): void
+    {
+        $payload = $this->mapper->anaToBayiCreatePayload([
+            'UrunAdi' => 'X',
+            'TedarikciKodu' => 'SUP26|1880|HEB-134',
+            'Varyasyonlar' => [
+                ['ID' => 1880, 'StokKodu' => 'HEB-134', 'Barkod' => 'B1', 'TedarikciKodu' => 'SUP26|1880|HEB-134'],
+                ['ID' => 1881, 'StokKodu' => 'HEB-134', 'Barkod' => 'B2', 'TedarikciKodu' => 'SUP26|1881|HEB-134-XL'],
+            ],
+        ]);
+
+        // Kart seviyesi: ana'nın gerçek kodu birebir korunur (sentetik üretilmez)
+        $this->assertSame('SUP26|1880|HEB-134', $payload['TedarikciKodu']);
+        // Varyasyon seviyesi: her varyasyon KENDİ gerçek kodunu taşır
+        $this->assertSame('SUP26|1880|HEB-134', $payload['Varyasyonlar'][0]['TedarikciKodu']);
+        $this->assertSame('SUP26|1881|HEB-134-XL', $payload['Varyasyonlar'][1]['TedarikciKodu']);
+    }
+
+    public function test_tedarikci_kodu_yoksa_sentetik_yedek_uretilir(): void
+    {
+        $payload = $this->mapper->anaToBayiCreatePayload([
+            'UrunAdi' => 'X',
+            // TedarikciKodu YOK → birincil varyasyondan sentetik üretilmeli
+            'Varyasyonlar' => [
+                ['ID' => 42, 'StokKodu' => 'KK-9', 'Barkod' => 'B'],
+            ],
+        ]);
+
+        $this->assertSame('SUP2026|KK-9|42', $payload['TedarikciKodu']);
+        $this->assertSame('SUP2026|KK-9|42', $payload['Varyasyonlar'][0]['TedarikciKodu']);
+    }
 }

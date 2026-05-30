@@ -7,10 +7,11 @@ namespace App\Services\Ticimax;
  *
  * İki yönü var:
  *  1) Ana → Bayi (Hasan'ın akışı): anaToBayiCreatePayload()
- *     - Yeni ürünleri bayi'de TedarikciKodu = "SUP|{ana_urun_id}|{stok_kodu}" ile oluşturur.
- *     - Varyasyonlara renk/beden ekiyle "SUP|{ana_urun_id}|{stok_kodu}|{renk}|{beden}" yazar.
- *     - Bayi tarafında SaveUrun çağrılırken `TedarikciKodunaGoreGuncelle: true` ile
- *       upsert yapılır — Ticimax mevcutsa günceller, yoksa oluşturur. Lokal mapping yok.
+ *     - Eşleme/upsert anahtarı = ana'nın GERÇEK TedarikciKodu'su (unique + değişmez).
+ *       Kart ve her varyasyon, ana'daki kodunu BİREBİR taşır → bayi.TedarikciKodu == ana.TedarikciKodu.
+ *       (Ana kodu boşsa nadir durumda "SUP2026|{stok}|{varId}" sentetik yedek üretilir.)
+ *     - Bayi tarafında SaveUrun `TedarikciKodunaGoreGuncelle: true` ile upsert yapar —
+ *       aynı tedarikçi kodu varsa günceller, yoksa oluşturur. Ayrıca lokal mapping (tedarikci_kodu) tutulur.
  *
  *  2) Bayi → Ana (Ali'nin akışı): bayiOrderToAnaCreatePayload()
  *     - Bayi'den çekilen siparişi ana'da SaveSiparis için gerçek WebSiparis envelope'una uygun
@@ -70,9 +71,9 @@ class ProductMapper
      */
     public function anaToBayiCreatePayload(array $ana): array
     {
-        $stokKodu = $this->resolveStokKodu($ana);
-        $primaryVariantId = $this->resolvePrimaryVariantId($ana);
-        $kartTedKodu = $this->buildTedarikciKodu($primaryVariantId, $stokKodu);
+        // Kart seviyesi tedarikçi kodu = ana'nın GERÇEK TedarikciKodu'su (unique + değişmez).
+        // Boşsa sentetik koda düşülür (nadir; ana'da ~birkaç ürün kodsuz).
+        $kartTedKodu = $this->resolveTedarikciKodu($ana);
 
         $kart = [
             'ID' => 0, // upsert için 0 — TedarikciKodu eşleşirse Ticimax günceller, yoksa yeni oluşturur
@@ -114,7 +115,7 @@ class ProductMapper
         ];
 
         // Üst seviyede tek varyasyonsuz ürün geldiyse fallback
-        if (empty($kart['Varyasyonlar']) && ($ana['Barkod'] ?? null || $ana['StokKodu'] ?? null)) {
+        if (empty($kart['Varyasyonlar']) && (($ana['Barkod'] ?? null) || ($ana['StokKodu'] ?? null))) {
             $kart['Varyasyonlar'] = [$this->fallbackVariantFromTopLevel($ana, $kartTedKodu)];
         }
 
@@ -177,9 +178,43 @@ class ProductMapper
     }
 
     /**
-     * "SUP2026|{stokKodu}|{anaVariantId}" — kaynak mağazadaki VARYASYON ID'sini
-     * gömer (UrunKartiID değil). Aynı StokKodu farklı varyasyonlarda olamayacağı için
-     * tek başına eşsiz; varyasyon ID eklenmesi sadece izleme/audit içindir.
+     * Kart seviyesi tedarikçi kodunu çöz: ana'nın GERÇEK TedarikciKodu'su önceliklidir
+     * (unique + değişmez → eşleme/upsert anahtarımız budur). Boşsa birincil varyasyondan
+     * sentetik koda düşülür (geriye dönük güvenlik; ana'da kodsuz nadir ürünler için).
+     */
+    public function resolveTedarikciKodu(array $card): string
+    {
+        $real = trim((string) ($card['TedarikciKodu'] ?? ''));
+        if ($real !== '') {
+            return $real;
+        }
+
+        return $this->buildTedarikciKodu($this->resolvePrimaryVariantId($card), $this->resolveStokKodu($card));
+    }
+
+    /**
+     * Varyasyon seviyesi tedarikçi kodunu çöz: varyasyonun GERÇEK TedarikciKodu'su
+     * önceliklidir; boşsa kendi ID/StokKodu'ndan sentetik üretilir; o da olmazsa
+     * kart seviyesi $fallback kullanılır.
+     */
+    public function resolveVariantTedarikciKodu(array $v, string $fallback = ''): string
+    {
+        $real = trim((string) ($v['TedarikciKodu'] ?? ''));
+        if ($real !== '') {
+            return $real;
+        }
+        $vId = (int) ($v['ID'] ?? 0);
+        $vStokKodu = trim((string) ($v['StokKodu'] ?? ''));
+        if ($vId > 0 && $vStokKodu !== '') {
+            return $this->buildTedarikciKodu($vId, $vStokKodu);
+        }
+
+        return $fallback;
+    }
+
+    /**
+     * "SUP2026|{stokKodu}|{anaVariantId}" — yalnızca ana ürünün gerçek TedarikciKodu'su
+     * BOŞ olduğunda kullanılan sentetik yedek koddur. Normalde ana'nın kendi kodu kullanılır.
      */
     public function buildTedarikciKodu(int $anaVariantId, string $stokKodu): string
     {
@@ -593,14 +628,9 @@ class ProductMapper
 
         return array_map(function ($v) use ($baseTedKodu) {
             $ozellikler = $this->mapVariantProps($v['Ozellikler'] ?? []);
-            // Her varyasyonun KENDİ TedarikciKodu'su = "SUP2026|varyasyonStokKodu|varyasyonId"
-            // Üst seviye baseTedKodu birincil varyasyondan üretildi; ikincil varyasyonlar
-            // için kendi ID/StokKodu'larıyla üretmek zorundayız (eşsiz olsun diye).
-            $vId = (int) ($v['ID'] ?? 0);
-            $vStokKodu = trim((string) ($v['StokKodu'] ?? ''));
-            $tedKodu = ($vId > 0 && $vStokKodu !== '')
-                ? $this->buildTedarikciKodu($vId, $vStokKodu)
-                : $baseTedKodu;
+            // Her varyasyonun KENDİ gerçek TedarikciKodu'su kullanılır (unique + değişmez).
+            // Boşsa varyasyon ID/StokKodu'ndan sentetik üretilir, o da olmazsa kart kodu.
+            $tedKodu = $this->resolveVariantTedarikciKodu($v, $baseTedKodu);
 
             return [
                 'ID' => 0,

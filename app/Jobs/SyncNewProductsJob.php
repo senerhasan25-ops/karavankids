@@ -21,17 +21,17 @@ use Throwable;
 /**
  * Ana → Bayi ürün sync (LOKAL-ÖNCELİKLİ).
  *
- * Akış (varyasyon başına):
- *   1. ProductMapping tablosunda stok_kodu ara
+ * Akış (varyasyon başına) — eşleme anahtarı: ana'nın GERÇEK TedarikciKodu'su:
+ *   1. ProductMapping tablosunda tedarikci_kodu ara
  *   2a. VAR ise → bayi_product_id + bayi_variant_id biliniyor; payload'a yaz, SaveUrun (HIZLI YOL)
- *   2b. YOK ise → bayi'de SelectUrun(StokKodu) ile tek seferlik probe:
- *        - Hedefte zaten varsa → ID'leri al, TedarikciKodu'muzu yaz, mapping kaydet
+ *   2b. YOK ise → bayi'de SelectUrun(TedarikciKodu) ile tek seferlik probe (yedek: stok→barkod):
+ *        - Hedefte zaten varsa → ID'leri al, mapping kaydet
  *        - Hedefte yoksa → SaveUrun ile yeni oluştur, dönen veriden ID'leri çıkar, mapping kaydet
- *   3. Bir sonraki sync'te o stok_kodu artık 2a yolundan gider (SOAP probe yok).
+ *   3. Bir sonraki sync'te o tedarikçi kodu artık 2a yolundan gider (SOAP probe yok).
  *
- * NOT: TedarikciKodunaGoreGuncelle bayrağı KALDIRILDI. Ticimax'ın TedarikciKodu
- * tabanlı match'i artık güvenlik kemeri değil — biz lokal ID match'i ile garanti
- * altına alıyoruz.
+ * NOT: stok_kodu/barkod ana mağazada ÇOKLU olabildiği için anahtar değil; sadece yedek
+ * lookup ve audit. TedarikciKodunaGoreGuncelle artık AÇIK (kodlar gerçek+unique) → Ticimax
+ * tarafında da çift-kart açılmasına karşı güvenlik kemeri.
  */
 class SyncNewProductsJob implements ShouldQueue
 {
@@ -230,9 +230,8 @@ class SyncNewProductsJob implements ShouldQueue
         $primaryStokKodu = $mapper->resolveStokKodu($urunKarti);
         $primaryBarkod = (string) ($primaryVariant['Barkod'] ?? '');
         $urunAdi = (string) ($urunKarti['UrunAdi'] ?? '');
-        // TedarikciKodu birincil VaryasyonID kullanır (UrunKartiID değil)
-        $primaryVariantId = $mapper->resolvePrimaryVariantId($urunKarti);
-        $tedKodu = $mapper->buildTedarikciKodu($primaryVariantId, $primaryStokKodu);
+        // Eşleme/upsert anahtarı = ana'nın GERÇEK TedarikciKodu'su (unique + değişmez).
+        $tedKodu = $mapper->resolveTedarikciKodu($urunKarti);
 
         $context = [
             'barcode' => $primaryBarkod ?: null,
@@ -248,21 +247,25 @@ class SyncNewProductsJob implements ShouldQueue
         }
 
         try {
-            // ========== AŞAMA 1: LOKAL LOOKUP ==========
-            $localMapping = $primaryStokKodu
-                ? ProductMapping::where('stok_kodu', $primaryStokKodu)->first()
+            // ========== AŞAMA 1: LOKAL LOOKUP (tedarikçi kodu) ==========
+            $localMapping = $tedKodu
+                ? ProductMapping::where('tedarikci_kodu', $tedKodu)->first()
                 : null;
 
             $payload = $mapper->anaToBayiCreatePayload($urunKarti);
             $bayiProductId = $localMapping?->bayi_product_id ? (int) $localMapping->bayi_product_id : null;
 
-            // ========== AŞAMA 2: LOKALDE YOKSA SOAP PROBE ==========
+            // ========== AŞAMA 2: LOKALDE YOKSA SOAP PROBE (tedarikçi kodu → stok → barkod) ==========
             $bayiProductSoapData = null;
             if (! $bayiProductId) {
-                // Sadece ilk eşleştirmede SOAP'a düşeriz; sonra hep lokal
-                $bayiProductSoapData = $primaryStokKodu
-                    ? $bayi->getProductByStokKodu($primaryStokKodu)
+                // Sadece ilk eşleştirmede SOAP'a düşeriz; sonra hep lokal.
+                // Birincil anahtar tedarikçi kodu; stok/barkod yalnızca yedek.
+                $bayiProductSoapData = $tedKodu
+                    ? $bayi->getProductByTedarikciKodu($tedKodu)
                     : null;
+                if (! $bayiProductSoapData && $primaryStokKodu) {
+                    $bayiProductSoapData = $bayi->getProductByStokKodu($primaryStokKodu);
+                }
                 if (! $bayiProductSoapData && $primaryBarkod) {
                     $bayiProductSoapData = $bayi->getProductByBarcode($primaryBarkod);
                 }
@@ -367,10 +370,11 @@ class SyncNewProductsJob implements ShouldQueue
                 $client->getLastRequestXml(),
                 $client->getLastResponseXml()
             );
-            if ($primaryStokKodu) {
+            if ($tedKodu) {
                 ProductMapping::updateOrCreate(
-                    ['stok_kodu' => $primaryStokKodu],
+                    ['tedarikci_kodu' => $tedKodu],
                     [
+                        'stok_kodu' => $primaryStokKodu ?: null,
                         'barcode' => $primaryBarkod ?: null,
                         'ana_product_id' => (string) $anaUrunId,
                         'status' => 'error',
@@ -391,8 +395,8 @@ class SyncNewProductsJob implements ShouldQueue
     {
         $pending = ProductMapping::where('status', 'pending')
             ->whereNull('bayi_product_id')
-            ->whereNotNull('stok_kodu')
-            ->get(['stok_kodu', 'barcode', 'ana_product_id']);
+            ->whereNotNull('tedarikci_kodu')
+            ->get(['tedarikci_kodu', 'stok_kodu', 'barcode', 'ana_product_id']);
 
         if ($pending->isEmpty()) {
             return;
@@ -404,7 +408,7 @@ class SyncNewProductsJob implements ShouldQueue
                 break;
             }
             // Aynı kartı iki kez işleme (processOne zaten tüm varyasyonları kapsar).
-            $cardKey = $m->ana_product_id ?: ('stok:'.$m->stok_kodu);
+            $cardKey = $m->ana_product_id ?: ('ted:'.$m->tedarikci_kodu);
             if (isset($seenCards[$cardKey])) {
                 continue;
             }
@@ -412,9 +416,13 @@ class SyncNewProductsJob implements ShouldQueue
 
             $ctx = ['stok_kodu' => $m->stok_kodu, 'barcode' => $m->barcode, 'ana_id' => $m->ana_product_id];
             try {
-                $anaCard = $ana->getProductByStokKodu($m->stok_kodu);
+                // Ana ürünü tedarikçi kodu ile çek (stok_kodu çoklu olabilir); yedek: stok_kodu.
+                $anaCard = $ana->getProductByTedarikciKodu($m->tedarikci_kodu);
+                if ((! $anaCard || (int) ($anaCard['ID'] ?? 0) === 0) && $m->stok_kodu) {
+                    $anaCard = $ana->getProductByStokKodu($m->stok_kodu);
+                }
                 if (! $anaCard || (int) ($anaCard['ID'] ?? 0) === 0) {
-                    $this->logError($job, $ctx, 'Eksik ürün: ana mağazada stok_kodu ile bulunamadı (silinmiş olabilir)');
+                    $this->logError($job, $ctx, 'Eksik ürün: ana mağazada tedarikçi kodu ile bulunamadı (silinmiş olabilir)');
 
                     continue;
                 }
@@ -464,16 +472,19 @@ class SyncNewProductsJob implements ShouldQueue
             $anaVarId = (int) ($av['ID'] ?? 0);
             $stokKodu = (string) ($av['StokKodu'] ?? '');
             $barkod = (string) ($av['Barkod'] ?? '');
-            if ($stokKodu === '' && $barkod === '') {
+            // Varyasyonun GERÇEK tedarikçi kodu; boşsa kart kodu yedeği.
+            $varTed = trim((string) ($av['TedarikciKodu'] ?? '')) ?: $tedKodu;
+            if ($varTed === '' && $stokKodu === '' && $barkod === '') {
                 continue;
             }
             $bayiVarId = $bayiVarIdByBarkod[$barkod]
                 ?? $bayiVarIdByStokKodu[$stokKodu]
                 ?? null;
 
-            $key = $stokKodu !== ''
-                ? ['stok_kodu' => $stokKodu]
-                : ['barcode' => $barkod];
+            // Birincil anahtar tedarikçi kodu; yoksa stok_kodu, o da yoksa barkod.
+            $key = $varTed !== ''
+                ? ['tedarikci_kodu' => $varTed]
+                : ($stokKodu !== '' ? ['stok_kodu' => $stokKodu] : ['barcode' => $barkod]);
 
             ProductMapping::updateOrCreate(
                 $key,
@@ -484,7 +495,7 @@ class SyncNewProductsJob implements ShouldQueue
                     'ana_variant_id' => $anaVarId > 0 ? (string) $anaVarId : null,
                     'bayi_product_id' => $bayiProductId ? (string) $bayiProductId : null,
                     'bayi_variant_id' => $bayiVarId ? (string) $bayiVarId : null,
-                    'tedarikci_kodu' => $tedKodu,
+                    'tedarikci_kodu' => $varTed ?: null,
                     'last_price' => (float) ($av['SatisFiyati'] ?? 0),
                     'last_stock' => (int) ($av['StokAdedi'] ?? 0),
                     'status' => 'synced',
