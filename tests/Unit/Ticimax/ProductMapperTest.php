@@ -243,4 +243,40 @@ class ProductMapperTest extends TestCase
         $this->assertSame('SUP2026|KK-9|42', $payload['TedarikciKodu']);
         $this->assertSame('SUP2026|KK-9|42', $payload['Varyasyonlar'][0]['TedarikciKodu']);
     }
+
+    public function test_kart_kodu_bos_ama_varyasyonda_gercek_kod_varsa_sentetik_uretilmez(): void
+    {
+        // Ticimax kimi kartta TedarikciKodu'yu yalnızca varyasyon seviyesinde doldurur.
+        // resolveTedarikciKodu kart boş olsa bile birincil varyasyonun gerçek kodunu kullanmalı.
+        $card = [
+            'UrunAdi' => 'X',
+            // Kart seviyesi TedarikciKodu YOK
+            'Varyasyonlar' => [
+                ['ID' => 8974, 'StokKodu' => 'HEB-134', 'Barkod' => 'B1', 'TedarikciKodu' => 'SUP26|1880|HEB-134'],
+                ['ID' => 8975, 'StokKodu' => 'HEB-134', 'Barkod' => 'B2', 'TedarikciKodu' => 'SUP26|1881|HEB-134-XL'],
+            ],
+        ];
+
+        // En küçük ID'li (birincil) varyasyonun gerçek kodu dönmeli — sentetik DEĞİL.
+        $this->assertSame('SUP26|1880|HEB-134', $this->mapper->resolveTedarikciKodu($card));
+    }
+
+    public function test_has_real_tedarikci_kodu_dogru_tespit_eder(): void
+    {
+        // Kart seviyesinde gerçek kod var
+        $this->assertTrue($this->mapper->hasRealTedarikciKodu([
+            'TedarikciKodu' => 'SUP26|1|A',
+            'Varyasyonlar' => [['ID' => 1, 'StokKodu' => 'A']],
+        ]));
+
+        // Yalnızca varyasyonda gerçek kod var
+        $this->assertTrue($this->mapper->hasRealTedarikciKodu([
+            'Varyasyonlar' => [['ID' => 1, 'StokKodu' => 'A', 'TedarikciKodu' => 'SUP26|1|A']],
+        ]));
+
+        // Hiçbir yerde gerçek kod yok → stripli kart
+        $this->assertFalse($this->mapper->hasRealTedarikciKodu([
+            'Varyasyonlar' => [['ID' => 1, 'StokKodu' => 'A', 'Barkod' => 'B']],
+        ]));
+    }
 }

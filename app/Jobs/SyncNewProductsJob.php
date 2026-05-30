@@ -193,7 +193,7 @@ class SyncNewProductsJob implements ShouldQueue
                         $stoppedEarly = true;
                         break 2;
                     }
-                    $this->processOne($job, $urunKarti, $bayi, $mapper, $selectedFields);
+                    $this->processOne($job, $urunKarti, $ana, $bayi, $mapper, $selectedFields);
                 }
 
                 // Sayfa sonunda tamponu boşalt (bulk insert + tek sayaç update).
@@ -245,13 +245,26 @@ class SyncNewProductsJob implements ShouldQueue
         }
     }
 
-    protected function processOne(SyncJob $job, array $urunKarti, ProductService $bayi, ProductMapper $mapper, ?array $selectedFields = null): void
+    protected function processOne(SyncJob $job, array $urunKarti, ProductService $ana, ProductService $bayi, ProductMapper $mapper, ?array $selectedFields = null): void
     {
         if (QueueControl::isStopRequested($job->id)) {
             return;
         }
 
         $anaUrunId = (int) ($urunKarti['ID'] ?? 0);
+
+        // ── STRIPLI KART KURTARMA ─────────────────────────────────────────
+        // Ticimax delta fetch'i (created/stok filtresi) kimi kartı GERÇEK TedarikciKodu
+        // BOŞ döndürüyor → sentetik SUP2026 koda düşer, oysa ürün ana'da gerçek SUP26
+        // kodunu taşır. Bu uyumsuzluk lokal lookup'ı ıskalatır + yetim mapping üretir.
+        // Çözüm: kartta hiç gerçek kod yoksa ID ile (tarih filtresiz) yeniden çek.
+        if ($anaUrunId > 0 && ! $mapper->hasRealTedarikciKodu($urunKarti)) {
+            $full = $ana->getProductById($anaUrunId);
+            if ($full && $mapper->hasRealTedarikciKodu($full)) {
+                $urunKarti = $full;
+            }
+        }
+
         $anaVariants = $this->extractVariants($urunKarti);
         $primaryVariant = $anaVariants[0] ?? null;
         $primaryStokKodu = $mapper->resolveStokKodu($urunKarti);
@@ -463,7 +476,7 @@ class SyncNewProductsJob implements ShouldQueue
                 }
                 // processOne: lokal mapping (bayi_id NULL) → SOAP probe → bayide yoksa createProduct
                 // → upsertMappings bayi ID'lerini yazıp status=synced yapar.
-                $this->processOne($job, $anaCard, $bayi, $mapper, $selectedFields);
+                $this->processOne($job, $anaCard, $ana, $bayi, $mapper, $selectedFields);
             } catch (Throwable $e) {
                 $this->logError($job, $ctx, 'Eksik ürün oluşturma hatası: '.$e->getMessage());
             }
@@ -521,7 +534,7 @@ class SyncNewProductsJob implements ShouldQueue
                 ? ['tedarikci_kodu' => $varTed]
                 : ($stokKodu !== '' ? ['stok_kodu' => $stokKodu] : ['barcode' => $barkod]);
 
-            ProductMapping::updateOrCreate(
+            $saved = ProductMapping::updateOrCreate(
                 $key,
                 [
                     'stok_kodu' => $stokKodu ?: null,
@@ -538,6 +551,17 @@ class SyncNewProductsJob implements ShouldQueue
                     'last_synced_at' => now(),
                 ]
             );
+
+            // KENDİNİ-İYİLEŞTİREN DEDUP: bayi_variant_id bir bayi varyasyonunu tekil
+            // tanımlar. Aynı varyasyona işaret eden BAŞKA bir mapping satırı varsa
+            // (ör. önceki turda sentetik SUP2026 koduyla yazılmış yetim satır), onu sil.
+            // Böylece gerçek tedarikçi koduna geçiş tek sync geçişinde yakınsar, eski
+            // sentetik satırlar birikmez — ayrı reconcile pası gerekmez.
+            if ($bayiVarId) {
+                ProductMapping::where('bayi_variant_id', (string) $bayiVarId)
+                    ->where('id', '!=', $saved->id)
+                    ->delete();
+            }
         }
     }
 

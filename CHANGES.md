@@ -65,6 +65,25 @@ try/catch sarmalı).
 - **Test/KLON filtresi YOK**: create akışı `testurun`/`test1233` gibi tüm
   stok kodlarını da aktarır (kullanıcı kararı).
 
+### Kök-neden düzeltmesi: sentetik vs gerçek TedarikciKodu tutarsızlığı
+
+Rebuild sonrası fark edildi: bayi ürünleri **gerçek** `SUP26|...` kodunu taşırken
+mapping satırları **sentetik** `SUP2026|...` saklıyordu (2814/3470). İki sebep:
+1. `resolveTedarikciKodu` yalnızca **kart seviyesi** `TedarikciKodu`'ya bakıyordu;
+   gerçek kod varyasyon seviyesinde olabiliyor → boş sanıp sentetiğe düşüyordu.
+   Artık kart boşsa **birincil varyasyonun** (yoksa herhangi varyasyonun) gerçek
+   kodu kullanılıyor, sentetik en son çare.
+2. Ticimax delta fetch'i kimi kartı **tümden stripli** (kart + tüm varyasyon ted
+   boş) döndürüyor. `ProductService::getProductById()` (yeni, UrunKartiID filtreli,
+   **tarih filtresiz** → stripsiz) eklendi; `SyncNewProductsJob::processOne` kartta
+   hiç gerçek kod yoksa ID ile yeniden çekip gerçek kodu kurtarıyor.
+
+**Kendini-iyileştiren dedup:** `upsertMappings` artık gerçek-kod satırını yazdıktan
+sonra aynı `bayi_variant_id`'ye işaret eden eski (sentetik) satırları siler. Böylece
+mevcut 2814 sentetik satır **tek tam sync geçişinde** gerçek koda yakınsar — ayrı
+reconcile job'a gerek kalmaz. (Etki: bir sonraki ürün senkronu çalıştırıldığında
+mapping tablosu kendiliğinden temizlenir.)
+
 ---
 
 ## 2026-05-28 — Üçüncü tur: kapsamlı iyileştirme taraması (10 madde)

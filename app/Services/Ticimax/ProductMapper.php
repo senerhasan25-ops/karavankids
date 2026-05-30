@@ -184,12 +184,51 @@ class ProductMapper
      */
     public function resolveTedarikciKodu(array $card): string
     {
+        // 1) Kart seviyesi gerçek kod.
         $real = trim((string) ($card['TedarikciKodu'] ?? ''));
         if ($real !== '') {
             return $real;
         }
 
-        return $this->buildTedarikciKodu($this->resolvePrimaryVariantId($card), $this->resolveStokKodu($card));
+        // 2) Kart boş olabilir ama gerçek kod VARYASYON seviyesinde duruyor olabilir
+        //    (Ticimax kimi kartta TedarikciKodu'yu yalnızca varyasyonda doldurur).
+        //    Sentetiğe düşmeden önce birincil varyasyonun gerçek kodunu dene.
+        $primaryId = $this->resolvePrimaryVariantId($card);
+        foreach ($this->flattenVariants($card['Varyasyonlar'] ?? []) as $v) {
+            $vTed = trim((string) ($v['TedarikciKodu'] ?? ''));
+            if ($vTed !== '' && (int) ($v['ID'] ?? 0) === $primaryId) {
+                return $vTed;
+            }
+        }
+        // Birincil varyasyonda yoksa, herhangi bir varyasyonun gerçek kodu yine sentetikten iyidir.
+        foreach ($this->flattenVariants($card['Varyasyonlar'] ?? []) as $v) {
+            $vTed = trim((string) ($v['TedarikciKodu'] ?? ''));
+            if ($vTed !== '') {
+                return $vTed;
+            }
+        }
+
+        // 3) Hiçbir yerde gerçek kod yok → sentetik yedek.
+        return $this->buildTedarikciKodu($primaryId, $this->resolveStokKodu($card));
+    }
+
+    /**
+     * Kartın (veya herhangi bir varyasyonunun) ana'dan gelen GERÇEK TedarikciKodu'su var mı?
+     * false → kart "stripli" gelmiş demektir (delta fetch ted'i boşaltmış); job bu durumda
+     * kartı getProductById ile yeniden çekip gerçek kodu kurtarmalı, yoksa sentetiğe düşeriz.
+     */
+    public function hasRealTedarikciKodu(array $card): bool
+    {
+        if (trim((string) ($card['TedarikciKodu'] ?? '')) !== '') {
+            return true;
+        }
+        foreach ($this->flattenVariants($card['Varyasyonlar'] ?? []) as $v) {
+            if (trim((string) ($v['TedarikciKodu'] ?? '')) !== '') {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

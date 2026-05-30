@@ -794,6 +794,43 @@ class ProductService
     }
 
     /**
+     * UrunKartiID ile tek ürün — SelectUrun'a UrunKartiID filtresi verir.
+     *
+     * ÖNEMLİ: baseFilter() hiç tarih alanı göndermez → bu çağrı TARİH FİLTRESİZ'dir.
+     * Delta fetch'lerinin aksine (StokGuncellemeTarihi/EklemeTarihi filtresi Ticimax'te
+     * kimi kartı VARYASYONSUZ veya TedarikciKodu BOŞ döndürüyor — "stripping"), ID ile
+     * tekil çekim kartı TAM döndürür: gerçek TedarikciKodu kart + varyasyon seviyesinde
+     * gelir. Stripli delta kartının gerçek tedarikçi kodunu kurtarmak için kullanılır.
+     */
+    public function getProductById(int $id): ?array
+    {
+        if ($id <= 0) {
+            return null;
+        }
+        $filter = $this->baseFilter() + ['UrunKartiID' => $id];
+        $params = [
+            'UyeKodu' => $this->client->getUyeKodu(),
+            'f' => $filter,
+            's' => [
+                'BaslangicIndex' => 0,
+                'KayitSayisi' => 1,
+                'KayitSayisinaGoreGetir' => true,
+            ],
+        ];
+        try {
+            $resp = $this->client->call('product', $this->method('select'), $params);
+        } catch (\Throwable $e) {
+            if (str_contains($e->getMessage(), 'Value cannot be null') && str_contains($e->getMessage(), 'source')) {
+                return null;
+            }
+            throw $e;
+        }
+        $list = $this->normalizeList($resp, $this->method('select'), 'UrunKarti');
+
+        return $list[0] ?? null;
+    }
+
+    /**
      * UrunFiltre için varsayılan alanlar.
      *
      * DİKKAT: Eskiden burada TÜM tarih alanları (Ekleme/Stok/Resim/Yayin) MIN-MAX
