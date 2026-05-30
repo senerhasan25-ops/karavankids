@@ -175,6 +175,12 @@
                         Bu filtreyle eşleşen sipariş bulunamadı.
                     </div>
                 @else
+                    {{-- Ana-durum sütunları liste boyandıktan SONRA ayrı istekte doldurulur
+                         (performans: bayi listesi anında görünsün, ana SOAP'ları arkadan gelsin). --}}
+                    @if (! $anaStatusesLoaded)
+                        <div wire:init="enrichAnaStatuses"></div>
+                    @endif
+
                     {{-- Toplu aktarım çubuğu — seçim varsa görünür --}}
                     @if (count($selectedBayiIds) > 0)
                         <div class="px-4 py-3 bg-indigo-50 dark:bg-indigo-900/30 border-b border-indigo-200 dark:border-indigo-800 flex items-center justify-between gap-3">
@@ -307,7 +313,14 @@
                                                         </div>
                                                     @endif
                                                     @if (! $o['ana_siparis_durumu'] && ! $o['ana_odeme_durumu'] && ! $o['ana_paketleme_durumu'])
-                                                        <div class="text-gray-400 italic">— veri çekilemedi —</div>
+                                                        @if (! $anaStatusesLoaded)
+                                                            <div class="text-gray-400 italic flex items-center gap-1">
+                                                                <span class="inline-block animate-spin rounded-full h-2.5 w-2.5 border border-emerald-400 border-t-transparent"></span>
+                                                                yükleniyor…
+                                                            </div>
+                                                        @else
+                                                            <div class="text-gray-400 italic">— veri çekilemedi —</div>
+                                                        @endif
                                                     @endif
                                                 </div>
                                             @endif

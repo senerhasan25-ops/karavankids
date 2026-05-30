@@ -58,6 +58,11 @@ class OrderTransferPicker extends Component
 
     public bool $hasSearched = false;
 
+    // Ana-durum sütunları yüklendi mi? listele() false yapar; blade wire:init ile
+    // enrichAnaStatuses() çağrılıp true olur. Böylece bayi listesi anında görünür,
+    // ana durumları (ek SOAP) arkadan dolar.
+    public bool $anaStatusesLoaded = false;
+
     // === ÜRÜN DÜZENLEME MODAL'I ===
     // Modal açıkken hangi sipariş düzenleniyor; ürün satırları state'te tutulur.
     // Kaydet'e basılınca order_transfers.product_overrides'a yazılır,
@@ -299,51 +304,65 @@ class OrderTransferPicker extends Component
                 ];
             }, $raw);
 
-            // Aktarılmış siparişler için ANA mağazadan durumları da çek
-            // (sadece transferred + ana_order_id'si olanlar — performans için ek SOAP zorunlu).
-            $transferredAnaIds = array_filter(array_map(
-                fn ($o) => $o['local_status'] === 'transferred' && $o['local_ana_id']
-                    ? (int) $o['local_ana_id']
-                    : null,
-                $this->orders
-            ));
-
-            if (! empty($transferredAnaIds)) {
-                try {
-                    $anaService = OrderService::for('ana');
-                    foreach ($this->orders as $i => $row) {
-                        if (! $row['local_ana_id'] || $row['local_status'] !== 'transferred') {
-                            continue;
-                        }
-                        try {
-                            // Cache'li çağrı — listede gezinirken her sayfa değişiminde
-                            // tekrar SOAP yapılmasın (30sn TTL).
-                            $anaO = $anaService->getOrderByIdCached((int) $row['local_ana_id']);
-                            if (! $anaO) {
-                                continue;
-                            }
-                            $anaOde = $this->extractFirstOdeme($anaO);
-                            $this->orders[$i]['ana_odeme_tipi'] = isset($anaOde['OdemeTipi']) && is_numeric($anaOde['OdemeTipi']) ? (string) $anaOde['OdemeTipi'] : '';
-                            $this->orders[$i]['ana_odeme_durumu'] = isset($anaOde['Onaylandi']) && (int) $anaOde['Onaylandi'] === 1 ? '1' : '';
-                            $this->orders[$i]['ana_siparis_durumu'] = isset($anaO['Durum']) && is_numeric($anaO['Durum'])
-                                ? (string) $anaO['Durum']
-                                : '';
-                            $this->orders[$i]['ana_paketleme_durumu'] = isset($anaO['PaketlemeDurumuID']) && is_numeric($anaO['PaketlemeDurumuID'])
-                                ? (string) $anaO['PaketlemeDurumuID']
-                                : '';
-                        } catch (Throwable $e) {
-                            // tek sipariş patlarsa diğerleri devam etsin
-                        }
-                    }
-                } catch (Throwable $e) {
-                    // Ana mağaza servisi hiç ayağa kalkmazsa sessiz geç (bayi listesi yine görünür)
-                }
-            }
+            // Ana-durum zenginleştirmesini BURADA YAPMA (performans). Eskiden her aktarılmış
+            // sipariş için senkron SOAP çağrısı yapılıyordu; bu listenin boyanmasını saniyelerce
+            // bloke ediyordu. Artık liste önce boyanır, ana sütunları enrichAnaStatuses() ile
+            // ayrı bir istekte (blade'de wire:init) doldurulur.
+            $this->anaStatusesLoaded = false;
         } catch (Throwable $e) {
             $this->lastError = $e->getMessage();
             $this->orders = [];
         } finally {
             $this->loading = false;
+        }
+    }
+
+    /**
+     * Ana mağaza durum sütunlarını doldur — listele() sonrası ayrı bir istekte çağrılır
+     * (blade'de wire:init). Sadece "transferred" + ana_order_id'si olan satırlar için
+     * tek SOAP çağrısı yapar (getOrderByIdCached, 30sn TTL + tek-çağrı optimizasyonu A).
+     */
+    public function enrichAnaStatuses(): void
+    {
+        $this->anaStatusesLoaded = true;
+
+        $hasTransferred = false;
+        foreach ($this->orders as $o) {
+            if ($o['local_status'] === 'transferred' && $o['local_ana_id']) {
+                $hasTransferred = true;
+                break;
+            }
+        }
+        if (! $hasTransferred) {
+            return;
+        }
+
+        try {
+            $anaService = OrderService::for('ana');
+            foreach ($this->orders as $i => $row) {
+                if (! $row['local_ana_id'] || $row['local_status'] !== 'transferred') {
+                    continue;
+                }
+                try {
+                    $anaO = $anaService->getOrderByIdCached((int) $row['local_ana_id']);
+                    if (! $anaO) {
+                        continue;
+                    }
+                    $anaOde = $this->extractFirstOdeme($anaO);
+                    $this->orders[$i]['ana_odeme_tipi'] = isset($anaOde['OdemeTipi']) && is_numeric($anaOde['OdemeTipi']) ? (string) $anaOde['OdemeTipi'] : '';
+                    $this->orders[$i]['ana_odeme_durumu'] = isset($anaOde['Onaylandi']) && (int) $anaOde['Onaylandi'] === 1 ? '1' : '';
+                    $this->orders[$i]['ana_siparis_durumu'] = isset($anaO['Durum']) && is_numeric($anaO['Durum'])
+                        ? (string) $anaO['Durum']
+                        : '';
+                    $this->orders[$i]['ana_paketleme_durumu'] = isset($anaO['PaketlemeDurumuID']) && is_numeric($anaO['PaketlemeDurumuID'])
+                        ? (string) $anaO['PaketlemeDurumuID']
+                        : '';
+                } catch (Throwable $e) {
+                    // tek sipariş patlarsa diğerleri devam etsin
+                }
+            }
+        } catch (Throwable $e) {
+            // Ana mağaza servisi hiç ayağa kalkmazsa sessiz geç (bayi listesi yine görünür)
         }
     }
 

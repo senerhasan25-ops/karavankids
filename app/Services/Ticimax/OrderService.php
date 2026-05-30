@@ -176,8 +176,13 @@ class OrderService
             ];
         };
 
-        // TEK STATÜ — direkt SOAP çağrısı
-        if ($siparisDurumu >= 0) {
+        // TEK STATÜ veya BELİRLİ SİPARİŞ — direkt tek SOAP çağrısı.
+        // siparis_id ile çekerken durum filtresi anlamsızdır: SiparisID + SiparisDurumu=-1
+        // tek çağrısı siparişi sorunsuz döndürür (canlı doğrulandı: 168ms vs Hepsi 3.7sn).
+        // Bu sayede getOrderById/getOrderByIdCached 23 çağrılık Hepsi modu yerine 1 çağrı yapar
+        // (liste sayfasındaki ana-durum zenginleştirmesinin maliyetini sipariş başına 23→1 düşürür).
+        $siparisIdFilter = (int) ($filters['siparis_id'] ?? 0);
+        if ($siparisDurumu >= 0 || $siparisIdFilter > 0) {
             $resp = $this->client->call('order', $this->method('select'), $buildParams($siparisDurumu));
 
             return $this->normalizeList($resp, $this->method('select'));
@@ -186,7 +191,7 @@ class OrderService
         // HEPSİ MODU — kullanıcı "Hepsi" seçti, tüm bilinen durumları döngüye al + dedup.
         // Performans: 23 SOAP çağrısı. Aynı filtreyle peş peşe tıklamalarda (sayfa
         // değiştir / geri dön) tekrar 23 çağrı yapılmaması için kısa-süreli cache:
-        // 60 saniye boyunca aynı (filtre+sayfa+perPage) kombinasyonu cache'ten döner.
+        // 5 dakika boyunca aynı (filtre+sayfa+perPage) kombinasyonu cache'ten döner.
         // Cache key: store_key + tüm filtre + page bilgisini içeren hash.
         $storeKey = $this->client->getCredential()->store_key ?? 'unknown';
         $cacheKey = 'ticimax.orders.hepsi.'.$storeKey.'.'.md5(json_encode([
@@ -198,7 +203,7 @@ class OrderService
             $startIdx, $perPage,
         ]));
 
-        return Cache::remember($cacheKey, now()->addSeconds(60), function () use ($buildParams, $startIdx, $perPage) {
+        return Cache::remember($cacheKey, now()->addMinutes(5), function () use ($buildParams, $startIdx, $perPage) {
             $merged = [];
             $seen = [];
             foreach (range(0, 22) as $statusCode) {
