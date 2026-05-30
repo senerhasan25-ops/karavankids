@@ -2,6 +2,7 @@
 
 namespace App\Livewire;
 
+use App\Jobs\FullRemapProductsJob;
 use App\Jobs\PullBayiOrdersJob;
 use App\Jobs\SyncNewProductsJob;
 use App\Jobs\SyncStockPriceJob;
@@ -184,6 +185,19 @@ class SyncSettings extends Component
         SyncSetting::put(SyncNewProductsJob::LAST_RUN_KEY, '');
         $this->last_new_products_run_at = null;
         session()->flash('status', 'Yeni ürün checkpoint sıfırlandı — bir sonraki çalışmada son 7 gün taranacak.');
+    }
+
+    /**
+     * BİR KERELİK tam eşleştirme — ana+bayi tüm ürünleri çekip product_mappings'i
+     * eksiksiz doldurur (ürün oluşturmaz/güncellemez). Arka plan job'una devreder.
+     * Tamamlanınca delta checkpoint'leri now()'a çekilir → sonra sadece yeni/değişen.
+     */
+    public function haritayiYenidenKur(): void
+    {
+        Cache::forget(QueueControl::STOP_FLAG_KEY);
+        FullRemapProductsJob::dispatch();
+        session()->flash('status', '🗺️ Tam eşleştirme kuyruğa alındı — ana + bayi tüm ürünler taranıp harita kurulacak '
+            .'(ürün OLUŞTURULMAZ, sadece eşleştirilir). İlerlemeyi Loglar / Kuyruk durumundan izleyebilirsin.');
     }
 
     public function render()

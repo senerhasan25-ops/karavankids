@@ -178,9 +178,27 @@
                     <p class="text-xs text-gray-400 dark:text-gray-500 leading-relaxed">
                         <strong>Delta mod:</strong> Her sync yalnızca son checkpoint'ten beri <em>değişen</em> ürünleri Ticimax'a sorar — değişmeyen ürünler için SOAP çağrısı yapılmaz.
                         <br>📦 Yeni ürünler: <code>EklemeTarihiBaslangic</code> filtresi (sadece yeni eklenen kartlar).
-                        <br>💰 Stok/fiyat: <code>FiyatStokGuncellemeTarihiBas</code> filtresi (sadece fiyat veya stok değişen ürünler).
+                        <br>💰 Stok/fiyat: <code>StokGuncellemeTarihiBaslangic</code> filtresi (sadece fiyat veya stok değişen ürünler).
                         "Sıfırla" butonları ile bir sonraki sync'i zorla geriye dönük taramaya alabilirsin.
                     </p>
+                </div>
+
+                <div class="border-t border-gray-200 dark:border-gray-700 pt-4">
+                    <div class="rounded-lg border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-900/20 p-4 space-y-2">
+                        <div class="font-semibold text-indigo-900 dark:text-indigo-200">🗺️ Tam Eşleştirme (Haritayı Yeniden Kur)</div>
+                        <p class="text-xs text-indigo-800/80 dark:text-indigo-300/80 leading-relaxed">
+                            Ana ve bayi mağazadaki <strong>tüm ürünleri</strong> çekip <code>stok_kodu</code> / barkod ile eşleştirir ve
+                            yerel haritayı (product_mappings) eksiksiz doldurur. <strong>Ürün OLUŞTURMAZ veya GÜNCELLEMEZ</strong> —
+                            sadece eşleştirir. Bir kez çalıştırdıktan sonra delta sync'ler SOAP probe yapmadan yalnızca
+                            gerçekten yeni/değişen ürünlerle ilgilenir. Tamamlanınca delta checkpoint'leri "şimdi"ye çekilir.
+                        </p>
+                        <button type="button"
+                                wire:click="haritayiYenidenKur"
+                                wire:confirm="Ana + bayi tüm ürünler taranıp harita kurulacak (birkaç dakika sürebilir). Ürün oluşturulmaz/güncellenmez. Devam?"
+                                class="text-sm px-4 py-1.5 rounded bg-indigo-600 text-white hover:bg-indigo-700 transition">
+                            🗺️ Tam Eşleştirmeyi Başlat
+                        </button>
+                    </div>
                 </div>
 
                 <div class="flex justify-end">
