@@ -461,27 +461,44 @@ class ProductService
         // Bug penceresine denk geldik → sayfayı $subStep'lik dilimlerle tara.
         $recovered = [];
         $seenIds = [];
-        $lostSlices = 0;
-        for ($off = $startIdx; $off < $startIdx + $perPage; $off += $subStep) {
-            try {
-                $slice = $this->fetchProductPage($startField, $endField, $since, $off, $subStep, $sortDir);
-            } catch (\Throwable $e) {
-                if ($this->isTicimaxPaginationBug($e)) {
-                    $lostSlices++; // bu küçük dilim de bug'a düştü, atla
+        $lostSingles = 0;
 
-                    continue;
-                }
-                throw $e;
-            }
+        $append = function (array $slice) use (&$recovered, &$seenIds) {
             foreach ($slice as $p) {
                 $id = (string) ($p['ID'] ?? '');
                 if ($id !== '' && isset($seenIds[$id])) {
-                    continue; // güvenlik: çakışma olmaz ama yine de dedupe
+                    return; // güvenlik: çakışma olmaz ama yine de dedupe
                 }
                 if ($id !== '') {
                     $seenIds[$id] = true;
                 }
                 $recovered[] = $p;
+            }
+        };
+
+        for ($off = $startIdx; $off < $startIdx + $perPage; $off += $subStep) {
+            try {
+                $append($this->fetchProductPage($startField, $endField, $since, $off, $subStep, $sortDir));
+            } catch (\Throwable $e) {
+                if (! $this->isTicimaxPaginationBug($e)) {
+                    throw $e;
+                }
+                // Dilim de bug'a düştü → TEK TEK (size-1) kurtarmayı dene. Ticimax bug'ı
+                // belirli offset'lere özgü olduğundan, dilimdeki diğer ürünler genelde
+                // sağlamdır; yalnızca gerçekten bozuk tekil ürün(ler) kaybedilir
+                // (Gemini'nin Python kodundaki size-1 fallback ile aynı yaklaşım).
+                for ($o2 = $off; $o2 < $off + $subStep; $o2++) {
+                    try {
+                        $append($this->fetchProductPage($startField, $endField, $since, $o2, 1, $sortDir));
+                    } catch (\Throwable $e2) {
+                        if ($this->isTicimaxPaginationBug($e2)) {
+                            $lostSingles++; // sadece bu TEK ürün gerçekten bozuk
+
+                            continue;
+                        }
+                        throw $e2;
+                    }
+                }
             }
         }
 
@@ -489,7 +506,7 @@ class ProductService
             'products' => $recovered,
             'bug' => true,
             'recovered' => count($recovered),
-            'lost' => $lostSlices * $subStep,
+            'lost' => $lostSingles,
         ];
     }
 
@@ -744,7 +761,18 @@ class ProductService
     }
 
     /**
-     * UrunFiltre için varsayılan alanlar — Ticimax bazılarını zorunlu görüyor (DateTime, vb).
+     * UrunFiltre için varsayılan alanlar.
+     *
+     * DİKKAT: Eskiden burada TÜM tarih alanları (Ekleme/Stok/Resim/Yayin) MIN-MAX
+     * ile gönderiliyordu; niyet "filtre kapalı" idi. Ama Ticimax bunları
+     * `tarih >= MIN AND tarih <= MAX` olarak uyguluyor ve ilgili tarih alanı NULL
+     * olan ürünleri ELİYOR. Özellikle RESMİ OLMAYAN ürünlerin ResimEklemeTarihi
+     * NULL olduğundan ~505 ürün listeden düşüyordu (canlı doğrulandı:
+     * ResimEklemeTarihi MIN/MAX → 3047, alansız → 3552).
+     *
+     * Çözüm: hiçbir tarih alanını VARSAYILAN olarak gönderme. Gerçek delta filtreleri
+     * (fetchProductPage) yalnızca ihtiyaç duydukları TEK tarih alanını array_merge ile
+     * ekler. (Gemini'nin Python sayım kodu da yalnızca {Aktif} gönderip doğru sayıyor.)
      */
     protected function baseFilter(): array
     {
@@ -752,15 +780,6 @@ class ProductService
             'Aktif' => -1,
             'Firsat' => -1,
             'Indirimli' => -1,
-            // DateTime alanları min-max ile filtre uygulamayı kapatır
-            'EklemeTarihiBaslangic' => self::MIN_DATETIME,
-            'EklemeTarihiBitis' => self::MAX_DATETIME,
-            'StokGuncellemeTarihiBaslangic' => self::MIN_DATETIME,
-            'StokGuncellemeTarihiBitis' => self::MAX_DATETIME,
-            'ResimEklemeTarihiBaslangic' => self::MIN_DATETIME,
-            'ResimEklemeTarihiBitis' => self::MAX_DATETIME,
-            'YayinTarihiBaslangic' => self::MIN_DATETIME,
-            'YayinTarihiBitis' => self::MAX_DATETIME,
         ];
     }
 

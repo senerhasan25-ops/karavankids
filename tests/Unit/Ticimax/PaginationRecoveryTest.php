@@ -56,8 +56,9 @@ class PaginationRecoveryTest extends TestCase
         $client->shouldReceive('getUyeKodu')->andReturn('U');
 
         // Tam sayfa (KayitSayisi=100) → bug fırlat.
-        // Alt dilimler (KayitSayisi=10): offset 50 hariç her dilim 2 ürün döner,
-        // offset 50 yine bug fırlatır (kayıp dilim).
+        // 10'luk dilim offset 50 → bug (size-1 fallback'i tetikler).
+        // size-1: yalnızca offset 50 gerçekten bozuk; 51..59 sağlam döner.
+        // Her başarılı çağrı KayitSayisi kadar benzersiz ID döndürür.
         $client->shouldReceive('call')->andReturnUsing(function ($svc, $method, $params) {
             $size = $params['s']['KayitSayisi'];
             $idx = $params['s']['BaslangicIndex'];
@@ -65,19 +66,19 @@ class PaginationRecoveryTest extends TestCase
             if ($size === 100) {
                 throw new \Exception('Value cannot be null. Parameter name: source');
             }
-            if ($idx === 50) {
+            if ($size === 10 && $idx === 50) {
+                throw new \Exception('Value cannot be null. Parameter name: source');
+            }
+            if ($size === 1 && $idx === 50) {
                 throw new \Exception('Value cannot be null. Parameter name: source');
             }
 
-            // Her dilim için benzersiz ID'ler üret (idx tabanlı)
-            return (object) [
-                'SelectUrunResult' => (object) [
-                    'UrunKarti' => [
-                        (object) ['ID' => $idx + 1],
-                        (object) ['ID' => $idx + 2],
-                    ],
-                ],
-            ];
+            $items = [];
+            for ($i = 0; $i < $size; $i++) {
+                $items[] = (object) ['ID' => $idx + $i + 1];
+            }
+
+            return (object) ['SelectUrunResult' => (object) ['UrunKarti' => $items]];
         });
 
         $svc = new ProductService($client);
@@ -85,10 +86,11 @@ class PaginationRecoveryTest extends TestCase
         $r = $svc->fetchProductPageRecovering('created', null, 1, 100, 'ASC', 10);
 
         $this->assertTrue($r['bug']);
-        // 9 başarılı dilim × 2 ürün = 18 kurtarıldı, 1 dilim (offset 50) × 10 = 10 kayıp
-        $this->assertSame(18, $r['recovered']);
-        $this->assertSame(10, $r['lost']);
-        $this->assertCount(18, $r['products']);
+        // 9 sağlam dilim × 10 = 90, + offset 50 dilimi size-1 fallback ile 9 ürün
+        // (50 hariç 51..59) = 99 kurtarıldı; yalnızca 1 tekil ürün (offset 50) kayıp.
+        $this->assertSame(99, $r['recovered']);
+        $this->assertSame(1, $r['lost']);
+        $this->assertCount(99, $r['products']);
     }
 
     public function test_kurtarma_sirasinda_id_cakismasi_dedupe_edilir(): void
