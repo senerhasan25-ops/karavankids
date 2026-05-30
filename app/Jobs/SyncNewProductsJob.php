@@ -403,6 +403,7 @@ class SyncNewProductsJob implements ShouldQueue
         }
 
         $seenCards = [];
+        $processed = 0;
         foreach ($pending as $m) {
             if (QueueControl::isStopRequested($job->id)) {
                 break;
@@ -413,6 +414,13 @@ class SyncNewProductsJob implements ShouldQueue
                 continue;
             }
             $seenCards[$cardKey] = true;
+
+            // Uzun süren eksik-tamamlama pası boyunca ilerleme görünür olsun:
+            // her 20 kartta bir tamponu boşalt (log satırları + sayaçlar UI'da güncellensin).
+            if ($processed > 0 && $processed % 20 === 0) {
+                $this->flushSyncBuffers($job);
+            }
+            $processed++;
 
             $ctx = ['stok_kodu' => $m->stok_kodu, 'barcode' => $m->barcode, 'ana_id' => $m->ana_product_id];
             try {
