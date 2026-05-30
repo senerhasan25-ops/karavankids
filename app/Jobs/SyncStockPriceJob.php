@@ -126,6 +126,9 @@ class SyncStockPriceJob implements ShouldQueue
         $allMappings = ProductMapping::whereNotNull('bayi_variant_id')->get();
         $byTed = $allMappings->filter(fn ($m) => (string) $m->tedarikci_kodu !== '')->keyBy('tedarikci_kodu');
         $byStok = $allMappings->filter(fn ($m) => (string) $m->stok_kodu !== '')->keyBy('stok_kodu');
+        // Ticimax StokGuncellemeTarihi filtresi bazen kartı VARYASYONSUZ döndürüyor;
+        // o zaman kartın tam halini ana_product_id ile yeniden çekmek için bu indeks.
+        $byAnaId = $allMappings->filter(fn ($m) => (string) $m->ana_product_id !== '')->groupBy('ana_product_id');
 
         // ── Ana'dan değişen ürünleri sayfa sayfa çek ────────────────────────
         $consecutiveBugPages = 0;
@@ -161,7 +164,7 @@ class SyncStockPriceJob implements ShouldQueue
                 }
             }
 
-            $this->processPage($job, $bayi, $products, $byTed, $byStok);
+            $this->processPage($job, $ana, $bayi, $products, $byTed, $byStok, $byAnaId);
             $this->flushSyncBuffers($job); // sayfa sonunda toplu yaz (#4)
 
             if (! $result['bug'] && count($products) < $perPage) {
@@ -191,14 +194,20 @@ class SyncStockPriceJob implements ShouldQueue
      *  - Gerçekten değişenleri batch dizilerine ekle
      *  - Tek updateStockBatch + updatePriceBatch SOAP çağrısı
      */
-    private function processPage(SyncJob $job, ProductService $bayi, array $products, $byTed, $byStok): void
+    private function processPage(SyncJob $job, ProductService $ana, ProductService $bayi, array $products, $byTed, $byStok, $byAnaId): void
     {
         $stockBatch = [];
         $priceBatch = [];
         $toUpdate = [];  // tedarikçi kodu → meta
 
         foreach ($products as $urunKarti) {
-            foreach ($this->extractVariants($urunKarti) as $v) {
+            $variants = $this->extractVariants($urunKarti);
+            // Ticimax StokGuncellemeTarihi filtresi kartı bazen varyasyonsuz döndürüyor.
+            // Bu durumda kartın tam halini ana'dan yeniden çek (stok_kodu/tedarikçi kodu ile).
+            if (empty($variants)) {
+                $variants = $this->refetchVariants($ana, (int) ($urunKarti['ID'] ?? 0), $byAnaId);
+            }
+            foreach ($variants as $v) {
                 $stokKodu = (string) ($v['StokKodu'] ?? '');
                 $ted = trim((string) ($v['TedarikciKodu'] ?? ''));
                 if ($ted === '' && $stokKodu === '') {
@@ -400,6 +409,33 @@ class SyncStockPriceJob implements ShouldQueue
             $m->update(['status' => 'error', 'last_error' => $e->getMessage()]);
             $this->log($job, $context, 'error', $e->getMessage());
         }
+    }
+
+    /**
+     * Delta kartı varyasyonsuz döndüyse kartın TAM halini ana'dan yeniden çek.
+     * ana_product_id (kart ID) → mapping → stok_kodu (birincil) / tedarikçi kodu ile lookup.
+     *
+     * @return array varyasyon listesi (boş olabilir)
+     */
+    protected function refetchVariants(ProductService $ana, int $cardId, $byAnaId): array
+    {
+        if ($cardId <= 0) {
+            return [];
+        }
+        $maps = $byAnaId->get((string) $cardId);
+        if (! $maps || $maps->isEmpty()) {
+            return [];
+        }
+        $first = $maps->first();
+        $full = null;
+        if ((string) $first->stok_kodu !== '') {
+            $full = $ana->getProductByStokKodu($first->stok_kodu);
+        }
+        if (! $full && (string) $first->tedarikci_kodu !== '') {
+            $full = $ana->getProductByTedarikciKodu($first->tedarikci_kodu);
+        }
+
+        return $full ? $this->extractVariants($full) : [];
     }
 
     protected function extractVariants(array $urunKarti): array
