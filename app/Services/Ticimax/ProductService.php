@@ -932,11 +932,35 @@ class ProductService
     }
 
     /**
+     * Satış fiyatından üye tipi fiyatlarını hesapla.
+     *
+     * Formül: SatisFiyati × (1 - iskonto_oranı)
+     *   UyeTipiFiyat1 = %35 iskonto → ×0.65
+     *   UyeTipiFiyat2 = %30 iskonto → ×0.70
+     *   UyeTipiFiyat3 = %40 iskonto → ×0.60
+     *   UyeTipiFiyat4 = %25 iskonto → ×0.75
+     *   UyeTipiFiyat5 = %20 iskonto → ×0.80
+     */
+    public static function calculateUyeTipiFiyatlari(float $satisFiyati): array
+    {
+        return [
+            'UyeTipiFiyat1' => round($satisFiyati * 0.65, 2),
+            'UyeTipiFiyat2' => round($satisFiyati * 0.70, 2),
+            'UyeTipiFiyat3' => round($satisFiyati * 0.60, 2),
+            'UyeTipiFiyat4' => round($satisFiyati * 0.75, 2),
+            'UyeTipiFiyat5' => round($satisFiyati * 0.80, 2),
+        ];
+    }
+
+    /**
      * UpdateUrunFiyat gerçek imzası: (UyeKodu, ArrayOfUpdateUrunFiyat request, UpdateUrunFiyatAyar ayar).
      * Barkoda göre eşleştir, fiyatları güncelle.
+     * Üye tipi fiyatları SatisFiyati'ndan otomatik hesaplanır.
      */
     public function updatePrice(string $barkod, float $price, float $kdvOrani = 20.0, bool $kdvDahil = true): array
     {
+        $uyeFiyatlar = self::calculateUyeTipiFiyatlari($price);
+
         $params = [
             'UyeKodu' => $this->client->getUyeKodu(),
             'request' => [[
@@ -946,12 +970,7 @@ class ProductService
                     'IndirimliFiyat' => 0,
                     'KDVDahil' => $kdvDahil,
                     'KdvOrani' => (int) $kdvOrani,
-                    'UyeTipiFiyat1' => 0,
-                    'UyeTipiFiyat2' => 0,
-                    'UyeTipiFiyat3' => 0,
-                    'UyeTipiFiyat4' => 0,
-                    'UyeTipiFiyat5' => 0,
-                ],
+                ] + $uyeFiyatlar,
                 'TedarikciKodu' => '',
                 'TedarikciKodu2' => '',
                 'UrunIds' => '',
@@ -964,11 +983,11 @@ class ProductService
                 'TedarikciKodunaGoreGuncelle' => false,
                 'UrunIdGoreGuncelle' => false,
                 'UrunKartiIdGoreGuncelle' => false,
-                'UyeTipiFiyat1Guncelle' => false,
-                'UyeTipiFiyat2Guncelle' => false,
-                'UyeTipiFiyat3Guncelle' => false,
-                'UyeTipiFiyat4Guncelle' => false,
-                'UyeTipiFiyat5Guncelle' => false,
+                'UyeTipiFiyat1Guncelle' => true,
+                'UyeTipiFiyat2Guncelle' => true,
+                'UyeTipiFiyat3Guncelle' => true,
+                'UyeTipiFiyat4Guncelle' => true,
+                'UyeTipiFiyat5Guncelle' => true,
                 'VaryasyonGuncelle' => true,
             ],
         ];
@@ -1017,24 +1036,24 @@ class ProductService
         if (empty($items)) {
             return;
         }
-        $request = array_map(fn ($item) => [
-            'Barkod' => $item['Barkod'],
-            'Fiyatlar' => [
-                'SatisFiyati' => (float) $item['SatisFiyati'],
-                'IndirimliFiyat' => 0,
-                'KDVDahil' => (bool) ($item['KdvDahil'] ?? true),
-                'KdvOrani' => (int) ($item['KdvOrani'] ?? 20),
-                'UyeTipiFiyat1' => 0,
-                'UyeTipiFiyat2' => 0,
-                'UyeTipiFiyat3' => 0,
-                'UyeTipiFiyat4' => 0,
-                'UyeTipiFiyat5' => 0,
-            ],
-            'TedarikciKodu' => '',
-            'TedarikciKodu2' => '',
-            'UrunIds' => '',
-            'UrunKartiIds' => '',
-        ], $items);
+        $request = array_map(function ($item) {
+            $price = (float) $item['SatisFiyati'];
+            $uyeFiyatlar = self::calculateUyeTipiFiyatlari($price);
+
+            return [
+                'Barkod' => $item['Barkod'],
+                'Fiyatlar' => [
+                    'SatisFiyati' => $price,
+                    'IndirimliFiyat' => 0,
+                    'KDVDahil' => (bool) ($item['KdvDahil'] ?? true),
+                    'KdvOrani' => (int) ($item['KdvOrani'] ?? 20),
+                ] + $uyeFiyatlar,
+                'TedarikciKodu' => '',
+                'TedarikciKodu2' => '',
+                'UrunIds' => '',
+                'UrunKartiIds' => '',
+            ];
+        }, $items);
 
         $params = [
             'UyeKodu' => $this->client->getUyeKodu(),
@@ -1046,11 +1065,11 @@ class ProductService
                 'TedarikciKodunaGoreGuncelle' => false,
                 'UrunIdGoreGuncelle' => false,
                 'UrunKartiIdGoreGuncelle' => false,
-                'UyeTipiFiyat1Guncelle' => false,
-                'UyeTipiFiyat2Guncelle' => false,
-                'UyeTipiFiyat3Guncelle' => false,
-                'UyeTipiFiyat4Guncelle' => false,
-                'UyeTipiFiyat5Guncelle' => false,
+                'UyeTipiFiyat1Guncelle' => true,
+                'UyeTipiFiyat2Guncelle' => true,
+                'UyeTipiFiyat3Guncelle' => true,
+                'UyeTipiFiyat4Guncelle' => true,
+                'UyeTipiFiyat5Guncelle' => true,
                 'VaryasyonGuncelle' => true,
             ],
         ];
@@ -1441,9 +1460,24 @@ class ProductService
             $v['TedarikciKodu2'] = $bayiVar['TedarikciKodu2'] ?? '';
         }
         // Uye tipi fiyatlari 1..20
+        // UyeTipiFiyat 1-5 seciliyse: SatisFiyati'ndan formülle hesapla (ana'dan gelen deger degil)
+        $uyeSecili = $on('uye_tipi_fiyat'); // toplu toggle
+        $satisFiyati = (float) ($v['SatisFiyati'] ?? 0);
+        $formulFiyatlar = ($uyeSecili || $on('uye_tipi_fiyat_1') || $on('uye_tipi_fiyat_2')
+            || $on('uye_tipi_fiyat_3') || $on('uye_tipi_fiyat_4') || $on('uye_tipi_fiyat_5'))
+            ? self::calculateUyeTipiFiyatlari($satisFiyati)
+            : [];
+
         for ($i = 1; $i <= 20; $i++) {
-            if (! ($on('uye_tipi_fiyat') || $on('uye_tipi_fiyat_'.$i))) {
-                $key = 'UyeTipiFiyat'.$i;
+            $key = 'UyeTipiFiyat'.$i;
+            if ($uyeSecili || $on('uye_tipi_fiyat_'.$i)) {
+                // Secili: 1-5 icin formul, 6-20 icin ana'dan gelen deger
+                if (isset($formulFiyatlar[$key])) {
+                    $v[$key] = $formulFiyatlar[$key];
+                }
+                // 6-20 icin ana'dan gelen deger zaten payload'da
+            } else {
+                // Secili degil: bayi'nin orijinalini koru
                 if (isset($bayiVar[$key])) {
                     $v[$key] = $bayiVar[$key];
                 }
