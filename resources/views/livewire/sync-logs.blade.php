@@ -26,7 +26,8 @@
             </div>
 
             <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
-                <div class="grid grid-cols-1 sm:grid-cols-5 gap-4 mb-4">
+                {{-- İş-bazlı filtreler --}}
+                <div class="grid grid-cols-1 sm:grid-cols-5 gap-4 mb-3">
                     <select wire:model.live="typeFilter"
                             class="rounded-md border-gray-300 dark:bg-gray-900 dark:border-gray-700 dark:text-gray-200">
                         <option value="">Tüm Tipler</option>
@@ -50,6 +51,33 @@
                             class="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 text-sm rounded hover:bg-gray-300">
                         Filtreleri Sıfırla
                     </button>
+                </div>
+
+                {{-- Ürün-bazlı filtreler — sync_logs satırlarında arar, eşleşen log içeren iş'leri listeler --}}
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4 p-3 bg-gray-50 dark:bg-gray-900/40 rounded-md border border-gray-200 dark:border-gray-700">
+                    <div>
+                        <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">🏷️ Barkod</label>
+                        <input type="text" wire:model.live.debounce.400ms="barcodeFilter"
+                               placeholder="İçerir ara…"
+                               class="w-full text-sm rounded-md border-gray-300 dark:bg-gray-900 dark:border-gray-700 dark:text-gray-200">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">📦 Stok Kodu</label>
+                        <input type="text" wire:model.live.debounce.400ms="stokKoduFilter"
+                               placeholder="İçerir ara…"
+                               class="w-full text-sm rounded-md border-gray-300 dark:bg-gray-900 dark:border-gray-700 dark:text-gray-200">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">🆔 Ürün ID (Ana / Bayi)</label>
+                        <input type="text" wire:model.live.debounce.400ms="urunIdFilter"
+                               placeholder="Tam eşleşme…"
+                               class="w-full text-sm rounded-md border-gray-300 dark:bg-gray-900 dark:border-gray-700 dark:text-gray-200">
+                    </div>
+                    @if ($barcodeFilter !== '' || $stokKoduFilter !== '' || $urunIdFilter !== '')
+                        <div class="sm:col-span-3 text-xs text-blue-700 dark:text-blue-400 flex items-center gap-2">
+                            <span>🔍 Ürün filtresi aktif — sadece eşleşen log satırı içeren işler listeleniyor.</span>
+                        </div>
+                    @endif
                 </div>
 
                 <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
