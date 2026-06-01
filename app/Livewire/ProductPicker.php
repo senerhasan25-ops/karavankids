@@ -191,6 +191,11 @@ class ProductPicker extends Component
      */
     protected function loadPage(): void
     {
+        // SOAP yanıtı yavaş olabiliyor (büyük katalog, 100 ürün/sayfa).
+        // Varsayılan PHP max_execution_time (30s) aşılıyor ve Livewire
+        // bunu "payload is invalid" olarak gösteriyor. 2 dakika ver.
+        set_time_limit(120);
+
         $q = trim($this->query);
         try {
             $ana = ProductService::for('ana');

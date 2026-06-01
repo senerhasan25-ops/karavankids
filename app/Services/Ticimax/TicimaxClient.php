@@ -94,6 +94,12 @@ class TicimaxClient
         }
 
         try {
+            // SOAP socket okuma timeout'u PHP'nin default_socket_timeout'una (60sn) bağımlı.
+            // Büyük SelectUrun çağrıları 60sn'yi aşabiliyor → ini_set ile geçici olarak
+            // 120sn'ye çıkar. (connection_timeout sadece TCP handshake için, response için DEĞİL.)
+            $soapTimeout = (int) config('ticimax.timeout', 120);
+            ini_set('default_socket_timeout', (string) max($soapTimeout, 60));
+
             $this->clients[$service] = new SoapClient($url, [
                 // WSDL+XSD'ler büyük; her worker process'inde yeniden indirmek yerine
                 // diskte cache'le (TTL = soap.wsdl_cache_ttl, varsayılan 1 gün). WSDL
