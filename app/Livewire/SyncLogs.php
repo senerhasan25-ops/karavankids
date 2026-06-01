@@ -125,6 +125,43 @@ class SyncLogs extends Component
         $this->detailLogId = null;
     }
 
+    /**
+     * SyncJob.type → kullanıcı dostu Türkçe etiket.
+     * Filtre dropdown'ı + tablo "Tip" sütunu burayı kullanır.
+     */
+    public static function typeLabel(string $type): string
+    {
+        return match ($type) {
+            'product_create'        => '📦 Ürün Aktarımı',
+            'product_remap'         => '🗺️ Ürün Eşleştirme',
+            'stock_price_update'    => '💰 Stok / Fiyat Güncelleme',
+            'order_pull'            => '🛒 Sipariş Çekme',
+            'order_pull_single'     => '🛒 Tek Sipariş Aktarımı',
+            'order_retry'           => '🔁 Sipariş Tekrar Deneme',
+            default                 => $type,
+        };
+    }
+
+    /**
+     * SyncLog.action → kullanıcı dostu Türkçe etiket.
+     * Detay tablosundaki "Detay" sütununda action satırı için.
+     */
+    public static function actionLabel(string $action): string
+    {
+        return match ($action) {
+            'create_product'         => 'Ürün Oluşturma',
+            'transfer_product'       => 'Ürün Aktarımı',
+            'update_stock_price'     => 'Stok / Fiyat Güncelleme',
+            'update_stock'           => 'Stok Güncelleme',
+            'update_price'           => 'Fiyat Güncelleme',
+            'transfer_order'         => 'Sipariş Aktarımı',
+            'transfer_order_manual'  => 'Sipariş Aktarımı (Manuel)',
+            'mark_order'             => 'Sipariş İşaretleme',
+            'remap'                  => 'Eşleştirme',
+            default                  => $action,
+        };
+    }
+
     public function render()
     {
         $hasProductFilters = $this->hasProductFilters();

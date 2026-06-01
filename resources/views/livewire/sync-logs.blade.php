@@ -31,10 +31,12 @@
                     <select wire:model.live="typeFilter"
                             class="rounded-md border-gray-300 dark:bg-gray-900 dark:border-gray-700 dark:text-gray-200">
                         <option value="">Tüm Tipler</option>
-                        <option value="product_create">Ürün Oluşturma</option>
-                        <option value="stock_price_update">Stok/Fiyat Güncelleme</option>
-                        <option value="order_pull">Sipariş Çekme</option>
-                        <option value="order_retry">Sipariş Tekrar Deneme</option>
+                        <option value="product_create">📦 Ürün Aktarımı</option>
+                        <option value="product_remap">🗺️ Ürün Eşleştirme</option>
+                        <option value="stock_price_update">💰 Stok / Fiyat Güncelleme</option>
+                        <option value="order_pull">🛒 Sipariş Çekme</option>
+                        <option value="order_pull_single">🛒 Tek Sipariş Aktarımı</option>
+                        <option value="order_retry">🔁 Sipariş Tekrar Deneme</option>
                     </select>
                     <select wire:model.live="statusFilter"
                             class="rounded-md border-gray-300 dark:bg-gray-900 dark:border-gray-700 dark:text-gray-200">
@@ -98,7 +100,7 @@
                         @forelse ($jobs as $j)
                             <tr class="hover:bg-gray-50 dark:hover:bg-gray-900/50">
                                 <td class="px-4 py-2 text-sm text-gray-900 dark:text-gray-200">{{ $j->id }}</td>
-                                <td class="px-4 py-2 text-sm text-gray-700 dark:text-gray-300">{{ $j->type }}</td>
+                                <td class="px-4 py-2 text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">{{ \App\Livewire\SyncLogs::typeLabel($j->type) }}</td>
                                 <td class="px-4 py-2 text-sm">
                                     @if ($j->status === 'completed')
                                         <span class="px-2 py-1 text-xs bg-green-100 text-green-800 rounded">Tamamlandı</span>
@@ -177,7 +179,7 @@
                                                             <td class="px-2 py-1 text-[10px] text-gray-500 dark:text-gray-400 whitespace-nowrap">
                                                                 @if ($log->ana_id)<div>Ana ID: {{ $log->ana_id }}</div>@endif
                                                                 @if ($log->bayi_id)<div>Bayi ID: {{ $log->bayi_id }}</div>@endif
-                                                                <div class="text-gray-400">{{ $log->action }}</div>
+                                                                <div class="text-gray-400">{{ \App\Livewire\SyncLogs::actionLabel($log->action) }}</div>
                                                             </td>
                                                             <td class="px-2 py-1 {{ $log->status === 'error' ? 'text-red-700 dark:text-red-400' : 'text-gray-700 dark:text-gray-300' }}">
                                                                 {{ \Illuminate\Support\Str::limit($log->message, 140) }}
