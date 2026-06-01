@@ -231,7 +231,9 @@ class SyncNewProductsJob implements ShouldQueue
             // checkpoint'i güncelle. Manuel tarihli çağrıda (ProductManualSync)
             // bizim otomatik akışı kirletmesin diye dokunmuyoruz.
             if (! $stoppedEarly && ! $this->since) {
-                SyncSetting::put(self::LAST_RUN_KEY, $startedAt->toIso8601String());
+                // SyncStockPriceJob ile aynı format — Carbon::parse her ikisini de okur,
+                // ama tutarlılık için DateTimeString tercih (DB'de timestamp tipiyle aynı).
+                SyncSetting::put(self::LAST_RUN_KEY, $startedAt->toDateTimeString());
             }
         } catch (Throwable $e) {
             // Patlamadan önce biriken log'ları kaybetme.

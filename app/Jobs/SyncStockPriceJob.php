@@ -15,6 +15,7 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Throwable;
 
 /**
@@ -59,6 +60,30 @@ class SyncStockPriceJob implements ShouldQueue
         public ?string $singleStokKodu = null,
         public ?Carbon $forceSince = null,
     ) {}
+
+    /**
+     * Zaten çalışan/bekleyen stok-fiyat job'u varsa yeni dispatch ETME.
+     * WithoutOverlapping middleware kuyruğa gönderilen kopyaları sessizce
+     * düşürüyor — gereksiz queue cycle yiyor. Bu pre-check onları engeller.
+     */
+    public static function dispatchUnique(?Carbon $forceSince = null): bool
+    {
+        if (self::isQueuedOrRunning()) {
+            return false;
+        }
+        self::dispatch(null, $forceSince);
+
+        return true;
+    }
+
+    public static function isQueuedOrRunning(): bool
+    {
+        if (SyncJob::where('type', 'stock_price_update')->where('status', 'running')->exists()) {
+            return true;
+        }
+
+        return DB::table('jobs')->where('payload', 'like', '%SyncStockPriceJob%')->exists();
+    }
 
     /**
      * Delta sync uzun sürebiliyor; overlap kilidi ile scheduler'ın üst üste

@@ -143,14 +143,20 @@ class TicimaxClient
                 ]);
 
                 // Rate limit yakala: "Next Query Allowed After 42 seconds. |42"
+                // Rate limit BU attempt'i tüketmemeli — kullanıcı hatası değil, sadece
+                // beklemek lazım. $i'yi decrement edip continue → for loop ++ ile aynı
+                // i'de yeniden döneriz. Aksi halde 3 retry'dan biri burada boşa gider
+                // ve son attempt rate limit yerse hiç tekrar denenmez.
                 if (preg_match('/Next Query Allowed After (\d+) seconds/i', $e->getMessage(), $m)) {
                     $waitSeconds = (int) $m[1] + 2; // güvenlik için +2sn
                     Log::info("Ticimax rate limit; {$waitSeconds}sn bekleniyor", [
                         'service' => $service, 'method' => $method,
+                        'attempt' => $i, 'attempts_total' => $attempts,
                     ]);
                     sleep($waitSeconds);
+                    $i--; // rate limit attempt'i sayma
 
-                    continue; // bu attempt'i tekrarla
+                    continue;
                 }
 
                 if ($i < $attempts) {

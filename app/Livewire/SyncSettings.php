@@ -152,12 +152,18 @@ class SyncSettings extends Component
             }
         }
         if ($this->otomatik_stok_fiyat) {
-            SyncStockPriceJob::dispatch();
-            $dispatched[] = '💰 Stok / Fiyat';
+            if (SyncStockPriceJob::dispatchUnique()) {
+                $dispatched[] = '💰 Stok / Fiyat';
+            } else {
+                $dispatched[] = '💰 Stok / Fiyat (zaten çalışıyor/kuyrukta — atlandı)';
+            }
         }
         if ($this->otomatik_siparis) {
-            PullBayiOrdersJob::dispatch();
-            $dispatched[] = '🛒 Siparişler';
+            if (PullBayiOrdersJob::dispatchUnique()) {
+                $dispatched[] = '🛒 Siparişler';
+            } else {
+                $dispatched[] = '🛒 Siparişler (zaten çalışıyor/kuyrukta — atlandı)';
+            }
         }
 
         if (empty($dispatched)) {

@@ -196,6 +196,10 @@ class ManuelUrunAktarJob implements ShouldQueue
             $barkod = ($row['barkod'] ?? '') ?: null;
             $stock = (int) ($row['stok_adedi'] ?? 0);
             $price = (float) ($row['satis_fiyati'] ?? 0);
+            // KDV row'dan gelirse onu kullan (8% / 10% / 20% — Ticimax ürün-bazlı tutar).
+            // Yoksa 20 fallback. KdvDahil de aynı şekilde.
+            $kdvOrani = isset($row['kdv_orani']) ? (float) $row['kdv_orani'] : 20.0;
+            $kdvDahil = isset($row['kdv_dahil']) ? (bool) $row['kdv_dahil'] : true;
             $mapping = $mappings->get($stokKodu);
 
             if ($mapping && $mapping->bayi_variant_id) {
@@ -212,8 +216,8 @@ class ManuelUrunAktarJob implements ShouldQueue
                     $priceBatch[] = [
                         'Barkod' => $barkod,
                         'SatisFiyati' => $price,
-                        'KdvOrani' => 20,
-                        'KdvDahil' => true,
+                        'KdvOrani' => $kdvOrani,
+                        'KdvDahil' => $kdvDahil,
                     ];
                 }
 
@@ -223,26 +227,36 @@ class ManuelUrunAktarJob implements ShouldQueue
             }
         }
 
-        // ── Adım 3: Toplu SOAP (2 çağrı, N ürün) ──
+        // ── Adım 3: Toplu SOAP (stock ve price AYRI try/catch) ──
+        // Birinin patlaması diğerinin sonucunu etkilemesin: stok güncellense bile
+        // fiyat hatası tüm satırları 'error' olarak loglamamalı.
         $bayi = ProductService::for('bayi');
-        $batchError = null;
+        $stockError = null;
+        $priceError = null;
 
-        try {
-            if (! empty($stockBatch)) {
+        if (! empty($stockBatch)) {
+            try {
                 $bayi->updateStockBatch($stockBatch);
+            } catch (\Throwable $e) {
+                $stockError = $e->getMessage();
             }
-            if (! empty($priceBatch)) {
+        }
+        if (! empty($priceBatch)) {
+            try {
                 $bayi->updatePriceBatch($priceBatch);
+            } catch (\Throwable $e) {
+                $priceError = $e->getMessage();
             }
-        } catch (\Throwable $e) {
-            $batchError = $e->getMessage();
         }
 
         // ── Adım 4: Batch sonuçlarını logla + mapping'i güncelle ──
+        // Her satır için stok ve fiyat ayrı değerlendirilir; ikisi de OK ise success,
+        // biri hata ise hangisinin patladığı mesajda görünür.
         foreach ($mappedRows as $row) {
-            if ($batchError === null) {
-                $stok = $row['stok_adedi'] ?? 0;
-                $fiyat = number_format((float) ($row['satis_fiyati'] ?? 0), 2, '.', '');
+            $stok = $row['stok_adedi'] ?? 0;
+            $fiyat = number_format((float) ($row['satis_fiyati'] ?? 0), 2, '.', '');
+
+            if ($stockError === null && $priceError === null) {
                 $msg = "stok={$stok} fiyat={$fiyat} (batch)";
                 $job?->increment('success_count');
                 SyncLog::create($this->logData($job, 'update_stock_price', 'success', $row, $msg));
@@ -256,9 +270,22 @@ class ManuelUrunAktarJob implements ShouldQueue
                         'last_synced_at' => now(),
                     ]);
             } else {
+                $hata = [];
+                if ($stockError !== null) {
+                    $hata[] = 'stok: '.substr($stockError, 0, 120);
+                }
+                if ($priceError !== null) {
+                    $hata[] = 'fiyat: '.substr($priceError, 0, 120);
+                }
                 $job?->increment('error_count');
                 SyncLog::create($this->logData($job, 'update_stock_price', 'error', $row,
-                    'Batch güncelleme hatası: '.substr($batchError, 0, 200)));
+                    'Batch hatası — '.implode(' | ', $hata)));
+
+                // Kısmen başarılı: stok geçti ama fiyat patladıysa son_stok'u güncelle
+                if ($stockError === null && $priceError !== null) {
+                    ProductMapping::where('stok_kodu', $row['stok_kodu'])
+                        ->update(['last_stock' => $row['stok_adedi'] ?? null, 'last_synced_at' => now()]);
+                }
             }
         }
 

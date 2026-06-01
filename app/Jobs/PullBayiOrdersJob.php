@@ -18,6 +18,7 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Throwable;
 
 /**
@@ -36,6 +37,31 @@ class PullBayiOrdersJob implements ShouldQueue
 
     /** Sipariş aktarımı için 1 saat yeterli (çok sayıda sipariş gelse de). */
     public int $timeout = 3600;
+
+    /**
+     * Zaten çalışan/bekleyen sipariş çekme job'u varsa yeni dispatch ETME.
+     * Scheduler interval'i kısaysa (5 dk) ve önceki job hâlâ çalışıyorsa
+     * WithoutOverlapping middleware kuyruğa eklenen kopyaları sessizce
+     * düşürüyor; bu pre-check gereksiz queue trafiğini en başta engeller.
+     */
+    public static function dispatchUnique(): bool
+    {
+        if (self::isQueuedOrRunning()) {
+            return false;
+        }
+        self::dispatch();
+
+        return true;
+    }
+
+    public static function isQueuedOrRunning(): bool
+    {
+        if (SyncJob::where('type', 'order_pull')->where('status', 'running')->exists()) {
+            return true;
+        }
+
+        return DB::table('jobs')->where('payload', 'like', '%PullBayiOrdersJob%')->exists();
+    }
 
     /**
      * Aynı anda yalnızca BİR PullBayiOrdersJob çalışsın. Scheduler (SyncTick) job

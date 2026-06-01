@@ -477,6 +477,9 @@ class ProductPicker extends Component
                     'stok_adedi' => (int) ($v['StokAdedi'] ?? 0),
                     'satis_fiyati' => (float) ($v['SatisFiyati'] ?? 0),
                     'indirimli_fiyat' => (float) ($v['IndirimliFiyati'] ?? 0),
+                    // KDV bilgisi — ManuelUrunAktarJob::handleStokFiyat doğru oranla update gönderebilsin
+                    'kdv_orani' => (float) ($v['KdvOrani'] ?? $uk['KdvOrani'] ?? 20),
+                    'kdv_dahil' => (bool) ($v['KdvDahil'] ?? $uk['KdvDahil'] ?? true),
                     'aktif' => (bool) (($v['Aktif'] ?? true) && ($uk['Aktif'] ?? true)),
                     '_raw' => $uk,
                 ];

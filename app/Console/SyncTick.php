@@ -33,21 +33,25 @@ class SyncTick
             return;
         }
 
-        // Alt-toggle'lar — sadece açık olanları dispatch et
+        // Alt-toggle'lar — sadece açık olanları dispatch et.
+        // dispatchUnique: önceki kopya hâlâ çalışıyorsa/kuyruktaysa yenisini ATMA.
+        // (WithoutOverlapping zaten silently drop ediyordu — ama o noktaya gelmeden
+        // bu check ile gereksiz queue cycle yenmez.)
         $dispatched = false;
         if ((bool) SyncSetting::get('otomatik_urunler', true)) {
-            // Zaten çalışan/bekleyen ürün işi varsa scheduler ikinci kopya eklemesin.
             if (SyncNewProductsJob::dispatchUnique()) {
                 $dispatched = true;
             }
         }
         if ((bool) SyncSetting::get('otomatik_stok_fiyat', true)) {
-            SyncStockPriceJob::dispatch();
-            $dispatched = true;
+            if (SyncStockPriceJob::dispatchUnique()) {
+                $dispatched = true;
+            }
         }
         if ((bool) SyncSetting::get('otomatik_siparis', true)) {
-            PullBayiOrdersJob::dispatch();
-            $dispatched = true;
+            if (PullBayiOrdersJob::dispatchUnique()) {
+                $dispatched = true;
+            }
         }
 
         // En az bir job atıldıysa "son çalışma" zamanını güncelle.

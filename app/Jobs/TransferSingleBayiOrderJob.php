@@ -13,6 +13,7 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
+use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Carbon;
 use Throwable;
@@ -34,6 +35,20 @@ class TransferSingleBayiOrderJob implements ShouldQueue
     public int $tries = 1;
 
     public function __construct(public string $bayiOrderId, public bool $forceReTransfer = false) {}
+
+    /**
+     * Aynı bayiOrderId için iki paralel transfer job'u çalışmasın — kullanıcı
+     * butonu çift tıklarsa veya farklı tab'lardan tetiklenirse race olur,
+     * ana'da çift sipariş oluşturma riski var. Per-order kilit yeterli.
+     */
+    public function middleware(): array
+    {
+        return [
+            (new WithoutOverlapping('transfer-order-'.$this->bayiOrderId))
+                ->dontRelease()
+                ->expireAfter(600),
+        ];
+    }
 
     public function handle(): void
     {
