@@ -325,8 +325,9 @@ class ProductPicker extends Component
             return;
         }
 
-        // _raw alanını çıkar — job Ana'dan yeniden çeker
-        $compactRows = array_map(fn ($r) => array_diff_key($r, ['_raw' => true]), $adaylar);
+        // Row'lar artık _raw içermiyor (Livewire payload limit'i nedeniyle kaldırıldı);
+        // job Ana'dan SOAP ile veriyi yeniden çekiyor.
+        $compactRows = array_values($adaylar);
 
         $job = SyncJob::create([
             'type' => 'product_create',
@@ -392,8 +393,8 @@ class ProductPicker extends Component
             $this->products,
             fn ($r) => in_array((string) $r['variant_id'], $this->selected, true)
         ));
-        // _raw alanını çıkar — job, Ana'dan yeniden çeker
-        $compactRows = array_map(fn ($r) => array_diff_key($r, ['_raw' => true]), $rows);
+        // Row'lar artık _raw içermiyor — direkt kullanabiliriz.
+        $compactRows = $rows;
 
         $job = SyncJob::create([
             'type' => 'stock_price_update',
@@ -440,8 +441,8 @@ class ProductPicker extends Component
 
             return;
         }
-        // _raw alanını çıkar — job, Ana'dan yeniden çeker
-        $compactRows = array_map(fn ($r) => array_diff_key($r, ['_raw' => true]), $rows);
+        // Row'lar artık _raw içermiyor — direkt kullanabiliriz.
+        $compactRows = $rows;
 
         $job = SyncJob::create([
             'type' => 'product_create',
@@ -486,7 +487,10 @@ class ProductPicker extends Component
                     'kdv_orani' => (float) ($v['KdvOrani'] ?? $uk['KdvOrani'] ?? 20),
                     'kdv_dahil' => (bool) ($v['KdvDahil'] ?? $uk['KdvDahil'] ?? true),
                     'aktif' => (bool) (($v['Aktif'] ?? true) && ($uk['Aktif'] ?? true)),
-                    '_raw' => $uk,
+                    // _raw KALDIRILDI: tüm SOAP UrunKarti'sını her satıra koyuyordu (100 ürün × ~50KB
+                    // = ~5MB public property). Livewire her request'te bunu serialize edip frontend'e
+                    // yolluyor → "payload is invalid" hatası. Job zaten Ana'dan SOAP ile yeniden çekiyor,
+                    // burada saklanmasına gerek yok.
                 ];
             }
         }
