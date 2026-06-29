@@ -20,7 +20,7 @@ Müşterimiz **Karavankids** (oyuncak satan e-ticaret + IT danışmanlığı) ik
   - **Görseller:** ana görsel + galeri (URL referansı, re-upload yok)
   - **Varyasyonlar:** renk, beden vb. alt ürünler tam aktarılır
   - **SEO:** URL, meta title, meta description
-- **Eşleştirme anahtarı:** Lokal `product_mappings.stok_kodu` (UNIQUE) — primary lookup. **TedarikciKodu** (`SUP2026|{stokKodu}|{anaVaryasyonID}`) sadece audit/iz takibi içindir; Ticimax-native upsert flag'i (`TedarikciKodunaGoreGuncelle`) **kapatıldı**. Eşleştirmeyi biz lokalden bayi_product_id + bayi_variant_id ile garantiliyoruz.
+- **Eşleştirme anahtarı (2026-06-29 güncellemesi):** YALNIZCA `TedarikciKodu` (numeric + benzersiz). Otomatik sync işlerinin (FullRemapProductsJob, SyncNewProductsJob, SyncStockPriceJob) hiçbiri **stok_kodu / barkod ile eşleştirme YAPMAZ** — aynı stok_kodu/barkod farklı ürünlerde tekrar edebildiği için yanlış ürünün ezilmesi riski var. Ted kodu olmayan ürünler eşleşmez, `pending` kalır + loglanır (manuel kontrol). Lokal `product_mappings`'te ana/bayi ID'leri ted koduna bağlı tutulur.
 
 ### 2.2 Stok & Fiyat Güncellemesi (Ana → Bayi)
 - Mevcut eşleşmiş ürünlerde **stok** ve **fiyat** ana mağazadan bayi mağazasına itilir.
@@ -61,7 +61,8 @@ api_credentials          # store_key (ana|bayi), endpoint_url, username, passwor
 sync_settings            # key, value (interval_minutes, otomatik_aktif, last_run_at vb.)
 product_mappings         # LOKAL-ÖNCELİKLİ EŞLEŞTİRME ANAHTAR TABLOSU
                          # Bir satır = bir VARYASYON (ürün değil)
-                         # stok_kodu UNIQUE — primary lookup
+                         # tedarikci_kodu — TEK eşleştirme anahtarı (numeric+benzersiz)
+                         # stok_kodu/barkod — yalnızca bilgi/audit, eşleştirmede KULLANILMAZ
                          # barcode (index), ana_product_id, ana_variant_id,
                          # bayi_product_id, bayi_variant_id, tedarikci_kodu,
                          # last_synced_at, last_price, last_stock,
@@ -76,7 +77,7 @@ order_transfers          # bayi_order_id UNIQUE, ana_order_id, status (pending|t
 ```
 
 **İdempotency anahtarları:**
-- **Ürün aktarımı:** `product_mappings.stok_kodu` (lokal UNIQUE). Job önce burada arar; varsa `bayi_product_id` + `bayi_variant_id` ile direkt SaveUrun (hızlı yol). Yoksa SOAP probe yapıp bulunan veya yeni oluşturulan ürünün ID'lerini mapping'e kaydeder (bir kerelik). `TedarikciKodunaGoreGuncelle: false` — Ticimax-native upsert güvenlik kemeri olarak KULLANILMIYOR (eski formatlı duplikatları yanlış yakalamasın).
+- **Ürün aktarımı:** `product_mappings.tedarikci_kodu` (lokal). Job önce ted koduyla lokalde arar; varsa `bayi_product_id` + `bayi_variant_id` ile direkt SaveUrun (hızlı yol). Yoksa SADECE `getProductByTedarikciKodu` ile SOAP probe yapar (stok/barkod probe YOK); bulamazsa ürün gerçekten yenidir → oluşturur. Gerçek ted kodu olmayan ürün hiç işlenmez (pending + log). `TedarikciKodunaGoreGuncelle: false` (selective update); `true` (yeni ürün full create).
 - **Sipariş aktarımı:** `order_transfers.bayi_order_id` UNIQUE → tekrar güvenli (lokal tablo).
 - **Sipariş satırı eşleştirme:** Her satırın `StokKodu`'su için `PullBayiOrdersJob` resolver'ı önce `product_mappings`'te arar → varsa `ana_variant_id` döner (SOAP yok). Yoksa `SelectUrun(StokKodu)` ile probe, sonucu mapping'e kaydeder. İkinci sync'te lookup tamamen lokaldir.
 
@@ -118,8 +119,8 @@ routes/web.php
 
 `SyncNewProductsJob::processOne()` 6 aşamalı akış:
 
-1. **LOKAL LOOKUP:** `ProductMapping::where('stok_kodu', X)->first()`
-2. **YOKSA SOAP PROBE:** `bayi->getProductByStokKodu(X)` → bulunursa hedef ID'lerini al
+1. **LOKAL LOOKUP:** `ProductMapping::where('tedarikci_kodu', X)->first()` (yalnızca ted kodu)
+2. **YOKSA SOAP PROBE:** `bayi->getProductByTedarikciKodu(X)` (yalnızca ted kodu, stok/barkod probe YOK) → bulunursa hedef ID'lerini al
 3. **VARYASYON ID MAP'İ:** lokal mapping'ten veya SOAP'tan toplanan `Barkod → bayi.Varyasyon.ID` tablosu
 4. **PAYLOAD'A ID YAZ:** `$payload['ID'] = $bayiProductId` + her varyasyona `bayi_variant_id`
 5. **SAVE:** `bayi->createProduct($payload)` — Ticimax kesin ID match ile günceller (yeni duplikat açmaz)

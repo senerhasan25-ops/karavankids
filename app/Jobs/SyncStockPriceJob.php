@@ -147,10 +147,11 @@ class SyncStockPriceJob implements ShouldQueue
 
         // ── Tüm mapping'leri tek sorguda belleğe al ─────────────────────────
         // 1000 ürün için ~1 MB — yönetilebilir. Her SOAP döngüsünde DB query YOK.
-        // Eşleme anahtarı tedarikçi kodu (birincil); stok_kodu yedek (ted boşsa).
+        // Eşleme anahtarı YALNIZCA tedarikçi kodu (numeric + benzersiz). stok_kodu
+        // indekslenmez — aynı stok farklı üründe olabildiği için yanlış ürünün
+        // stok/fiyatını güncellememek adına ted kodu tek doğru anahtardır.
         $allMappings = ProductMapping::whereNotNull('bayi_variant_id')->get();
         $byTed = $allMappings->filter(fn ($m) => (string) $m->tedarikci_kodu !== '')->keyBy('tedarikci_kodu');
-        $byStok = $allMappings->filter(fn ($m) => (string) $m->stok_kodu !== '')->keyBy('stok_kodu');
         // Ticimax StokGuncellemeTarihi filtresi bazen kartı VARYASYONSUZ döndürüyor;
         // o zaman kartın tam halini ana_product_id ile yeniden çekmek için bu indeks.
         $byAnaId = $allMappings->filter(fn ($m) => (string) $m->ana_product_id !== '')->groupBy('ana_product_id');
@@ -189,7 +190,7 @@ class SyncStockPriceJob implements ShouldQueue
                 }
             }
 
-            $this->processPage($job, $ana, $bayi, $products, $byTed, $byStok, $byAnaId);
+            $this->processPage($job, $ana, $bayi, $products, $byTed, $byAnaId);
             $this->flushSyncBuffers($job); // sayfa sonunda toplu yaz (#4)
 
             if (! $result['bug'] && count($products) < $perPage) {
@@ -219,7 +220,7 @@ class SyncStockPriceJob implements ShouldQueue
      *  - Gerçekten değişenleri batch dizilerine ekle
      *  - Tek updateStockBatch + updatePriceBatch SOAP çağrısı
      */
-    private function processPage(SyncJob $job, ProductService $ana, ProductService $bayi, array $products, $byTed, $byStok, $byAnaId): void
+    private function processPage(SyncJob $job, ProductService $ana, ProductService $bayi, array $products, $byTed, $byAnaId): void
     {
         $stockBatch = [];
         $priceBatch = [];
@@ -235,18 +236,17 @@ class SyncStockPriceJob implements ShouldQueue
             foreach ($variants as $v) {
                 $stokKodu = (string) ($v['StokKodu'] ?? '');
                 $ted = trim((string) ($v['TedarikciKodu'] ?? ''));
-                if ($ted === '' && $stokKodu === '') {
+                // Eşleme YALNIZCA tedarikçi kodu ile. Ted kodu olmayan varyasyon
+                // stok_kodu ile eşleştirilmez (yanlış ürünü güncelleme riski) → atla.
+                if ($ted === '') {
                     continue;
                 }
 
-                // Eşleme önceliği: tedarikçi kodu → stok_kodu (yedek).
-                $m = ($ted !== '' ? ($byTed->get($ted)) : null)
-                    ?? ($stokKodu !== '' ? ($byStok->get($stokKodu)) : null);
+                $m = $byTed->get($ted);
                 if (! $m || ! $m->bayi_variant_id) {
                     continue; // bu varyasyon bayi'ye eşleşmemiş, atla
                 }
-                // Birden çok varyasyon aynı mapping'e düşmesin diye anahtar olarak mapping id kullan.
-                $rowKey = $m->tedarikci_kodu ?: ('stok:'.$stokKodu);
+                $rowKey = $m->tedarikci_kodu;
 
                 $stock = (int) ($v['StokAdedi'] ?? 0);
                 $price = (float) ($v['SatisFiyati'] ?? 0);
@@ -438,7 +438,8 @@ class SyncStockPriceJob implements ShouldQueue
 
     /**
      * Delta kartı varyasyonsuz döndüyse kartın TAM halini ana'dan yeniden çek.
-     * ana_product_id (kart ID) → mapping → stok_kodu (birincil) / tedarikçi kodu ile lookup.
+     * Lookup YALNIZCA tedarikçi kodu ile — stok_kodu çoklu olabildiği için yanlış
+     * kart gelebilir. Ted kodu olmayan mapping'ler için kurtarma yapılmaz.
      *
      * @return array varyasyon listesi (boş olabilir)
      */
@@ -452,13 +453,10 @@ class SyncStockPriceJob implements ShouldQueue
             return [];
         }
         $first = $maps->first();
-        $full = null;
-        if ((string) $first->stok_kodu !== '') {
-            $full = $ana->getProductByStokKodu($first->stok_kodu);
+        if ((string) $first->tedarikci_kodu === '') {
+            return [];
         }
-        if (! $full && (string) $first->tedarikci_kodu !== '') {
-            $full = $ana->getProductByTedarikciKodu($first->tedarikci_kodu);
-        }
+        $full = $ana->getProductByTedarikciKodu($first->tedarikci_kodu);
 
         return $full ? $this->extractVariants($full) : [];
     }

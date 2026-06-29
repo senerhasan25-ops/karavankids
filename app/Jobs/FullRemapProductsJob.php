@@ -60,8 +60,8 @@ class FullRemapProductsJob implements ShouldQueue
             $ana = ProductService::for('ana');
             $bayi = ProductService::for('bayi');
 
-            // ── 1) Bayi indeksini kur: TedarikciKodu (birincil) + stok_kodu/barkod (yedek) ──
-            [$bayiByTed, $bayiByStok, $bayiByBarkod, $bayiVarCount, $stoppedEarly] = $this->buildBayiIndex($bayi, $job);
+            // ── 1) Bayi indeksini kur: YALNIZCA TedarikciKodu (numeric + benzersiz) ──
+            [$bayiByTed, $bayiVarCount, $stoppedEarly] = $this->buildBayiIndex($bayi, $job);
 
             if ($stoppedEarly) {
                 $this->finish($job, 'failed', 'Kullanıcı tarafından durduruldu (bayi indeks aşamasında)');
@@ -115,10 +115,12 @@ class FullRemapProductsJob implements ShouldQueue
                         }
                         $anaVarCount++;
 
-                        // Eşleme önceliği: TedarikciKodu → stok_kodu → barkod.
-                        $hit = ($ted !== '' ? ($bayiByTed[$ted] ?? null) : null)
-                            ?? ($stok !== '' ? ($bayiByStok[$stok] ?? null) : null)
-                            ?? ($barkod !== '' ? ($bayiByBarkod[$barkod] ?? null) : null);
+                        // EŞLEME YALNIZCA TedarikciKodu İLE (numeric + benzersiz).
+                        // stok_kodu/barkod FALLBACK KULLANILMAZ: aynı stok/barkod farklı
+                        // ürünlerde tekrar edebildiği için yanlış eşleşme → yanlış ürünün
+                        // ezilmesi riski var. Ted kodu boşsa eşleşmez → bayi_* NULL kalır
+                        // (status=pending) → manuel kontrol gerekir.
+                        $hit = $ted !== '' ? ($bayiByTed[$ted] ?? null) : null;
 
                         $this->upsertMapping(
                             $ted,
@@ -175,16 +177,15 @@ class FullRemapProductsJob implements ShouldQueue
     }
 
     /**
-     * Bayi'deki tüm ürünleri sayfalayıp TedarikciKodu (birincil) + stok_kodu/barkod (yedek) indeksleri kur.
+     * Bayi'deki tüm ürünleri sayfalayıp YALNIZCA TedarikciKodu indeksini kur.
+     * stok_kodu/barkod indekslenmez — eşleme yalnızca ted kodu ile yapılır
+     * (aynı stok/barkod farklı ürünlerde tekrar edebildiği için güvenilmez).
      *
-     * @return array{0: array<string,array>, 1: array<string,array>, 2: array<string,array>, 3: int, 4: bool}
-     *                                                                                                        [bayiByTed, bayiByStok, bayiByBarkod, bayiVarCount, stoppedEarly]
+     * @return array{0: array<string,array>, 1: int, 2: bool} [bayiByTed, bayiVarCount, stoppedEarly]
      */
     protected function buildBayiIndex(ProductService $bayi, SyncJob $job): array
     {
         $byTed = [];
-        $byStok = [];
-        $byBarkod = [];
         $count = 0;
         $page = 1;
         $perPage = (int) config('ticimax.batch_size', 100);
@@ -223,15 +224,9 @@ class FullRemapProductsJob implements ShouldQueue
                     $stok = (string) ($v['StokKodu'] ?? '');
                     $barkod = (string) ($v['Barkod'] ?? '');
                     $ted = trim((string) ($v['TedarikciKodu'] ?? ''));
-                    $entry = ['card_id' => $cardId, 'var_id' => $vId, 'barkod' => $barkod, 'stok' => $stok, 'ted' => $ted];
+                    // Yalnızca ted kodu olan bayi varyasyonları indekslenir.
                     if ($ted !== '') {
-                        $byTed[$ted] = $entry;
-                    }
-                    if ($stok !== '') {
-                        $byStok[$stok] = $entry;
-                    }
-                    if ($barkod !== '') {
-                        $byBarkod[$barkod] = $entry;
+                        $byTed[$ted] = ['card_id' => $cardId, 'var_id' => $vId, 'barkod' => $barkod, 'stok' => $stok, 'ted' => $ted];
                     }
                     $count++;
                 }
@@ -243,7 +238,7 @@ class FullRemapProductsJob implements ShouldQueue
             $page++;
         }
 
-        return [$byTed, $byStok, $byBarkod, $count, $stoppedEarly];
+        return [$byTed, $count, $stoppedEarly];
     }
 
     /**

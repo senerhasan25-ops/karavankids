@@ -288,6 +288,17 @@ class SyncNewProductsJob implements ShouldQueue
             return;
         }
 
+        // ── TEDARİKÇİ KODU ZORUNLU ─────────────────────────────────────────
+        // Eşleşme YALNIZCA gerçek (numeric) TedarikciKodu ile yapılır. Ana'da gerçek
+        // kod yoksa: stok/barkod ile eşleştirmek YANLIŞ ürünü ezebilir (aynı stok/barkod
+        // farklı üründe tekrar edebilir) ve sentetik kodla yeni ürün açmak DUPLİKAT
+        // yaratır. Bu yüzden kodsuz ürünü işleme — pending bırak + logla, manuel kontrol.
+        if (! $mapper->hasRealTedarikciKodu($urunKarti)) {
+            $this->logError($job, $context, "Gerçek TedarikciKodu yok → atlandı (eşleşme/oluşturma yapılmadı, manuel kontrol gerekir). Ana ID={$anaUrunId}");
+
+            return;
+        }
+
         try {
             // ========== AŞAMA 1: LOKAL LOOKUP (tedarikçi kodu) ==========
             $localMapping = $tedKodu
@@ -297,20 +308,12 @@ class SyncNewProductsJob implements ShouldQueue
             $payload = $mapper->anaToBayiCreatePayload($urunKarti);
             $bayiProductId = $localMapping?->bayi_product_id ? (int) $localMapping->bayi_product_id : null;
 
-            // ========== AŞAMA 2: LOKALDE YOKSA SOAP PROBE (tedarikçi kodu → stok → barkod) ==========
+            // ========== AŞAMA 2: LOKALDE YOKSA SOAP PROBE (YALNIZCA tedarikçi kodu) ==========
+            // stok_kodu/barkod ile probe YAPILMAZ — yanlış ürünü eşleştirme riski.
+            // Ted kodu ile bayi'de bulunamazsa ürün gerçekten yeni demektir → oluşturulur.
             $bayiProductSoapData = null;
             if (! $bayiProductId) {
-                // Sadece ilk eşleştirmede SOAP'a düşeriz; sonra hep lokal.
-                // Birincil anahtar tedarikçi kodu; stok/barkod yalnızca yedek.
-                $bayiProductSoapData = $tedKodu
-                    ? $bayi->getProductByTedarikciKodu($tedKodu)
-                    : null;
-                if (! $bayiProductSoapData && $primaryStokKodu) {
-                    $bayiProductSoapData = $bayi->getProductByStokKodu($primaryStokKodu);
-                }
-                if (! $bayiProductSoapData && $primaryBarkod) {
-                    $bayiProductSoapData = $bayi->getProductByBarcode($primaryBarkod);
-                }
+                $bayiProductSoapData = $bayi->getProductByTedarikciKodu($tedKodu);
                 $bayiProductId = $bayiProductSoapData
                     ? (int) ($bayiProductSoapData['ID'] ?? 0)
                     : null;
@@ -466,11 +469,9 @@ class SyncNewProductsJob implements ShouldQueue
 
             $ctx = ['stok_kodu' => $m->stok_kodu, 'barcode' => $m->barcode, 'ana_id' => $m->ana_product_id];
             try {
-                // Ana ürünü tedarikçi kodu ile çek (stok_kodu çoklu olabilir); yedek: stok_kodu.
+                // Ana ürünü YALNIZCA tedarikçi kodu ile çek (stok_kodu fallback YOK —
+                // aynı stok farklı üründe olabildiği için yanlış kart gelebilir).
                 $anaCard = $ana->getProductByTedarikciKodu($m->tedarikci_kodu);
-                if ((! $anaCard || (int) ($anaCard['ID'] ?? 0) === 0) && $m->stok_kodu) {
-                    $anaCard = $ana->getProductByStokKodu($m->stok_kodu);
-                }
                 if (! $anaCard || (int) ($anaCard['ID'] ?? 0) === 0) {
                     $this->logError($job, $ctx, 'Eksik ürün: ana mağazada tedarikçi kodu ile bulunamadı (silinmiş olabilir)');
 
