@@ -22,7 +22,8 @@ Step "PHP ve gerekli eklentiler"
 $phpCmd = Get-Command php -ErrorAction SilentlyContinue
 if (-not $phpCmd) {
     Fail "php PATH'te bulunamadi."
-    Warn "PHP 8.4 x64 (Thread Safe) kur ve PATH'e ekle: https://windows.php.net/download"
+    Warn "PHP 8.4 NTS x64 kur ve PATH'e ekle: https://windows.php.net/downloads/releases/php-8.4.22-nts-Win32-vs17-x64.zip"
+    Warn "Visual C++ Redistributable gerekir: https://aka.ms/vs/17/release/vc_redist.x64.exe"
     Warn "Sonra bu script'i tekrar calistir."
     exit 1
 }

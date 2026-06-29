@@ -35,7 +35,12 @@ netstat -ano | findstr ":80 :443"
 
 ## 1) PHP 8.4 + gerekli eklentiler
 
-1. [windows.php.net/download](https://windows.php.net/download) → **PHP 8.4 x64 Thread Safe** zip'i indir, örn. `C:\php`'ye aç.
+1. **PHP 8.4 Non-Thread-Safe (NTS) x64** indir — Caddy + php-cgi (FastCGI) için
+   doğru olan NTS'tir (Thread Safe, Apache mod_php gibi gömülü kullanım için):
+   - **İndir:** `https://windows.php.net/downloads/releases/php-8.4.22-nts-Win32-vs17-x64.zip`
+   - `C:\php`'ye aç.
+   - ⚠️ **Visual C++ Redistributable (VS 2015-2022 x64) gerekir**, yoksa PHP açılmaz:
+     `https://aka.ms/vs/17/release/vc_redist.x64.exe`
 2. `C:\php\php.ini` oluştur (`php.ini-production`'ı kopyala) ve şu satırların başındaki `;`'i kaldır:
 
 ```ini
