@@ -1,0 +1,33 @@
+# Karavankids panel — Caddy + PHP (FastCGI) — Windows Server.
+#
+# Caddy tek bir .exe'dir, kendi Windows servisi olarak calisir ve OTOMATIK HTTPS
+# (Let's Encrypt) saglar. Sunucudaki diger uygulamalara dokunmaz; SADECE 80 + 443
+# portlarini kullanir. O portlar baska bir uygulamada doluysa DEPLOYMENT-WINDOWS.md
+# icindeki "Port catismasi" bolumune bak.
+#
+# Kullanim:
+#   1) PANEL_DOMAIN'i kendi (alt)domaininle degistir (orn: panel.karavankids.com)
+#   2) root yolunu repoyu koydugun yere gore guncelle
+#   3) php-cgi'yi 127.0.0.1:9123'te kalici calistir (NSSM — bkz. rehber)
+#   4) caddy'yi servis olarak calistir
+#
+PANEL_DOMAIN {
+	root * C:/karavankids-sync/public
+	encode zstd gzip
+	php_fastcgi 127.0.0.1:9123
+	file_server
+
+	# Statik dosyalar ve guvenlik basliklari
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options SAMEORIGIN
+		-Server
+	}
+
+	log {
+		output file C:/karavankids-sync/storage/logs/caddy-access.log {
+			roll_size 10MB
+			roll_keep 3
+		}
+	}
+}
