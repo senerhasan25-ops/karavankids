@@ -352,12 +352,21 @@
                                                 </span>
                                             @endif
                                         </td>
-                                        <td class="px-3 py-2 text-center">
-                                            <button wire:click="openEditor('{{ $o['id'] }}')"
-                                                    class="px-2 py-1 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700"
-                                                    title="Siparişteki ürünleri görüntüle / düzenle">
-                                                📦 Ürünler
+                                        <td class="px-3 py-2 text-center whitespace-nowrap">
+                                            {{-- Listede ürünleri göster/gizle (ekstra SOAP yok — yanıtta zaten var) --}}
+                                            <button wire:click="toggleOrderProducts('{{ $o['id'] }}')"
+                                                    class="px-2 py-1 text-xs bg-slate-600 text-white rounded hover:bg-slate-700"
+                                                    title="Siparişteki ürünleri listede aç / kapa">
+                                                📦 {{ count($o['urunler']) }} ürün
+                                                <span class="ml-0.5">{{ $expandedOrderId === (string) $o['id'] ? '▲' : '▼' }}</span>
                                             </button>
+                                            <div class="mt-1">
+                                                <button wire:click="openEditor('{{ $o['id'] }}')"
+                                                        class="text-[11px] text-indigo-600 dark:text-indigo-400 hover:underline"
+                                                        title="Ürünleri düzenle (adet değiştir / çıkar)">
+                                                    ✏️ Düzenle
+                                                </button>
+                                            </div>
                                             @if (! empty($o['has_override']))
                                                 <div class="mt-1">
                                                     <span class="inline-block px-1.5 py-0.5 text-[10px] bg-purple-100 text-purple-800 rounded"
@@ -393,6 +402,49 @@
                                             @endif
                                         </td>
                                     </tr>
+
+                                    {{-- SATIR-ALTI ÜRÜN TABLOSU (genişletilince) --}}
+                                    @if ($expandedOrderId === (string) $o['id'])
+                                        <tr class="bg-slate-50 dark:bg-gray-900/40">
+                                            <td colspan="12" class="px-6 py-3">
+                                                @if (empty($o['urunler']))
+                                                    <div class="text-xs text-gray-500 dark:text-gray-400 italic">
+                                                        Bu siparişte ürün bilgisi bulunamadı.
+                                                    </div>
+                                                @else
+                                                    <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1 font-semibold">
+                                                        🛒 Sipariş #{{ $o['id'] }} — {{ count($o['urunler']) }} ürün
+                                                    </div>
+                                                    <div class="overflow-x-auto border border-gray-200 dark:border-gray-700 rounded">
+                                                        <table class="w-full text-xs">
+                                                            <thead class="bg-gray-100 dark:bg-gray-900 text-[10px] uppercase text-gray-500 dark:text-gray-400">
+                                                                <tr>
+                                                                    <th class="px-3 py-1.5 text-left">Stok Kodu</th>
+                                                                    <th class="px-3 py-1.5 text-left">Barkod</th>
+                                                                    <th class="px-3 py-1.5 text-left">Ürün Adı</th>
+                                                                    <th class="px-3 py-1.5 text-center">Adet</th>
+                                                                    <th class="px-3 py-1.5 text-right">Birim Fiyat</th>
+                                                                    <th class="px-3 py-1.5 text-right">Toplam</th>
+                                                                </tr>
+                                                            </thead>
+                                                            <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
+                                                                @foreach ($o['urunler'] as $line)
+                                                                    <tr>
+                                                                        <td class="px-3 py-1.5 font-mono">{{ $line['stok_kodu'] ?: '—' }}</td>
+                                                                        <td class="px-3 py-1.5 font-mono text-gray-500">{{ $line['barkod'] ?: '—' }}</td>
+                                                                        <td class="px-3 py-1.5">{{ $line['urun_adi'] }}</td>
+                                                                        <td class="px-3 py-1.5 text-center">{{ $line['adet'] }}</td>
+                                                                        <td class="px-3 py-1.5 text-right font-mono">₺{{ number_format($line['birim_fiyat'], 2, ',', '.') }}</td>
+                                                                        <td class="px-3 py-1.5 text-right font-mono">₺{{ number_format($line['toplam'], 2, ',', '.') }}</td>
+                                                                    </tr>
+                                                                @endforeach
+                                                            </tbody>
+                                                        </table>
+                                                    </div>
+                                                @endif
+                                            </td>
+                                        </tr>
+                                    @endif
                                 @endforeach
                             </tbody>
                         </table>

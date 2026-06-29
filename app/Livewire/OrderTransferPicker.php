@@ -58,6 +58,11 @@ class OrderTransferPicker extends Component
 
     public bool $hasSearched = false;
 
+    // Listede ürünleri genişletilen sipariş ID'si (satır-altı ürün tablosu için).
+    // null = hiçbiri açık. Ürünler getOrdersByFilter yanıtında (UrunGetir=true) zaten
+    // geldiği için ekstra SOAP çağrısı YOK — sadece göster/gizle.
+    public ?string $expandedOrderId = null;
+
     // Ana-durum sütunları yüklendi mi? listele() false yapar; blade wire:init ile
     // enrichAnaStatuses() çağrılıp true olur. Böylece bayi listesi anında görünür,
     // ana durumları (ek SOAP) arkadan dolar.
@@ -292,6 +297,8 @@ class OrderTransferPicker extends Component
                         ? (string) $o['PaketlemeDurumuID']
                         : (isset($o['PaketlemeDurumuId']) && is_numeric($o['PaketlemeDurumuId']) ? (string) $o['PaketlemeDurumuId'] : ''),
                     'entegrasyon_aktarildi' => (bool) ($o['EntegrasyonAktarildi'] ?? false),
+                    // Sipariş içindeki ürünler (UrunGetir=true → yanıtta zaten var, ekstra SOAP yok)
+                    'urunler' => $this->extractLines($o),
                     'local_status' => $local?->status,
                     'local_ana_id' => $local?->ana_order_id,
                     'local_error' => $local?->last_error,
@@ -762,6 +769,50 @@ class OrderTransferPicker extends Component
      * Tek ödeme varsa direkt obje, birden fazla varsa array of objects.
      * İlk (veya tek) ödeme kaydını dön, yoksa [] dön.
      */
+    /** Listede ürünleri göster/gizle (satır-altı açılır tablo). */
+    public function toggleOrderProducts(string $bayiOrderId): void
+    {
+        $this->expandedOrderId = $this->expandedOrderId === $bayiOrderId ? null : $bayiOrderId;
+    }
+
+    /**
+     * Sipariş yanıtındaki ürün satırlarını kompakt diziye çevir.
+     * Ticimax Urunler yapısı: WebSiparisUrun anahtarı altında (tek=obje, çok=array)
+     * veya doğrudan liste. openEditor ile aynı normalleştirme mantığı.
+     *
+     * @return array<int, array{stok_kodu:string,urun_adi:string,adet:int,birim_fiyat:float,toplam:float}>
+     */
+    protected function extractLines(array $o): array
+    {
+        $urunler = $o['Urunler'] ?? [];
+        if (isset($urunler['WebSiparisUrun'])) {
+            $urunler = is_array($urunler['WebSiparisUrun']) && array_is_list($urunler['WebSiparisUrun'])
+                ? $urunler['WebSiparisUrun']
+                : [$urunler['WebSiparisUrun']];
+        } elseif (! array_is_list((array) $urunler) && ! empty($urunler)) {
+            $urunler = [$urunler];
+        }
+
+        $lines = [];
+        foreach ((array) $urunler as $line) {
+            if (! is_array($line)) {
+                continue;
+            }
+            $adet = (int) ($line['Adet'] ?? 1);
+            $birim = (float) ($line['Tutar'] ?? $line['BirimFiyat'] ?? $line['SatisFiyati'] ?? 0);
+            $lines[] = [
+                'stok_kodu' => (string) ($line['StokKodu'] ?? ''),
+                'barkod' => (string) ($line['Barkod'] ?? ''),
+                'urun_adi' => (string) ($line['UrunAdi'] ?? $line['Urun']['Adi'] ?? '—'),
+                'adet' => $adet,
+                'birim_fiyat' => $birim,
+                'toplam' => round($birim * $adet, 2),
+            ];
+        }
+
+        return $lines;
+    }
+
     protected function extractFirstOdeme(array $o): array
     {
         $ode = $o['Odemeler']['WebSiparisOdeme'] ?? null;
