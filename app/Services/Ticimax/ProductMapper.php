@@ -486,7 +486,7 @@ class ProductMapper
             'ParaBirimi' => 'TRY',
             'PazaryeriButikId' => 0,
             'PazaryeriIhracat' => 0,
-            'SiparisKaynagi' => 'KaravanKids',
+            'SiparisKaynagi' => 'BAYİ',
             'SiparisNo' => $this->s($bayiOrder['SiparisNo'] ?? $bayiOrder['SiparisKodu'] ?? null),
             'SiparisNotu' => '',
             'SmsGonder' => false,

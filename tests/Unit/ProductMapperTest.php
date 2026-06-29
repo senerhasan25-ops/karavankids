@@ -38,7 +38,7 @@ class ProductMapperTest extends TestCase
 
         $payload = $mapper->bayiOrderToAnaCreatePayload($bayiOrder, $resolver);
 
-        $this->assertSame('KaravanKids', $payload['SiparisKaynagi']);
+        $this->assertSame('BAYİ', $payload['SiparisKaynagi']);
         $this->assertSame('B-1234', $payload['SiparisNo']);
         $this->assertSame('Ahmet Yılmaz', $payload['UyeAdi']);
         $this->assertSame('5551234567', $payload['UyeCep']);

@@ -187,7 +187,7 @@
                     <div class="rounded-lg border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-900/20 p-4 space-y-2">
                         <div class="font-semibold text-indigo-900 dark:text-indigo-200">🗺️ Tam Eşleştirme (Haritayı Yeniden Kur)</div>
                         <p class="text-xs text-indigo-800/80 dark:text-indigo-300/80 leading-relaxed">
-                            Ana ve bayi mağazadaki <strong>tüm ürünleri</strong> çekip <code>stok_kodu</code> / barkod ile eşleştirir ve
+                            Ana ve bayi mağazadaki <strong>tüm ürünleri</strong> çekip <strong>yalnızca <code>tedarikçi kodu</code></strong> ile eşleştirir ve
                             yerel haritayı (product_mappings) eksiksiz doldurur. <strong>Ürün OLUŞTURMAZ veya GÜNCELLEMEZ</strong> —
                             sadece eşleştirir. Bir kez çalıştırdıktan sonra delta sync'ler SOAP probe yapmadan yalnızca
                             gerçekten yeni/değişen ürünlerle ilgilenir. Tamamlanınca delta checkpoint'leri "şimdi"ye çekilir.
