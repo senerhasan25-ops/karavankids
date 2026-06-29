@@ -323,9 +323,11 @@ class ProductMapper
      * payload'a çevirir.
      *
      * @param  array  $bayiOrder  Bayi'den dönen WebSiparis (Urunler altında WebSiparisUrun listesi)
-     * @param  callable  $resolveAnaUrunIdByStokKodu  fn(string $stokKodu): ?int — ana'daki Varyasyon.ID
+     * @param  callable  $resolveAnaUrunIdByStokKodu  fn(array $line): ?int — ana'daki Varyasyon.ID.
+     *                                                Eşleşme TedarikciKodu (birincil) ile yapılır; satırın TedarikciKodu +
+     *                                                StokKodu alanlarını içeren tüm dizi geçirilir.
      *
-     * @throws \RuntimeException StokKodu ana'da bulunamazsa
+     * @throws \RuntimeException Ana'da eşleşen ürün bulunamazsa
      */
     public function bayiOrderToAnaCreatePayload(array $bayiOrder, callable $resolveAnaUrunIdByStokKodu): array
     {
@@ -337,12 +339,14 @@ class ProductMapper
 
         foreach ($bayiUrunler as $line) {
             $stokKodu = trim((string) ($line['StokKodu'] ?? ''));
-            if ($stokKodu === '') {
-                throw new \RuntimeException('Bayi sipariş satırında StokKodu yok — eşleşme yapılamaz.');
+            $tedKodu = trim((string) ($line['TedarikciKodu'] ?? ''));
+            if ($stokKodu === '' && $tedKodu === '') {
+                throw new \RuntimeException('Bayi sipariş satırında StokKodu yok ve TedarikciKodu yok — eşleşme yapılamaz.');
             }
-            $anaUrunId = $resolveAnaUrunIdByStokKodu($stokKodu);
+            // Resolver'a TÜM satırı geçiyoruz; eşleşme tedarikçi kodu (birincil) ile yapılır.
+            $anaUrunId = $resolveAnaUrunIdByStokKodu($line);
             if (! $anaUrunId) {
-                throw new \RuntimeException("Ana'da bu StokKodu ile aktif ürün bulunamadı: {$stokKodu}");
+                throw new \RuntimeException("Ana'da eşleşen ürün bulunamadı (TedarikciKodu={$tedKodu}, StokKodu={$stokKodu}).");
             }
 
             $adet = (int) ($line['Adet'] ?? 1);

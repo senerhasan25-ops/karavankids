@@ -2,9 +2,9 @@
 
 namespace App\Jobs;
 
+use App\Jobs\Concerns\ResolvesAnaVariant;
 use App\Livewire\QueueControl;
 use App\Models\OrderTransfer;
-use App\Models\ProductMapping;
 use App\Models\SyncJob;
 use App\Models\SyncLog;
 use App\Models\SyncSetting;
@@ -29,7 +29,7 @@ use Throwable;
  */
 class PullBayiOrdersJob implements ShouldQueue
 {
-    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+    use Dispatchable, InteractsWithQueue, Queueable, ResolvesAnaVariant, SerializesModels;
 
     public int $tries = 3;
 
@@ -91,50 +91,13 @@ class PullBayiOrdersJob implements ShouldQueue
             $anaProduct = ProductService::for('ana');
             $mapper = new ProductMapper;
 
-            // StokKodu → ana Varyasyon.ID resolver — LOKAL ÖNCELİKLİ.
+            // Sipariş satırı → ana Varyasyon.ID resolver — TEDARİKÇİ KODU ÖNCELİKLİ + LOKAL ÖNCELİKLİ.
+            // Eşleşme TedarikciKodu (numeric+benzersiz) ile yapılır; stok_kodu/barkod ile
+            // eşleştirme YAPILMAZ (aynı stok farklı üründe olabilir → yanlış ürün riski).
+            // Ted kodu boşsa SON ÇARE olarak stok_kodu denenir (eski siparişler için).
             $variantCache = [];
-            $resolver = function (string $stokKodu) use ($anaProduct, &$variantCache): ?int {
-                if (array_key_exists($stokKodu, $variantCache)) {
-                    return $variantCache[$stokKodu];
-                }
-
-                $m = ProductMapping::where('stok_kodu', $stokKodu)->first();
-                if ($m && $m->ana_variant_id) {
-                    return $variantCache[$stokKodu] = (int) $m->ana_variant_id;
-                }
-
-                $anaUrunKarti = $anaProduct->getProductByStokKodu($stokKodu);
-                if (! $anaUrunKarti) {
-                    return $variantCache[$stokKodu] = null;
-                }
-                $anaUrunId = (int) ($anaUrunKarti['ID'] ?? 0);
-                $vars = $anaUrunKarti['Varyasyonlar']['Varyasyon'] ?? [];
-                if (is_array($vars) && ! array_is_list($vars)) {
-                    $vars = [$vars];
-                }
-                $foundVarId = null;
-                $foundBarkod = null;
-                foreach ((array) $vars as $v) {
-                    if ((string) ($v['StokKodu'] ?? '') === $stokKodu) {
-                        $foundVarId = (int) ($v['ID'] ?? 0);
-                        $foundBarkod = (string) ($v['Barkod'] ?? '');
-                        break;
-                    }
-                }
-                if ($foundVarId) {
-                    ProductMapping::updateOrCreate(
-                        ['stok_kodu' => $stokKodu],
-                        [
-                            'barcode' => $foundBarkod ?: null,
-                            'ana_product_id' => (string) $anaUrunId,
-                            'ana_variant_id' => (string) $foundVarId,
-                            'status' => 'synced',
-                            'last_synced_at' => now(),
-                        ]
-                    );
-                }
-
-                return $variantCache[$stokKodu] = $foundVarId ?: null;
+            $resolver = function (array $line) use ($anaProduct, &$variantCache): ?int {
+                return $this->resolveAnaVariantId($line, $anaProduct, $variantCache);
             };
 
             // Ayarlardan saat aralığı ve seçili sipariş durumlarını oku

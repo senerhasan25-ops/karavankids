@@ -2,8 +2,8 @@
 
 namespace App\Jobs;
 
+use App\Jobs\Concerns\ResolvesAnaVariant;
 use App\Models\OrderTransfer;
-use App\Models\ProductMapping;
 use App\Models\SyncJob;
 use App\Models\SyncLog;
 use App\Services\Ticimax\OrderService;
@@ -30,7 +30,7 @@ use Throwable;
  */
 class TransferSingleBayiOrderJob implements ShouldQueue
 {
-    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+    use Dispatchable, InteractsWithQueue, Queueable, ResolvesAnaVariant, SerializesModels;
 
     public int $tries = 1;
 
@@ -153,46 +153,11 @@ class TransferSingleBayiOrderJob implements ShouldQueue
                 $o['OdenenTutar'] = $o['ToplamTutar']; // ödenen = yeni toplam (kullanıcı bilerek düzenledi)
             }
 
-            // StokKodu → ana variant resolver (PullBayiOrdersJob ile aynı mantık)
+            // Sipariş satırı → ana variant resolver — TEDARİKÇİ KODU ÖNCELİKLİ
+            // (PullBayiOrdersJob ile ortak: ResolvesAnaVariant trait).
             $variantCache = [];
-            $resolver = function (string $stokKodu) use ($anaProduct, &$variantCache): ?int {
-                if (array_key_exists($stokKodu, $variantCache)) {
-                    return $variantCache[$stokKodu];
-                }
-                $m = ProductMapping::where('stok_kodu', $stokKodu)->first();
-                if ($m && $m->ana_variant_id) {
-                    return $variantCache[$stokKodu] = (int) $m->ana_variant_id;
-                }
-                $anaUrunKarti = $anaProduct->getProductByStokKodu($stokKodu);
-                if (! $anaUrunKarti) {
-                    return $variantCache[$stokKodu] = null;
-                }
-                $anaUrunId = (int) ($anaUrunKarti['ID'] ?? 0);
-                $vars = $anaUrunKarti['Varyasyonlar']['Varyasyon'] ?? [];
-                if (is_array($vars) && ! array_is_list($vars)) {
-                    $vars = [$vars];
-                }
-                foreach ((array) $vars as $v) {
-                    if ((string) ($v['StokKodu'] ?? '') === $stokKodu) {
-                        $varId = (int) ($v['ID'] ?? 0);
-                        if ($varId) {
-                            ProductMapping::updateOrCreate(
-                                ['stok_kodu' => $stokKodu],
-                                [
-                                    'barcode' => (string) ($v['Barkod'] ?? '') ?: null,
-                                    'ana_product_id' => (string) $anaUrunId,
-                                    'ana_variant_id' => (string) $varId,
-                                    'status' => 'synced',
-                                    'last_synced_at' => now(),
-                                ]
-                            );
-
-                            return $variantCache[$stokKodu] = $varId;
-                        }
-                    }
-                }
-
-                return $variantCache[$stokKodu] = null;
+            $resolver = function (array $line) use ($anaProduct, &$variantCache): ?int {
+                return $this->resolveAnaVariantId($line, $anaProduct, $variantCache);
             };
 
             $musteri = (string) ($o['AdiSoyadi'] ?? $o['UyeAdi'] ?? '');

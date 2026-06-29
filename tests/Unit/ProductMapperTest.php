@@ -33,7 +33,8 @@ class ProductMapperTest extends TestCase
             ],
         ];
 
-        $resolver = fn (string $sk) => $sk === 'SK1' ? 999 : null;
+        // Resolver artık tüm satırı alır (TedarikciKodu öncelikli eşleşme); StokKodu ile test.
+        $resolver = fn (array $line) => ($line['StokKodu'] ?? null) === 'SK1' ? 999 : null;
 
         $payload = $mapper->bayiOrderToAnaCreatePayload($bayiOrder, $resolver);
 
