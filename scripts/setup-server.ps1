@@ -29,7 +29,7 @@ if (-not $phpCmd) {
 }
 Ok ("php bulundu: " + $phpCmd.Source)
 $modules = & php -m
-$gerekli = @("soap","openssl","pdo_sqlite","mbstring","curl","fileinfo","intl")
+$gerekli = @("soap","openssl","pdo_sqlite","mbstring","curl","fileinfo","intl","zip")
 $eksik = @()
 foreach ($m in $gerekli) {
     $bulundu = $modules | Where-Object { $_.Trim().ToLower() -eq $m }

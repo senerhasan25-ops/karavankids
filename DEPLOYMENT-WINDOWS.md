@@ -54,6 +54,7 @@ extension=curl
 extension=fileinfo
 extension=intl
 extension=gd
+extension=zip         ; ← Composer paket açma için ZORUNLU
 ```
 
 3. `C:\php`'yi **sistem PATH**'ine ekle. Doğrula:
