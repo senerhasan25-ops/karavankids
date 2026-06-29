@@ -36,6 +36,69 @@
                 </div>
             </div>
 
+            {{-- EŞLEŞTİRME SAĞLIK RAPORU --}}
+            <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
+                <div class="flex flex-wrap items-center justify-between gap-2 mb-4">
+                    <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300">🗺️ Eşleştirme Sağlık Raporu</h3>
+                    <span class="text-xs text-gray-500 dark:text-gray-400">Toplam {{ number_format($mapTotal) }} varyasyon haritası · eşleşme tedarikçi koduyla</span>
+                </div>
+
+                {{-- Kapsama barı --}}
+                <div class="mb-4">
+                    <div class="flex items-center justify-between text-xs mb-1">
+                        <span class="text-gray-600 dark:text-gray-400">Eşleşme kapsamı (bayide karşılığı olan)</span>
+                        <span class="font-semibold {{ $coverage >= 90 ? 'text-green-600 dark:text-green-400' : ($coverage >= 60 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400') }}">%{{ $coverage }}</span>
+                    </div>
+                    <div class="w-full h-3 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                        <div class="h-full transition-all {{ $coverage >= 90 ? 'bg-green-500' : ($coverage >= 60 ? 'bg-amber-500' : 'bg-red-500') }}"
+                             style="width: {{ $coverage }}%"></div>
+                    </div>
+                </div>
+
+                {{-- Alt metrikler --}}
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div class="rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 p-3">
+                        <div class="text-2xl font-bold text-green-700 dark:text-green-400">{{ number_format($mapSynced) }}</div>
+                        <div class="text-xs text-gray-600 dark:text-gray-400 mt-0.5">✓ Eşleşti (bayide var)</div>
+                    </div>
+                    <div class="rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 p-3">
+                        <div class="text-2xl font-bold text-amber-700 dark:text-amber-400">{{ number_format($mapNoBayi) }}</div>
+                        <div class="text-xs text-gray-600 dark:text-gray-400 mt-0.5">⏳ Bayide yok (aktarılacak)</div>
+                    </div>
+                    <div class="rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-3">
+                        <div class="text-2xl font-bold text-red-700 dark:text-red-400">{{ number_format($mapError) }}</div>
+                        <div class="text-xs text-gray-600 dark:text-gray-400 mt-0.5">✗ Hatalı kayıt</div>
+                    </div>
+                    <div class="rounded-lg bg-gray-50 dark:bg-gray-900/40 border border-gray-200 dark:border-gray-700 p-3">
+                        <div class="text-2xl font-bold text-gray-700 dark:text-gray-300">{{ number_format($mapNoTed) }}</div>
+                        <div class="text-xs text-gray-600 dark:text-gray-400 mt-0.5">⚠ Tedarikçi kodu yok</div>
+                    </div>
+                </div>
+
+                {{-- Sync zamanları + 24s hata --}}
+                <div class="mt-4 pt-3 border-t border-gray-200 dark:border-gray-700 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs text-gray-600 dark:text-gray-400">
+                    <div>📦 Son ürün sync:
+                        <strong class="text-gray-800 dark:text-gray-200">{{ $lastNewProducts ? \Illuminate\Support\Carbon::parse($lastNewProducts)->format('d.m.Y H:i') : 'Henüz yok' }}</strong>
+                    </div>
+                    <div>💰 Son stok/fiyat sync:
+                        <strong class="text-gray-800 dark:text-gray-200">{{ $lastStockPrice ? \Illuminate\Support\Carbon::parse($lastStockPrice)->format('d.m.Y H:i') : 'Henüz yok' }}</strong>
+                    </div>
+                    <div>🔴 Son 24 saat hata:
+                        <strong class="{{ $errors24h > 0 ? 'text-red-600 dark:text-red-400' : 'text-gray-800 dark:text-gray-200' }}">{{ $errors24h }}</strong>
+                        @if ($errors24h > 0)
+                            <a href="{{ route('loglar') }}" class="text-blue-600 hover:underline ms-1">(incele →)</a>
+                        @endif
+                    </div>
+                </div>
+
+                @if ($mapTotal === 0)
+                    <div class="mt-3 text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 rounded p-2">
+                        Henüz harita kurulmamış. <a href="{{ route('ayarlar.sync') }}" class="underline">Otomatik Güncelleme</a> sayfasından
+                        <strong>"Haritayı Yeniden Kur"</strong> ile başla — ürün oluşturmadan eşleştirme yapar.
+                    </div>
+                @endif
+            </div>
+
             {{-- 7-day chart (CSS bar chart, no JS dep) --}}
             <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
                 <div class="flex justify-between items-center mb-4">
