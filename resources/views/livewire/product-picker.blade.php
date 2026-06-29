@@ -226,6 +226,22 @@
 
         {{-- AKTAR BUTONLARI --}}
         <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-4 mb-4">
+            {{-- TÜM KATALOG — sayfa sınırı olmadan tüm ürünleri aktar --}}
+            <div class="mb-3 pb-3 border-b dark:border-gray-700">
+                <button type="button"
+                        wire:click="tumKatalogAktar" wire:loading.attr="disabled" wire:target="tumKatalogAktar"
+                        wire:confirm="Ana mağazadaki TÜM ürünler (tüm sayfalar) seçili parametrelere göre bayiye aktarılacak/güncellenecek. Eşleşme tedarikçi koduyla yapılır. Devam edilsin mi?"
+                        class="w-full px-5 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-md"
+                        style="display:block; width:100%; padding:0.75rem 1.25rem; background:#4f46e5; color:#fff; font-weight:700; border:none; border-radius:0.375rem; cursor:pointer;"
+                        title="Sayfadaki 100 ürünle sınırlı DEĞİL — ana mağazadaki tüm kataloğu sunucu tarafında sayfa sayfa işler. Eşleşme yalnızca tedarikçi kodu ile.">
+                    <span wire:loading.remove wire:target="tumKatalogAktar">📦 TÜM ÜRÜNLERİ AKTAR (tüm sayfalar — seçili parametrelerle)</span>
+                    <span wire:loading wire:target="tumKatalogAktar">Tüm katalog kuyruğa alınıyor…</span>
+                </button>
+                <p class="text-xs text-gray-500 dark:text-gray-400 mt-2 leading-relaxed">
+                    Aşağıdaki "Seçilenleri Aktar" yalnızca bu sayfadaki seçili satırları aktarır.
+                    Tüm kataloğu (tüm sayfalar) aktarmak için bu butonu kullan — 100 ürün sınırı yoktur.
+                </p>
+            </div>
             <div class="flex flex-wrap justify-between gap-2">
                 {{-- Secimden bagimsiz: listedeki tum urunleri tarayip yeni olanlari aktar --}}
                 <button type="button"

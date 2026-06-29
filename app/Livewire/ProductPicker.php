@@ -3,11 +3,13 @@
 namespace App\Livewire;
 
 use App\Jobs\ManuelUrunAktarJob;
+use App\Jobs\SyncNewProductsJob;
 use App\Models\ProductMapping;
 use App\Models\SyncJob;
 use App\Models\SyncLog;
 use App\Models\SyncSetting;
 use App\Services\Ticimax\ProductService;
+use Illuminate\Support\Carbon;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
@@ -456,6 +458,45 @@ class ProductPicker extends Component
             .'— İş #'.$job->id.'. İlerlemeyi Loglar sayfasından takip edebilirsin.';
         $this->selected = [];
         $this->selectAll = false;
+    }
+
+    /**
+     * TÜM KATALOĞU aktar — yalnızca o anki sayfadaki 100 ürünü değil, ana mağazadaki
+     * tüm ürünleri seçili parametrelere göre bayiye aktarır/günceller.
+     *
+     * "Hepsini Seç" yalnızca açık sayfadaki 100 satırı seçer (binlerce satırı Livewire
+     * payload'una koymak mümkün değil). Tüm katalog için bu aksiyon, işi sunucu tarafında
+     * sayfa sayfa ilerleyen SyncNewProductsJob'a devreder:
+     *   - Eşleşme YALNIZCA tedarikçi kodu ile (yanlış ürün ezilmez)
+     *   - Bayide eşleşeni seçili alanlarla günceller, olmayanı yeni oluşturur
+     *   - 100 sınırı / payload sorunu YOK
+     *
+     * since = çok eski tarih → EklemeTarihi filtresi tüm kataloğu döndürür.
+     * $since geçildiği için otomatik sync checkpoint'i BOZULMAZ (manuel tam pas).
+     */
+    public function tumKatalogAktar(): void
+    {
+        $this->results = [];
+        $this->status = null;
+        $this->error = null;
+
+        $selectedFields = $this->collectSelectedFields();
+        if (empty($selectedFields)) {
+            $this->error = 'En az bir parametre seçin — tüm katalog aktarımı seçili alanlara göre yapılır.';
+
+            return;
+        }
+
+        // Seçimi kalıcılaştır: SyncNewProductsJob alanları product_sync_fields'tan okur.
+        $this->persistFieldSettings();
+
+        if (SyncNewProductsJob::dispatchUnique(Carbon::create(2000, 1, 1))) {
+            $this->status = '📦 TÜM KATALOG aktarımı kuyruğa alındı (tüm sayfalar, tedarikçi koduyla eşleşme). '
+                .'Bayide olanlar seçili alanlarla güncellenir, olmayanlar yeni oluşturulur. '
+                .'İlerlemeyi Loglar sayfasından izle.';
+        } else {
+            $this->error = 'Zaten çalışan/bekleyen bir ürün aktarım işi var — bitmesini bekleyip tekrar dene.';
+        }
     }
 
     /* ---------------------------------------------------------------------
