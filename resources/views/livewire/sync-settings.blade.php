@@ -207,6 +207,48 @@
                     </button>
                 </div>
             </form>
+
+            {{-- ÜYE TİPİ FİYAT İSKONTOLARI --}}
+            <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6 mt-4">
+                <h3 class="font-semibold text-gray-800 dark:text-gray-200 mb-1">💸 Üye Tipi Fiyat İskontoları</h3>
+                <p class="text-xs text-gray-500 dark:text-gray-400 mb-4 leading-relaxed">
+                    Her üye tipi fiyatı satış fiyatından şu formülle hesaplanır:
+                    <code class="text-[11px]">Üye Tipi Fiyat = Satış Fiyatı × (1 − iskonto ⁄ 100)</code>.
+                    Örn. <strong>%35</strong> → satış fiyatının %65'i. Bu oranlar tüm aktarımlarda (yeni ürün + güncelleme) kullanılır.
+                </p>
+
+                <div class="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                    @foreach ([1, 2, 3, 4, 5] as $i)
+                        <div>
+                            <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Üye Tipi {{ $i }} (%)</label>
+                            <div class="relative">
+                                <input type="number" min="0" max="100" step="0.5"
+                                       wire:model.live="uyeTipiIskonto.{{ $i }}"
+                                       class="w-full text-sm rounded border-gray-300 dark:bg-gray-900 dark:border-gray-700 dark:text-gray-200 pr-7">
+                                <span class="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400">%</span>
+                            </div>
+                        </div>
+                    @endforeach
+                </div>
+
+                {{-- Canlı önizleme: 100₺ satış fiyatı bu oranlarla ne olur --}}
+                <div class="mt-3 text-xs text-gray-500 dark:text-gray-400">
+                    <span class="font-medium">Örnek (100₺ satış fiyatı):</span>
+                    @foreach ([1, 2, 3, 4, 5] as $i)
+                        <span class="inline-block ms-1">
+                            ÜT{{ $i }}: <strong class="text-gray-700 dark:text-gray-300">{{ number_format(100 * (1 - (float) ($uyeTipiIskonto[$i] ?? 0) / 100), 2, ',', '.') }}₺</strong>{{ $i < 5 ? ' ·' : '' }}
+                        </span>
+                    @endforeach
+                </div>
+
+                <div class="flex justify-end mt-4">
+                    <button type="button" wire:click="saveUyeTipiIskonto" wire:loading.attr="disabled" wire:target="saveUyeTipiIskonto"
+                            class="px-5 py-2 bg-green-600 text-white text-sm rounded hover:bg-green-700 disabled:opacity-60">
+                        <span wire:loading.remove wire:target="saveUyeTipiIskonto">İskonto Oranlarını Kaydet</span>
+                        <span wire:loading wire:target="saveUyeTipiIskonto">Kaydediliyor…</span>
+                    </button>
+                </div>
+            </div>
         </div>
     </div>
 </div>

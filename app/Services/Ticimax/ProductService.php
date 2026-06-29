@@ -2,6 +2,7 @@
 
 namespace App\Services\Ticimax;
 
+use App\Models\SyncSetting;
 use Illuminate\Support\Carbon;
 
 class ProductService
@@ -931,24 +932,68 @@ class ProductService
         return $this->normalizeOne($resp) ?? [];
     }
 
+    /** Üye tipi 1-5 iskonto oranları (sync_settings'ten okunur) — process-içi cache. */
+    protected static ?array $uyeTipiIskonto = null;
+
+    /** Varsayılan iskonto oranları (% — kullanıcı panelden değiştirmemişse). */
+    public const UYE_TIPI_VARSAYILAN = [1 => 35.0, 2 => 30.0, 3 => 40.0, 4 => 25.0, 5 => 20.0];
+
+    /** sync_settings anahtarı — üye tipi iskonto oranları JSON. */
+    public const UYE_TIPI_ISKONTO_KEY = 'uye_tipi_iskonto';
+
+    /**
+     * Üye tipi 1-5 iskonto oranlarını döner (% olarak). Kullanıcı panelden
+     * ayarladıysa onları, yoksa varsayılanları kullanır. Sıkı döngüde (her varyasyon)
+     * çağrıldığı için process-içi statik cache'lenir; ayar değişince resetlenmeli.
+     *
+     * @return array<int,float> [1 => 35.0, 2 => 30.0, ...]
+     */
+    public static function uyeTipiIskontoOranlari(): array
+    {
+        if (self::$uyeTipiIskonto !== null) {
+            return self::$uyeTipiIskonto;
+        }
+
+        $oranlar = self::UYE_TIPI_VARSAYILAN;
+        try {
+            $raw = SyncSetting::get(self::UYE_TIPI_ISKONTO_KEY, '');
+            $saved = $raw ? json_decode($raw, true) : null;
+            if (is_array($saved)) {
+                foreach ($oranlar as $i => $varsayilan) {
+                    if (isset($saved[$i]) && is_numeric($saved[$i])) {
+                        // 0-100 arası sınırla (negatif/>100 anlamsız)
+                        $oranlar[$i] = max(0.0, min(100.0, (float) $saved[$i]));
+                    }
+                }
+            }
+        } catch (\Throwable) {
+            // Laravel app/DB yoksa (saf unit test) → varsayılanlar
+        }
+
+        return self::$uyeTipiIskonto = $oranlar;
+    }
+
+    /** Üye tipi iskonto cache'ini sıfırla (ayar güncellendiğinde / testlerde). */
+    public static function resetUyeTipiIskontoCache(): void
+    {
+        self::$uyeTipiIskonto = null;
+    }
+
     /**
      * Satış fiyatından üye tipi fiyatlarını hesapla.
-     *
-     * Formül: SatisFiyati × (1 - iskonto_oranı)
-     *   UyeTipiFiyat1 = %35 iskonto → ×0.65
-     *   UyeTipiFiyat2 = %30 iskonto → ×0.70
-     *   UyeTipiFiyat3 = %40 iskonto → ×0.60
-     *   UyeTipiFiyat4 = %25 iskonto → ×0.75
-     *   UyeTipiFiyat5 = %20 iskonto → ×0.80
+     * Formül: SatisFiyati × (1 − iskonto_oranı/100). Oranlar panelden ayarlanabilir
+     * (uyeTipiIskontoOranlari); varsayılan 35/30/40/25/20.
      */
     public static function calculateUyeTipiFiyatlari(float $satisFiyati): array
     {
+        $o = self::uyeTipiIskontoOranlari();
+
         return [
-            'UyeTipiFiyat1' => round($satisFiyati * 0.65, 2),
-            'UyeTipiFiyat2' => round($satisFiyati * 0.70, 2),
-            'UyeTipiFiyat3' => round($satisFiyati * 0.60, 2),
-            'UyeTipiFiyat4' => round($satisFiyati * 0.75, 2),
-            'UyeTipiFiyat5' => round($satisFiyati * 0.80, 2),
+            'UyeTipiFiyat1' => round($satisFiyati * (1 - $o[1] / 100), 2),
+            'UyeTipiFiyat2' => round($satisFiyati * (1 - $o[2] / 100), 2),
+            'UyeTipiFiyat3' => round($satisFiyati * (1 - $o[3] / 100), 2),
+            'UyeTipiFiyat4' => round($satisFiyati * (1 - $o[4] / 100), 2),
+            'UyeTipiFiyat5' => round($satisFiyati * (1 - $o[5] / 100), 2),
         ];
     }
 

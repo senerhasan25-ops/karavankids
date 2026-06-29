@@ -17,6 +17,13 @@ use PHPUnit\Framework\TestCase;
  */
 class UyeTipiFiyatTest extends TestCase
 {
+    protected function setUp(): void
+    {
+        parent::setUp();
+        // Statik iskonto cache başka testten kirlenmesin → varsayılanlarla test et.
+        ProductService::resetUyeTipiIskontoCache();
+    }
+
     public function test_yuvarlak_fiyat_dogru_iskontolanir(): void
     {
         $f = ProductService::calculateUyeTipiFiyatlari(100.0);

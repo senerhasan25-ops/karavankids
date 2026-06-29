@@ -8,6 +8,7 @@ use App\Jobs\SyncNewProductsJob;
 use App\Jobs\SyncStockPriceJob;
 use App\Models\SyncSetting;
 use App\Services\Ticimax\OrderService;
+use App\Services\Ticimax\ProductService;
 use Illuminate\Support\Facades\Cache;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
@@ -45,6 +46,9 @@ class SyncSettings extends Component
 
     public ?string $durumYuklemHata = null;
 
+    /** Üye tipi 1-5 iskonto oranları (% — panelden düzenlenebilir). */
+    public array $uyeTipiIskonto = [1 => 35, 2 => 30, 3 => 40, 4 => 25, 5 => 20];
+
     public function mount(): void
     {
         $this->interval_minutes = (int) SyncSetting::get('interval_minutes', 15);
@@ -56,6 +60,9 @@ class SyncSettings extends Component
         $this->last_stock_price_run_at = SyncSetting::get(SyncStockPriceJob::LAST_RUN_KEY) ?: null;
         $this->last_new_products_run_at = SyncSetting::get(SyncNewProductsJob::LAST_RUN_KEY) ?: null;
         $this->siparis_saat_aralik = (int) SyncSetting::get('siparis_saat_aralik', 24);
+
+        // Üye tipi iskonto oranları (ProductService kaynak doğru olsun diye oradan oku)
+        $this->uyeTipiIskonto = ProductService::uyeTipiIskontoOranlari();
 
         $seciliRaw = SyncSetting::get('secili_siparis_durumlari', '');
         $this->seciliDurumlar = ($seciliRaw && $seciliRaw !== '[]')
@@ -171,6 +178,25 @@ class SyncSettings extends Component
         } else {
             session()->flash('status', 'Ayarlar kaydedildi + kuyruğa alındı: '.implode(', ', $dispatched).'. İlerleme için Loglar sekmesine bak.');
         }
+    }
+
+    /**
+     * Üye tipi 1-5 iskonto oranlarını kaydet. Aktarımlarda satış fiyatından bu
+     * oranlarla üye tipi fiyatları hesaplanır. (Sync tetiklemez.)
+     */
+    public function saveUyeTipiIskonto(): void
+    {
+        $temiz = [];
+        foreach ([1, 2, 3, 4, 5] as $i) {
+            $val = (float) ($this->uyeTipiIskonto[$i] ?? 0);
+            $temiz[$i] = max(0.0, min(100.0, $val)); // 0-100 arası sınırla
+        }
+
+        SyncSetting::put(ProductService::UYE_TIPI_ISKONTO_KEY, json_encode($temiz));
+        ProductService::resetUyeTipiIskontoCache();
+        $this->uyeTipiIskonto = $temiz;
+
+        session()->flash('status', 'Üye tipi iskonto oranları kaydedildi — sonraki aktarımlarda bu oranlar kullanılacak.');
     }
 
     /**
