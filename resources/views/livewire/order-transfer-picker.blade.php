@@ -206,248 +206,200 @@
                         </div>
                     @endif
 
-                    <div class="overflow-x-auto">
-                        <table class="w-full text-sm">
-                            <thead class="bg-gray-50 dark:bg-gray-900 text-xs uppercase text-gray-500 dark:text-gray-400">
-                                <tr>
-                                    <th class="px-3 py-2 text-center w-10">
-                                        <button type="button" wire:click="toggleSelectAll"
-                                            title="Bu sayfadaki tüm siparişleri seç / temizle"
-                                            class="text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 text-sm">
-                                            ☑
-                                        </button>
-                                    </th>
-                                    <th class="px-3 py-2 text-left">Bayi ID</th>
-                                    <th class="px-3 py-2 text-left">Sipariş No</th>
-                                    <th class="px-3 py-2 text-left">Tarih</th>
-                                    <th class="px-3 py-2 text-left">Alıcı</th>
-                                    <th class="px-3 py-2 text-left">İletişim</th>
-                                    <th class="px-3 py-2 text-right">Tutar</th>
-                                    <th class="px-3 py-2 text-left">Ödeme / Durumlar (Bayi · Ana)</th>
-                                    <th class="px-3 py-2 text-center">Aktarım</th>
-                                    <th class="px-3 py-2 text-center">Ürünler</th>
-                                    <th class="px-3 py-2 text-center">Durum</th>
-                                    <th class="px-3 py-2 text-right">İşlem</th>
-                                </tr>
-                            </thead>
-                            <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
-                                @foreach ($orders as $o)
-                                    <tr class="hover:bg-gray-50 dark:hover:bg-gray-900/50 {{ in_array((string) $o['id'], $selectedBayiIds, true) ? 'bg-indigo-50/40 dark:bg-indigo-900/20' : '' }}">
-                                        <td class="px-3 py-2 text-center">
-                                            {{-- Her satır seçilebilir. Aktarılmış/kuyruktaki siparişler amber renkte
-                                                 işaretlenir; "Seçilenleri Aktar" onları atlar, yalnızca "Force Aktar" gönderir. --}}
-                                            @php $isDone = in_array($o['local_status'], ['transferred', 'queued'], true); @endphp
-                                            <input type="checkbox"
-                                                wire:model.live="selectedBayiIds"
-                                                value="{{ $o['id'] }}"
-                                                title="{{ $isDone ? 'Zaten aktarılmış/kuyrukta — yalnızca Force Aktar ile tekrar gönderilir' : 'Aktarım için seç' }}"
-                                                class="rounded border-gray-300 dark:border-gray-600 focus:ring-2 {{ $isDone ? 'text-amber-500 focus:ring-amber-500' : 'text-indigo-600 focus:ring-indigo-500' }}" />
-                                        </td>
-                                        <td class="px-3 py-2 font-mono text-xs text-gray-600 dark:text-gray-400">{{ $o['id'] }}</td>
-                                        <td class="px-3 py-2 font-mono">{{ $o['siparis_no'] ?: '—' }}</td>
-                                        <td class="px-3 py-2 text-xs text-gray-600 dark:text-gray-400">
-                                            {{ $o['tarih'] ? \Illuminate\Support\Str::limit(str_replace('T', ' ', $o['tarih']), 16, '') : '—' }}
-                                        </td>
-                                        <td class="px-3 py-2">{{ $o['alici'] ?: '—' }}</td>
-                                        <td class="px-3 py-2 text-xs">
-                                            @if ($o['mail'])
-                                                <div class="text-gray-700 dark:text-gray-300">{{ $o['mail'] }}</div>
-                                            @endif
-                                            @if ($o['telefon'])
-                                                <div class="text-gray-500 dark:text-gray-400 font-mono">{{ $o['telefon'] }}</div>
-                                            @endif
-                                            @if (! $o['mail'] && ! $o['telefon'])—@endif
-                                        </td>
-                                        <td class="px-3 py-2 text-right font-mono">₺{{ number_format($o['tutar'], 2, ',', '.') }}</td>
-                                        <td class="px-3 py-2 text-xs leading-tight">
-                                            {{-- 🏪 BAYİ bloğu --}}
-                                            <div class="border-l-2 border-blue-400 pl-2">
-                                                <div class="text-[10px] uppercase text-blue-600 dark:text-blue-400 font-semibold tracking-wide">
-                                                    🏪 Bayi <span class="text-gray-400 normal-case">#{{ $o['id'] }}</span>
-                                                </div>
-                                                <div class="text-gray-700 dark:text-gray-300">
-                                                    💳 {{ $odemeTipleri[(int) $o['odeme_tipi']] ?? $o['odeme_tipi'] }}
-                                                </div>
-                                                @if ($o['siparis_durumu'] !== '')
-                                                    <div class="text-gray-500">
-                                                        📋 {{ $siparisDurumlari[(int) $o['siparis_durumu']] ?? $o['siparis_durumu'] }}
-                                                    </div>
-                                                @endif
-                                                @if ($o['odeme_durumu'] !== '')
-                                                    <div class="text-gray-500">
-                                                        💰 {{ $odemeDurumlari[(int) $o['odeme_durumu']] ?? $o['odeme_durumu'] }}
-                                                    </div>
-                                                @endif
-                                                @if ($o['paketleme_durumu'] !== '')
-                                                    <div class="text-gray-500">
-                                                        📦 {{ $paketlemeDurumlari[(int) $o['paketleme_durumu']] ?? $o['paketleme_durumu'] }}
-                                                    </div>
-                                                @endif
-                                            </div>
+                    {{-- Toplu seçim çubuğu --}}
+                    <div class="px-4 py-2 border-b border-gray-200 dark:border-gray-700 flex items-center gap-2 bg-gray-50/60 dark:bg-gray-900/30">
+                        @php
+                            $allIds = array_values(array_filter(array_map(fn ($x) => (string) ($x['id'] ?? ''), $orders)));
+                            $allSelected = ! empty($allIds) && empty(array_diff($allIds, $selectedBayiIds));
+                        @endphp
+                        <button type="button" wire:click="toggleSelectAll"
+                                class="text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:underline">
+                            {{ $allSelected ? '☑ Tümünü kaldır' : '☐ Tümünü seç' }}
+                        </button>
+                        <span class="text-xs text-gray-400">·</span>
+                        <span class="text-xs text-gray-500 dark:text-gray-400">{{ count($orders) }} sipariş listelendi</span>
+                    </div>
 
-                                            {{-- 🏢 ANA bloğu (sadece aktarılmışsa) --}}
-                                            @if ($o['local_status'] === 'transferred' && $o['local_ana_id'])
-                                                <div class="border-l-2 border-emerald-400 pl-2 mt-1.5">
-                                                    <div class="text-[10px] uppercase text-emerald-600 dark:text-emerald-400 font-semibold tracking-wide">
-                                                        🏢 Ana <span class="text-gray-400">#{{ $o['local_ana_id'] }}</span>
-                                                    </div>
-                                                    @if ($o['ana_odeme_tipi'])
-                                                        <div class="text-gray-700 dark:text-gray-300">
-                                                            💳 {{ $odemeTipleri[(int) $o['ana_odeme_tipi']] ?? $o['ana_odeme_tipi'] }}
-                                                        </div>
-                                                    @endif
-                                                    @if ($o['ana_siparis_durumu'] !== null && $o['ana_siparis_durumu'] !== '')
-                                                        <div class="text-gray-500">
-                                                            📋 {{ $siparisDurumlari[(int) $o['ana_siparis_durumu']] ?? $o['ana_siparis_durumu'] }}
-                                                        </div>
-                                                    @endif
-                                                    @if ($o['ana_odeme_durumu'] !== null && $o['ana_odeme_durumu'] !== '')
-                                                        <div class="text-gray-500">
-                                                            💰 {{ $odemeDurumlari[(int) $o['ana_odeme_durumu']] ?? $o['ana_odeme_durumu'] }}
-                                                        </div>
-                                                    @endif
-                                                    @if ($o['ana_paketleme_durumu'] !== null && $o['ana_paketleme_durumu'] !== '')
-                                                        <div class="text-gray-500">
-                                                            📦 {{ $paketlemeDurumlari[(int) $o['ana_paketleme_durumu']] ?? $o['ana_paketleme_durumu'] }}
-                                                        </div>
-                                                    @endif
-                                                    @if (! $o['ana_siparis_durumu'] && ! $o['ana_odeme_durumu'] && ! $o['ana_paketleme_durumu'])
-                                                        @if (! $anaStatusesLoaded)
-                                                            <div class="text-gray-400 italic flex items-center gap-1">
-                                                                <span class="inline-block animate-spin rounded-full h-2.5 w-2.5 border border-emerald-400 border-t-transparent"></span>
-                                                                yükleniyor…
-                                                            </div>
-                                                        @else
-                                                            <div class="text-gray-400 italic">— veri çekilemedi —</div>
-                                                        @endif
-                                                    @endif
-                                                </div>
-                                            @endif
-                                        </td>
-                                        <td class="px-3 py-2 text-center">
-                                            @if ($o['local_status'] === 'transferred')
-                                                <button wire:click="openDiagnostics('{{ $o['id'] }}')"
-                                                        class="inline-block px-2 py-0.5 rounded bg-green-100 text-green-800 hover:bg-green-200 text-xs cursor-pointer"
-                                                        title="SOAP detayı için tıkla">
-                                                    ✓ Aktarıldı
-                                                </button>
-                                            @elseif ($o['local_status'] === 'failed')
-                                                <button wire:click="openDiagnostics('{{ $o['id'] }}')"
-                                                        class="inline-block px-2 py-0.5 rounded bg-red-100 text-red-800 hover:bg-red-200 text-xs cursor-pointer"
-                                                        title="Hata detayı + SOAP için tıkla">
-                                                    ✗ Başarısız
-                                                </button>
-                                            @elseif ($o['local_status'] === 'queued')
-                                                <span class="inline-block px-2 py-0.5 rounded bg-amber-100 text-amber-800 text-xs">
-                                                    ⏳ Kuyrukta
-                                                </span>
-                                            @elseif ($o['entegrasyon_aktarildi'])
-                                                <span class="inline-block px-2 py-0.5 rounded bg-blue-100 text-blue-800 text-xs"
-                                                      title="Bayi'de işaretli ama yerel kayıt yok">
-                                                    Bayi'de işaretli
-                                                </span>
-                                            @else
-                                                <span class="inline-block px-2 py-0.5 rounded bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200 text-xs">
-                                                    Yeni
-                                                </span>
-                                            @endif
-                                        </td>
-                                        <td class="px-3 py-2 text-center whitespace-nowrap">
-                                            {{-- Listede ürünleri göster/gizle (ekstra SOAP yok — yanıtta zaten var) --}}
-                                            <button wire:click="toggleOrderProducts('{{ $o['id'] }}')"
-                                                    class="px-2 py-1 text-xs bg-slate-600 text-white rounded hover:bg-slate-700"
-                                                    title="Siparişteki ürünleri listede aç / kapa">
-                                                📦 {{ count($o['urunler']) }} ürün
-                                                <span class="ml-0.5">{{ $expandedOrderId === (string) $o['id'] ? '▲' : '▼' }}</span>
-                                            </button>
-                                            <div class="mt-1">
-                                                <button wire:click="openEditor('{{ $o['id'] }}')"
-                                                        class="text-[11px] text-indigo-600 dark:text-indigo-400 hover:underline"
-                                                        title="Ürünleri düzenle (adet değiştir / çıkar)">
-                                                    ✏️ Düzenle
-                                                </button>
-                                            </div>
-                                            @if (! empty($o['has_override']))
-                                                <div class="mt-1">
-                                                    <span class="inline-block px-1.5 py-0.5 text-[10px] bg-purple-100 text-purple-800 rounded"
-                                                          title="Bu siparişte ürün düzenlemesi yapılmış">
-                                                        ✏️ Düzenlendi
-                                                    </span>
-                                                </div>
-                                            @endif
-                                        </td>
-                                        <td class="px-3 py-2 text-center">
-                                            <button wire:click="openStatusEditor('{{ $o['id'] }}')"
-                                                    class="px-2 py-1 text-xs bg-teal-600 text-white rounded hover:bg-teal-700"
-                                                    title="Sipariş / Ödeme / Paketleme durumlarını güncelle">
-                                                ✎ Durumlar
-                                            </button>
-                                        </td>
-                                        <td class="px-3 py-2 text-right">
-                                            @if ($o['local_status'] === 'transferred')
-                                                <button wire:click="aktar('{{ $o['id'] }}', true)"
-                                                        wire:confirm="Bu sipariş zaten aktarılmış. Tekrar (zorla) aktarmak ana mağazada DUPLICATE oluşturabilir. Devam edilsin mi?"
-                                                        class="px-2 py-1 text-xs bg-amber-500 text-white rounded hover:bg-amber-600">
-                                                    ↻ Zorla
-                                                </button>
-                                            @elseif ($o['local_status'] === 'queued')
-                                                <button disabled class="px-2 py-1 text-xs bg-gray-300 text-gray-500 rounded cursor-not-allowed">
-                                                    Kuyrukta
-                                                </button>
-                                            @else
-                                                <button wire:click="aktar('{{ $o['id'] }}')"
-                                                        class="px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700">
-                                                    🚀 Aktar
-                                                </button>
-                                            @endif
-                                        </td>
-                                    </tr>
+                    {{-- KART LİSTESİ --}}
+                    <div class="p-3 sm:p-4 space-y-3">
+                        @foreach ($orders as $o)
+                            @php
+                                $isSelected = in_array((string) $o['id'], $selectedBayiIds, true);
+                                $st = $o['local_status'];
+                                $accent = match (true) {
+                                    $st === 'transferred' => 'border-l-emerald-500',
+                                    $st === 'failed'      => 'border-l-red-500',
+                                    $st === 'queued'      => 'border-l-amber-400',
+                                    (bool) $o['entegrasyon_aktarildi'] => 'border-l-blue-400',
+                                    default               => 'border-l-gray-300 dark:border-l-gray-600',
+                                };
+                                $isDone = in_array($st, ['transferred', 'queued'], true);
+                                $expanded = $expandedOrderId === (string) $o['id'];
+                            @endphp
 
-                                    {{-- SATIR-ALTI ÜRÜN TABLOSU (genişletilince) --}}
-                                    @if ($expandedOrderId === (string) $o['id'])
-                                        <tr class="bg-slate-50 dark:bg-gray-900/40">
-                                            <td colspan="12" class="px-6 py-3">
-                                                @if (empty($o['urunler']))
-                                                    <div class="text-xs text-gray-500 dark:text-gray-400 italic">
-                                                        Bu siparişte ürün bilgisi bulunamadı.
-                                                    </div>
+                            <div class="rounded-lg border border-gray-200 dark:border-gray-700 border-l-4 {{ $accent }}
+                                        {{ $isSelected ? 'ring-2 ring-indigo-400/60 bg-indigo-50/40 dark:bg-indigo-900/20' : 'bg-white dark:bg-gray-800' }}
+                                        shadow-sm hover:shadow transition-shadow">
+
+                                {{-- ÜST: seçim + sipariş no + tarih + durum rozeti --}}
+                                <div class="flex items-start gap-3 p-3 sm:p-4">
+                                    <input type="checkbox" wire:model.live="selectedBayiIds" value="{{ $o['id'] }}"
+                                        title="{{ $isDone ? 'Zaten aktarılmış/kuyrukta — yalnızca Force ile tekrar gönderilir' : 'Aktarım için seç' }}"
+                                        class="mt-1 rounded border-gray-300 dark:border-gray-600 focus:ring-2 {{ $isDone ? 'text-amber-500 focus:ring-amber-500' : 'text-indigo-600 focus:ring-indigo-500' }}" />
+
+                                    <div class="flex-1 min-w-0">
+                                        {{-- başlık satırı --}}
+                                        <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+                                            <span class="font-semibold text-gray-900 dark:text-gray-100 font-mono">
+                                                {{ $o['siparis_no'] ?: 'Sipariş #'.$o['id'] }}
+                                            </span>
+                                            <span class="text-[11px] font-mono text-gray-400 dark:text-gray-500">🏪 Bayi #{{ $o['id'] }}</span>
+                                            @if ($o['tarih'])
+                                                <span class="text-xs text-gray-500 dark:text-gray-400">
+                                                    📅 {{ \Illuminate\Support\Str::limit(str_replace('T', ' ', $o['tarih']), 16, '') }}
+                                                </span>
+                                            @endif
+
+                                            {{-- durum rozeti (sağa yasla) --}}
+                                            <span class="ms-auto">
+                                                @if ($st === 'transferred')
+                                                    <button wire:click="openDiagnostics('{{ $o['id'] }}')"
+                                                            class="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300 text-xs font-medium hover:bg-emerald-200"
+                                                            title="SOAP detayı">✓ Aktarıldı @if($o['local_ana_id'])<span class="font-mono opacity-70">· Ana #{{ $o['local_ana_id'] }}</span>@endif</button>
+                                                @elseif ($st === 'failed')
+                                                    <button wire:click="openDiagnostics('{{ $o['id'] }}')"
+                                                            class="px-2 py-0.5 rounded-full bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300 text-xs font-medium hover:bg-red-200"
+                                                            title="Hata + SOAP detayı">✗ Başarısız</button>
+                                                @elseif ($st === 'queued')
+                                                    <span class="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 text-xs font-medium">⏳ Kuyrukta</span>
+                                                @elseif ($o['entegrasyon_aktarildi'])
+                                                    <span class="px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300 text-xs font-medium" title="Bayi'de işaretli ama yerel kayıt yok">Bayi'de işaretli</span>
                                                 @else
-                                                    <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1 font-semibold">
-                                                        🛒 Sipariş #{{ $o['id'] }} — {{ count($o['urunler']) }} ürün
-                                                    </div>
-                                                    <div class="overflow-x-auto border border-gray-200 dark:border-gray-700 rounded">
-                                                        <table class="w-full text-xs">
-                                                            <thead class="bg-gray-100 dark:bg-gray-900 text-[10px] uppercase text-gray-500 dark:text-gray-400">
-                                                                <tr>
-                                                                    <th class="px-3 py-1.5 text-left">Stok Kodu</th>
-                                                                    <th class="px-3 py-1.5 text-left">Barkod</th>
-                                                                    <th class="px-3 py-1.5 text-left">Ürün Adı</th>
-                                                                    <th class="px-3 py-1.5 text-center">Adet</th>
-                                                                    <th class="px-3 py-1.5 text-right">Birim Fiyat</th>
-                                                                    <th class="px-3 py-1.5 text-right">Toplam</th>
-                                                                </tr>
-                                                            </thead>
-                                                            <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
-                                                                @foreach ($o['urunler'] as $line)
-                                                                    <tr>
-                                                                        <td class="px-3 py-1.5 font-mono">{{ $line['stok_kodu'] ?: '—' }}</td>
-                                                                        <td class="px-3 py-1.5 font-mono text-gray-500">{{ $line['barkod'] ?: '—' }}</td>
-                                                                        <td class="px-3 py-1.5">{{ $line['urun_adi'] }}</td>
-                                                                        <td class="px-3 py-1.5 text-center">{{ $line['adet'] }}</td>
-                                                                        <td class="px-3 py-1.5 text-right font-mono">₺{{ number_format($line['birim_fiyat'], 2, ',', '.') }}</td>
-                                                                        <td class="px-3 py-1.5 text-right font-mono">₺{{ number_format($line['toplam'], 2, ',', '.') }}</td>
-                                                                    </tr>
-                                                                @endforeach
-                                                            </tbody>
-                                                        </table>
-                                                    </div>
+                                                    <span class="px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300 text-xs font-medium">● Yeni</span>
                                                 @endif
-                                            </td>
-                                        </tr>
+                                            </span>
+                                        </div>
+
+                                        {{-- müşteri + iletişim + tutar --}}
+                                        <div class="flex flex-wrap items-center gap-x-4 gap-y-0.5 mt-2">
+                                            <span class="text-sm font-medium text-gray-800 dark:text-gray-200">👤 {{ $o['alici'] ?: '—' }}</span>
+                                            @if ($o['mail'])<span class="text-xs text-gray-500 dark:text-gray-400">✉ {{ $o['mail'] }}</span>@endif
+                                            @if ($o['telefon'])<span class="text-xs text-gray-500 dark:text-gray-400 font-mono">📞 {{ $o['telefon'] }}</span>@endif
+                                            <span class="ms-auto text-base font-bold text-gray-900 dark:text-gray-100 font-mono">₺{{ number_format($o['tutar'], 2, ',', '.') }}</span>
+                                        </div>
+
+                                        {{-- durum çipleri: BAYİ --}}
+                                        <div class="flex flex-wrap items-center gap-1.5 mt-2">
+                                            <span class="text-[10px] uppercase font-semibold text-blue-600 dark:text-blue-400 tracking-wide">Bayi</span>
+                                            <span class="px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-[11px]">💳 {{ $odemeTipleri[(int) $o['odeme_tipi']] ?? $o['odeme_tipi'] }}</span>
+                                            @if ($o['siparis_durumu'] !== '')
+                                                <span class="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 text-[11px]">📋 {{ $siparisDurumlari[(int) $o['siparis_durumu']] ?? $o['siparis_durumu'] }}</span>
+                                            @endif
+                                            @if ($o['odeme_durumu'] !== '')
+                                                <span class="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 text-[11px]">💰 {{ $odemeDurumlari[(int) $o['odeme_durumu']] ?? $o['odeme_durumu'] }}</span>
+                                            @endif
+                                            @if ($o['paketleme_durumu'] !== '')
+                                                <span class="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 text-[11px]">📦 {{ $paketlemeDurumlari[(int) $o['paketleme_durumu']] ?? $o['paketleme_durumu'] }}</span>
+                                            @endif
+                                        </div>
+
+                                        {{-- durum çipleri: ANA (aktarılmışsa) --}}
+                                        @if ($st === 'transferred' && $o['local_ana_id'])
+                                            <div class="flex flex-wrap items-center gap-1.5 mt-1">
+                                                <span class="text-[10px] uppercase font-semibold text-emerald-600 dark:text-emerald-400 tracking-wide">Ana</span>
+                                                @if ($o['ana_odeme_tipi'])
+                                                    <span class="px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 text-[11px]">💳 {{ $odemeTipleri[(int) $o['ana_odeme_tipi']] ?? $o['ana_odeme_tipi'] }}</span>
+                                                @endif
+                                                @if ($o['ana_siparis_durumu'] !== null && $o['ana_siparis_durumu'] !== '')
+                                                    <span class="px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 text-[11px]">📋 {{ $siparisDurumlari[(int) $o['ana_siparis_durumu']] ?? $o['ana_siparis_durumu'] }}</span>
+                                                @endif
+                                                @if ($o['ana_paketleme_durumu'] !== null && $o['ana_paketleme_durumu'] !== '')
+                                                    <span class="px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 text-[11px]">📦 {{ $paketlemeDurumlari[(int) $o['ana_paketleme_durumu']] ?? $o['ana_paketleme_durumu'] }}</span>
+                                                @endif
+                                                @if (! $o['ana_siparis_durumu'] && ! $o['ana_odeme_durumu'] && ! $o['ana_paketleme_durumu'])
+                                                    @if (! $anaStatusesLoaded)
+                                                        <span class="text-[11px] text-gray-400 italic flex items-center gap-1">
+                                                            <span class="inline-block animate-spin rounded-full h-2.5 w-2.5 border border-emerald-400 border-t-transparent"></span> yükleniyor…
+                                                        </span>
+                                                    @else
+                                                        <span class="text-[11px] text-gray-400 italic">— veri çekilemedi —</span>
+                                                    @endif
+                                                @endif
+                                            </div>
+                                        @endif
+                                    </div>
+                                </div>
+
+                                {{-- ALT: aksiyon çubuğu --}}
+                                <div class="flex flex-wrap items-center gap-2 px-3 sm:px-4 py-2 border-t border-gray-100 dark:border-gray-700/60 bg-gray-50/50 dark:bg-gray-900/20 rounded-b-lg">
+                                    <button wire:click="toggleOrderProducts('{{ $o['id'] }}')"
+                                            class="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium bg-slate-600 text-white rounded hover:bg-slate-700">
+                                        📦 {{ count($o['urunler']) }} ürün <span>{{ $expanded ? '▲' : '▼' }}</span>
+                                    </button>
+                                    <button wire:click="openEditor('{{ $o['id'] }}')"
+                                            class="inline-flex items-center gap-1 px-2.5 py-1 text-xs text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-700 rounded hover:bg-indigo-50 dark:hover:bg-indigo-900/30">
+                                        ✏️ Düzenle
+                                    </button>
+                                    @if (! empty($o['has_override']))
+                                        <span class="px-1.5 py-0.5 text-[10px] bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300 rounded" title="Ürün düzenlemesi yapılmış">✏️ Düzenlendi</span>
                                     @endif
-                                @endforeach
-                            </tbody>
-                        </table>
+                                    <button wire:click="openStatusEditor('{{ $o['id'] }}')"
+                                            class="inline-flex items-center gap-1 px-2.5 py-1 text-xs text-teal-700 dark:text-teal-300 border border-teal-200 dark:border-teal-700 rounded hover:bg-teal-50 dark:hover:bg-teal-900/30">
+                                        ✎ Durumlar
+                                    </button>
+
+                                    {{-- Aktar (sağa yasla) --}}
+                                    <span class="ms-auto">
+                                        @if ($st === 'transferred')
+                                            <button wire:click="aktar('{{ $o['id'] }}', true)"
+                                                    wire:confirm="Bu sipariş zaten aktarılmış. Tekrar (zorla) aktarmak ana mağazada DUPLICATE oluşturabilir. Devam edilsin mi?"
+                                                    class="px-3 py-1.5 text-xs font-medium bg-amber-500 text-white rounded hover:bg-amber-600">↻ Zorla Aktar</button>
+                                        @elseif ($st === 'queued')
+                                            <button disabled class="px-3 py-1.5 text-xs bg-gray-200 dark:bg-gray-700 text-gray-400 rounded cursor-not-allowed">Kuyrukta…</button>
+                                        @else
+                                            <button wire:click="aktar('{{ $o['id'] }}')"
+                                                    class="px-3 py-1.5 text-xs font-semibold bg-green-600 text-white rounded hover:bg-green-700 shadow-sm">🚀 Aktar</button>
+                                        @endif
+                                    </span>
+                                </div>
+
+                                {{-- GENİŞLETİLMİŞ ÜRÜN TABLOSU --}}
+                                @if ($expanded)
+                                    <div class="border-t border-gray-200 dark:border-gray-700 p-3 sm:p-4 bg-slate-50/70 dark:bg-gray-900/40 rounded-b-lg">
+                                        @if (empty($o['urunler']))
+                                            <div class="text-xs text-gray-500 dark:text-gray-400 italic">Bu siparişte ürün bilgisi bulunamadı.</div>
+                                        @else
+                                            <div class="overflow-x-auto border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800">
+                                                <table class="w-full text-xs">
+                                                    <thead class="bg-gray-100 dark:bg-gray-900 text-[10px] uppercase text-gray-500 dark:text-gray-400">
+                                                        <tr>
+                                                            <th class="px-3 py-2 text-left">Stok Kodu</th>
+                                                            <th class="px-3 py-2 text-left">Barkod</th>
+                                                            <th class="px-3 py-2 text-left">Ürün Adı</th>
+                                                            <th class="px-3 py-2 text-center">Adet</th>
+                                                            <th class="px-3 py-2 text-right">Birim Fiyat</th>
+                                                            <th class="px-3 py-2 text-right">Toplam</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody class="divide-y divide-gray-100 dark:divide-gray-700">
+                                                        @foreach ($o['urunler'] as $line)
+                                                            <tr class="hover:bg-gray-50 dark:hover:bg-gray-700/40">
+                                                                <td class="px-3 py-2 font-mono">{{ $line['stok_kodu'] ?: '—' }}</td>
+                                                                <td class="px-3 py-2 font-mono text-gray-500">{{ $line['barkod'] ?: '—' }}</td>
+                                                                <td class="px-3 py-2">{{ $line['urun_adi'] }}</td>
+                                                                <td class="px-3 py-2 text-center font-semibold">{{ $line['adet'] }}</td>
+                                                                <td class="px-3 py-2 text-right font-mono">₺{{ number_format($line['birim_fiyat'], 2, ',', '.') }}</td>
+                                                                <td class="px-3 py-2 text-right font-mono">₺{{ number_format($line['toplam'], 2, ',', '.') }}</td>
+                                                            </tr>
+                                                        @endforeach
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        @endif
+                                    </div>
+                                @endif
+                            </div>
+                        @endforeach
                     </div>
                 @endif
             </div>
