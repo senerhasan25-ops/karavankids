@@ -70,15 +70,27 @@
                                     <span class="ms-2 text-sm text-gray-700 dark:text-gray-300">Aktif</span>
                                 </label>
                                 <button type="button" wire:click="testConnection('{{ $store }}')"
-                                        class="px-4 py-2 bg-blue-600 text-white text-sm rounded hover:bg-blue-700">
-                                    Bağlantıyı Test Et
+                                        wire:loading.attr="disabled" wire:target="testConnection('{{ $store }}')"
+                                        class="px-4 py-2 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 disabled:opacity-60">
+                                    <span wire:loading.remove wire:target="testConnection('{{ $store }}')">Bağlantıyı Test Et</span>
+                                    <span wire:loading wire:target="testConnection('{{ $store }}')">Test ediliyor…</span>
                                 </button>
                             </div>
                         </div>
 
                         @if (! empty($testResults[$store]))
-                            <div class="mt-4 p-3 bg-gray-50 dark:bg-gray-900 rounded border border-gray-200 dark:border-gray-700">
-                                <pre class="text-xs text-gray-800 dark:text-gray-200 whitespace-pre-wrap">{{ json_encode($testResults[$store], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) }}</pre>
+                            @php $r = $testResults[$store]; $okAll = $r['overall'] ?? false; @endphp
+                            <div class="mt-4 p-3 rounded border {{ $okAll ? 'bg-green-50 dark:bg-green-900/20 border-green-300 dark:border-green-700' : 'bg-red-50 dark:bg-red-900/20 border-red-300 dark:border-red-700' }}">
+                                <div class="font-semibold {{ $okAll ? 'text-green-800 dark:text-green-300' : 'text-red-800 dark:text-red-300' }}">
+                                    {{ $okAll ? '✓ Bağlantı ve yetki doğrulandı' : '✗ Bağlantı/yetki sorunu' }}
+                                </div>
+                                <ul class="mt-2 text-xs space-y-1 text-gray-700 dark:text-gray-300">
+                                    <li>📦 Ürün servisi: {{ $r['product']['message'] ?? '—' }}</li>
+                                    <li>🛒 Sipariş servisi: {{ $r['order']['message'] ?? '—' }}</li>
+                                </ul>
+                                <p class="mt-2 text-[11px] text-gray-500 dark:text-gray-400">
+                                    Kaydedilmiş bilgilerle test edilir — bilgileri değiştirdiysen önce "Kaydet".
+                                </p>
                             </div>
                         @endif
                     </div>

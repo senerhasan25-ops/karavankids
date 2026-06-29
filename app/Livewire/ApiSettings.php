@@ -3,7 +3,8 @@
 namespace App\Livewire;
 
 use App\Models\ApiCredential;
-use App\Services\Ticimax\TicimaxClient;
+use App\Services\Ticimax\OrderService;
+use App\Services\Ticimax\ProductService;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Component;
@@ -110,14 +111,58 @@ class ApiSettings extends Component
         session()->flash('status', 'API ayarları kaydedildi.');
     }
 
+    /**
+     * GERÇEK bağlantı testi — yalnızca WSDL'e erişilebiliyor mu değil, KAYDEDİLMİŞ
+     * yetki kodunun GEÇERLİ olduğunu da doğrular. Kimlikli bir SelectUrun (1 kayıt)
+     * çağrısı yapar; yetki kodu yanlışsa Ticimax "Hatalı Kullanıcı Kodu" döner.
+     * Aynı yetki kodu hem ürün hem sipariş servisinde kullanıldığı için ürün testi
+     * geçerse kimlik geçerlidir; sipariş servisi ek/bilgilendirici kontroldür.
+     *
+     * NOT: Kaydedilmiş bilgilerle test eder — önce "Kaydet", sonra "Test Et".
+     */
     public function testConnection(string $store): void
     {
+        $result = ['store' => $store, 'product' => null, 'order' => null, 'overall' => false];
+
+        // 1) ÜRÜN servisi — kimlik doğrulama (asıl sinyal)
         try {
-            $client = TicimaxClient::for($store);
-            $this->testResults[$store] = $client->testConnection();
+            ProductService::for($store)->getNewProducts(null, 1, 1, 'DESC');
+            $result['product'] = ['ok' => true, 'message' => '✓ Yetki doğrulandı — ürün servisine erişildi.'];
         } catch (\Throwable $e) {
-            $this->testResults[$store] = ['error' => $e->getMessage()];
+            $result['product'] = ['ok' => false, 'message' => self::classifyConnectionError($e->getMessage())];
         }
+
+        // 2) SİPARİŞ servisi — ek kontrol (aynı yetki kodu; kimi kurulumda durum
+        //    listesi metodu kaprisli olabilir, bu yüzden başarısızlığı UYARI sayarız).
+        try {
+            OrderService::for($store)->getOrderStatuses();
+            $result['order'] = ['ok' => true, 'message' => '✓ Sipariş servisine erişildi.'];
+        } catch (\Throwable $e) {
+            $result['order'] = ['ok' => false, 'message' => '⚠ Sipariş servisi kontrolü: '.self::classifyConnectionError($e->getMessage())];
+        }
+
+        // Genel sonuç ÜRÜN testine bağlı — yetkinin asıl kanıtı odur.
+        $result['overall'] = (bool) ($result['product']['ok'] ?? false);
+        $this->testResults[$store] = $result;
+    }
+
+    /**
+     * SOAP/bağlantı hata mesajını kullanıcı dostu Türkçe tanıya çevirir.
+     */
+    public static function classifyConnectionError(string $msg): string
+    {
+        if (stripos($msg, 'Hatalı Kullanıcı Kodu') !== false || stripos($msg, 'Hatali Kullanici Kodu') !== false) {
+            return '❌ Geçersiz yetki kodu (Hatalı Kullanıcı Kodu) — Web Servis Yetki Kodunu kontrol et.';
+        }
+        if (stripos($msg, 'init failed') !== false
+            || stripos($msg, 'Could not connect') !== false
+            || stripos($msg, 'getaddrinfo') !== false
+            || stripos($msg, 'Couldn\'t resolve') !== false
+            || stripos($msg, 'failed to load external entity') !== false) {
+            return '❌ Sunucuya ulaşılamadı — endpoint/WSDL adresi yanlış veya ağ sorunu.';
+        }
+
+        return '❌ Hata: '.mb_substr($msg, 0, 200);
     }
 
     public function render()
