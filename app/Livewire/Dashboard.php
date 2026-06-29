@@ -82,12 +82,20 @@ class Dashboard extends Component
             ->where('created_at', '>=', Carbon::now()->subDay())
             ->count();
 
+        // Bayide OLMAYAN ürünler (bayi_product_id NULL) — aktarılmayı bekleyenler.
+        // İlk 200'ü göster; ProductMapping'te ürün adı tutulmadığı (ana canlı, SOAP yok)
+        // için yereldeki kimliklerle listelenir.
+        $notInBayi = ProductMapping::whereNull('bayi_product_id')
+            ->orderBy('stok_kodu')
+            ->limit(200)
+            ->get(['stok_kodu', 'barcode', 'tedarikci_kodu', 'ana_product_id', 'status', 'last_error']);
+
         return view('livewire.dashboard', compact(
             'ordersToday', 'productsToday', 'days', 'maxBar',
             'recentFailed', 'lastRun', 'nextRun', 'autoEnabled',
             'intervalMinutes', 'recentJobs',
             'mapTotal', 'mapSynced', 'mapPending', 'mapError', 'mapNoBayi', 'mapNoTed', 'coverage',
-            'lastNewProducts', 'lastStockPrice', 'errors24h'
+            'lastNewProducts', 'lastStockPrice', 'errors24h', 'notInBayi'
         ));
     }
 }

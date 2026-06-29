@@ -1,4 +1,4 @@
-<div>
+<div wire:poll.15s>
     <x-slot name="header">
         <h2 class="font-semibold text-xl text-gray-800 dark:text-gray-200 leading-tight">Dashboard</h2>
     </x-slot>
@@ -40,7 +40,14 @@
             <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
                 <div class="flex flex-wrap items-center justify-between gap-2 mb-4">
                     <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300">🗺️ Eşleştirme Sağlık Raporu</h3>
-                    <span class="text-xs text-gray-500 dark:text-gray-400">Toplam {{ number_format($mapTotal) }} varyasyon haritası · eşleşme tedarikçi koduyla</span>
+                    <div class="flex items-center gap-3">
+                        <span class="text-xs text-gray-500 dark:text-gray-400">Toplam {{ number_format($mapTotal) }} varyasyon haritası · 15sn'de bir otomatik yenilenir</span>
+                        <button wire:click="$refresh" wire:loading.attr="disabled"
+                                class="text-xs px-2 py-1 rounded border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700">
+                            <span wire:loading.remove wire:target="$refresh">↻ Yenile</span>
+                            <span wire:loading wire:target="$refresh">…</span>
+                        </button>
+                    </div>
                 </div>
 
                 {{-- Kapsama barı --}}
@@ -74,6 +81,11 @@
                         <div class="text-xs text-gray-600 dark:text-gray-400 mt-0.5">⚠ Tedarikçi kodu yok</div>
                     </div>
                 </div>
+                <p class="mt-2 text-[11px] text-gray-400 dark:text-gray-500 leading-relaxed">
+                    İlk üç kutu birbirini tamamlar (Eşleşti + Bayide yok + Hatalı ≈ toplam). “Tedarikçi kodu yok” ise
+                    <em>ayrı bir ölçüdür</em> — eşleşmiş kayıtlarla örtüşebilir; bu kayıtlar eski stok/barkod tabanlı
+                    eşleştirmeden kalmadır ve “Haritayı Yeniden Kur” ile zamanla temizlenir.
+                </p>
 
                 {{-- Sync zamanları + 24s hata --}}
                 <div class="mt-4 pt-3 border-t border-gray-200 dark:border-gray-700 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs text-gray-600 dark:text-gray-400">
@@ -96,6 +108,65 @@
                         Henüz harita kurulmamış. <a href="{{ route('ayarlar.sync') }}" class="underline">Otomatik Güncelleme</a> sayfasından
                         <strong>"Haritayı Yeniden Kur"</strong> ile başla — ürün oluşturmadan eşleştirme yapar.
                     </div>
+                @endif
+            </div>
+
+            {{-- BAYİDE OLMAYAN ÜRÜNLER --}}
+            <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
+                <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+                    <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                        ⏳ Bayide Olmayan Ürünler
+                        <span class="text-xs font-normal text-gray-500 dark:text-gray-400">({{ number_format($mapNoBayi) }} kayıt)</span>
+                    </h3>
+                    @if ($mapNoBayi > 0)
+                        <span class="text-xs text-gray-500 dark:text-gray-400">
+                            Bunlar ana'da var, bayide yok — "Tüm Ürünleri Aktar" ile oluşturulur.
+                        </span>
+                    @endif
+                </div>
+
+                @if ($notInBayi->isEmpty())
+                    <div class="text-sm text-gray-500 dark:text-gray-400 italic">
+                        Bayide olmayan ürün yok — tüm eşleşmeler bayide mevcut 🎉
+                    </div>
+                @else
+                    <div class="overflow-x-auto max-h-96 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-lg">
+                        <table class="w-full text-xs">
+                            <thead class="bg-gray-50 dark:bg-gray-900 text-[10px] uppercase text-gray-500 dark:text-gray-400 sticky top-0">
+                                <tr>
+                                    <th class="px-3 py-2 text-left">Stok Kodu</th>
+                                    <th class="px-3 py-2 text-left">Barkod</th>
+                                    <th class="px-3 py-2 text-left">Tedarikçi Kodu</th>
+                                    <th class="px-3 py-2 text-left">Ana Ürün ID</th>
+                                    <th class="px-3 py-2 text-left">Durum</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-100 dark:divide-gray-700">
+                                @foreach ($notInBayi as $m)
+                                    <tr class="hover:bg-gray-50 dark:hover:bg-gray-700/40">
+                                        <td class="px-3 py-1.5 font-mono">{{ $m->stok_kodu ?: '—' }}</td>
+                                        <td class="px-3 py-1.5 font-mono text-gray-500">{{ $m->barcode ?: '—' }}</td>
+                                        <td class="px-3 py-1.5 font-mono text-gray-500">{{ $m->tedarikci_kodu ?: '—' }}</td>
+                                        <td class="px-3 py-1.5 font-mono">{{ $m->ana_product_id ?: '—' }}</td>
+                                        <td class="px-3 py-1.5">
+                                            @if ($m->status === 'error')
+                                                <span class="px-1.5 py-0.5 rounded bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300" title="{{ $m->last_error }}">✗ hata</span>
+                                            @elseif ($m->status === 'pending')
+                                                <span class="px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">⏳ bekliyor</span>
+                                            @else
+                                                <span class="px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300">{{ $m->status ?: '—' }}</span>
+                                            @endif
+                                        </td>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    </div>
+                    @if ($mapNoBayi > $notInBayi->count())
+                        <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                            İlk {{ $notInBayi->count() }} kayıt gösteriliyor (toplam {{ number_format($mapNoBayi) }}).
+                        </p>
+                    @endif
                 @endif
             </div>
 
