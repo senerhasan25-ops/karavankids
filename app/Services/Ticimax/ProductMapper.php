@@ -617,7 +617,48 @@ class ProductMapper
         // 5) HTML yorumları (içinde CDATA/script gizleme olabilir)
         $html = preg_replace('#<!--.*?-->#s', '', $html) ?? $html;
 
-        return trim($html);
+        // 6) YAPISAL NORMALLEŞTİRME — Ticimax katı bir HTML doğrulayıcı kullanıyor ve
+        //    iç içe geçmiş/dengesiz etiketleri ("<p>...<p>...</p></p>" gibi) "Hatalı
+        //    HTML/Script/CSS" diye reddediyor. DOMDocument ile parse edip yeniden
+        //    serileştirerek bozuk yapıyı geçerli HTML'e dönüştür (tarayıcı gibi: iç içe
+        //    <p> ayrılır, başıboş kapanışlar atılır).
+        return $this->normalizeHtmlStructure(trim($html));
+    }
+
+    /**
+     * Bozuk/iç içe HTML'i DOMDocument ile geçerli yapıya dönüştürür.
+     * ext-dom yoksa veya parse başarısızsa girdiyi olduğu gibi döner (güvenli yedek).
+     */
+    public function normalizeHtmlStructure(string $html): string
+    {
+        if (trim($html) === '' || ! class_exists(\DOMDocument::class)) {
+            return $html;
+        }
+
+        $prev = libxml_use_internal_errors(true);
+        $dom = new \DOMDocument('1.0', 'UTF-8');
+        // meta charset → UTF-8 (Türkçe karakterler bozulmasın); kk-root → innerHTML çıkarımı.
+        $loaded = $dom->loadHTML(
+            '<meta http-equiv="Content-Type" content="text/html; charset=utf-8"><div id="kk-root">'.$html.'</div>',
+            LIBXML_NOERROR | LIBXML_NOWARNING
+        );
+        libxml_clear_errors();
+        libxml_use_internal_errors($prev);
+
+        if (! $loaded) {
+            return $html;
+        }
+        $root = $dom->getElementById('kk-root');
+        if (! $root) {
+            return $html;
+        }
+
+        $out = '';
+        foreach (iterator_to_array($root->childNodes) as $child) {
+            $out .= $dom->saveHTML($child);
+        }
+
+        return trim($out);
     }
 
     /**

@@ -149,6 +149,21 @@ class ProductMapperTest extends TestCase
         $this->assertStringContainsString('<p>Güvenli</p>', $clean); // güvenli tag korunur
     }
 
+    public function test_sanitize_html_nested_p_etiketlerini_duzeltir(): void
+    {
+        $mapper = new ProductMapper;
+        // Ticimax'ın "Hatalı HTML/Script/CSS" ile reddettiği gerçek kalıp: iç içe <p>.
+        $dirty = '<p>Üst paragraf</p><p> <p>İç paragraf kâğıt™</p><p><strong>Kalın</strong></p></p>';
+        $clean = $mapper->sanitizeHtml($dirty);
+
+        // İç içe <p><p> kalmamalı (DOMDocument ayırır)
+        $this->assertDoesNotMatchRegularExpression('#<p[^>]*>\s*<p#i', $clean);
+        // İçerik + Türkçe + ™ korunmalı
+        $this->assertStringContainsString('İç paragraf kâğıt™', $clean);
+        $this->assertStringContainsString('<strong>Kalın</strong>', $clean);
+        $this->assertStringContainsString('Üst paragraf', $clean);
+    }
+
     public function test_sanitize_text_strips_all_html(): void
     {
         $mapper = new ProductMapper;
