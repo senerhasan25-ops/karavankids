@@ -148,6 +148,16 @@ class TicimaxClient
                     'error' => $e->getMessage(),
                 ]);
 
+                // KALICI HATA → ANINDA BIRAK (retry yapma, backoff bekleme).
+                // "Hatalı HTML/Script/CSS", "Hatalı Kullanıcı Kodu", zorunlu alan gibi
+                // iş/doğrulama hataları tekrar denemeyle DÜZELMEZ. Eskiden her biri 3 kez
+                // denenip 5sn+10sn backoff yiyordu → başarısız ürün başına ~15sn boşa
+                // gidiyordu (tam katalogda saatlerce kayıp). Sadece geçici hatalarda
+                // (timeout, bağlantı, rate limit) tekrar dene.
+                if ($this->isPermanentError($e->getMessage())) {
+                    throw new Exception('Ticimax kalıcı hata ('.$method.'): '.$e->getMessage(), 0, $e);
+                }
+
                 // Rate limit yakala: "Next Query Allowed After 42 seconds. |42"
                 // Rate limit BU attempt'i tüketmemeli — kullanıcı hatası değil, sadece
                 // beklemek lazım. $i'yi decrement edip continue → for loop ++ ile aynı
@@ -171,6 +181,39 @@ class TicimaxClient
             }
         }
         throw new Exception("Ticimax call failed after {$attempts} attempts: ".($last?->getMessage() ?? 'unknown'), 0, $last);
+    }
+
+    /**
+     * Bu SOAP hatası tekrar denemeyle düzelir mi? İş/doğrulama hataları KALICI'dır
+     * (retry boşa zaman harcar). Yalnızca açıkça kalıcı olanları işaretle — geçici
+     * hatalar (timeout, bağlantı, rate limit) varsayılan olarak retry'a düşsün.
+     */
+    protected function isPermanentError(string $message): bool
+    {
+        // Rate limit kalıcı DEĞİL — ayrı ele alınıyor, burada false dönmeli.
+        if (stripos($message, 'Next Query Allowed After') !== false) {
+            return false;
+        }
+
+        $permanentPatterns = [
+            'Hatalı HTML',            // açıklama/ön yazı içeriği reddedildi
+            'Script/CSS',             // güvenlik filtresi
+            'Hatalı Kullanıcı Kodu',  // geçersiz yetki kodu
+            'Hatalı Kullanici Kodu',
+            'zorunlu',                // zorunlu alan eksik
+            'Bu Sipariş Numarasına Ait Kayıt', // duplicate sipariş (upstream yakalıyor ama yine de kalıcı)
+            'Bu Siparis Numarasina Ait Kayit',
+            'yetkiniz yok',
+            'geçersiz',
+            'gecersiz',
+        ];
+        foreach ($permanentPatterns as $p) {
+            if (stripos($message, $p) !== false) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public function getLastRequestXml(): ?string
