@@ -78,7 +78,7 @@
                 'stok_kodu'        => 'Stok Kodu',
                 'barkod'           => 'Barkod',
                 'seo'              => 'SEO',
-                'resimler'         => 'Resimler',
+                'resimler'         => 'Resimleri Güncelle',
                 'aktif'            => 'Aktiflik',
                 'vitrin'           => 'Vitrin',
                 'yeni_urun'        => 'Yeni Ürün',

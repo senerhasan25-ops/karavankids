@@ -154,4 +154,59 @@ class ProductServiceTest extends TestCase
         $svc->setActive('99', false);
         $this->addToAssertionCount(1);
     }
+
+    public function test_selective_update_resimler_secili_degilse_payloaddan_cikarilir(): void
+    {
+        $client = Mockery::mock(TicimaxClient::class);
+        $client->shouldReceive('getUyeKodu')->andReturn('U');
+        $client->shouldReceive('call')->once()
+            ->with('product', 'SaveUrun', Mockery::on(function ($p) {
+                $kart = $p['urunKartlari'][0];
+                $kartResimBos = empty($kart['Resimler']);
+                $varResimBos = empty($kart['Varyasyonlar'][0]['Resimler']);
+
+                return $kartResimBos && $varResimBos;
+            }))
+            ->andReturn((object) ['SaveUrunResult' => 1, 'urunKartlari' => (object) ['UrunKarti' => (object) ['ID' => 5]]]);
+
+        $svc = new ProductService($client);
+        $svc->updateProductSelective(
+            [
+                'UrunAdi' => 'X',
+                'Resimler' => ['string' => ['https://a.jpg', 'https://b.jpg']],
+                'Varyasyonlar' => [
+                    ['StokKodu' => 'SK', 'Resimler' => ['string' => ['https://c.jpg']]],
+                ],
+            ],
+            5,
+            [],
+            ['urun_adi'] // 'resimler' SEÇİLİ DEĞİL
+        );
+        $this->addToAssertionCount(1);
+    }
+
+    public function test_selective_update_resimler_seciliyse_payloadda_kalir(): void
+    {
+        $client = Mockery::mock(TicimaxClient::class);
+        $client->shouldReceive('getUyeKodu')->andReturn('U');
+        $client->shouldReceive('call')->once()
+            ->with('product', 'SaveUrun', Mockery::on(function ($p) {
+                return ! empty($p['urunKartlari'][0]['Resimler'])
+                    && $p['ukAyar']['UrunResimGuncelle'] === true;
+            }))
+            ->andReturn((object) ['SaveUrunResult' => 1, 'urunKartlari' => (object) ['UrunKarti' => (object) ['ID' => 5]]]);
+
+        $svc = new ProductService($client);
+        $svc->updateProductSelective(
+            [
+                'UrunAdi' => 'X',
+                'Resimler' => ['string' => ['https://a.jpg']],
+                'Varyasyonlar' => [],
+            ],
+            5,
+            [],
+            ['urun_adi', 'resimler'] // 'resimler' SEÇİLİ
+        );
+        $this->addToAssertionCount(1);
+    }
 }

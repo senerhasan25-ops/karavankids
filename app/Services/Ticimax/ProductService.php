@@ -1333,6 +1333,23 @@ class ProductService
             }
             unset($v);
         }
+
+        // RESİMLER: 'resimler' seçili DEĞİLSE payload'dan tüm resimleri tamamen çıkar.
+        // Mevcut ürün güncellemelerinde resim hiç gönderilmez → bayi'nin mevcut resimleri
+        // olduğu gibi kalır (UrunResimGuncelle/ResimOlmayanlaraResimEkle zaten false).
+        // Bu, hızlı yolda da (lokal eşleşme, $bayiKart=null) ana resim URL'lerinin
+        // sızmasını kesin olarak engeller. Yeni ürün OLUŞTURMA yolu (createProduct)
+        // bu metottan geçmez → yeni ürünlerde resimler şimdiki gibi aktarılır.
+        if (! in_array('resimler', $selectedFields, true)) {
+            $urunKarti['Resimler'] = [];
+            if (! empty($urunKarti['Varyasyonlar']) && is_array($urunKarti['Varyasyonlar'])) {
+                foreach ($urunKarti['Varyasyonlar'] as &$vr) {
+                    $vr['Resimler'] = [];
+                }
+                unset($vr);
+            }
+        }
+
         $ayarlar = $this->buildSelectiveAyarlari($selectedFields);
 
         return $this->saveBatch([$urunKarti], $ayarlar)[0] ?? [];
